@@ -13,6 +13,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 
+	"github.com/twinfer/twincore/internal/models" // Added for models.Event
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -29,8 +30,9 @@ type WoTHandler struct {
 
 	// Event management
 	eventBroker *EventBroker
+	logger      caddy.Logger // Changed to caddy.Logger
 
-	// Metrics
+	// Metrics (Placeholder)
 	metrics MetricsCollector
 }
 
@@ -38,8 +40,8 @@ type WoTHandler struct {
 type StateManager interface {
 	GetProperty(thingID, propertyName string) (interface{}, error)
 	SetProperty(thingID, propertyName string, value interface{}) error
-	SubscribeProperty(thingID, propertyName string) (<-chan PropertyUpdate, error)
-	UnsubscribeProperty(thingID, propertyName string, ch <-chan PropertyUpdate)
+	SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) // Use models.PropertyUpdate
+	UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate)    // Use models.PropertyUpdate
 }
 
 // StreamBridge connects HTTP handlers to Benthos streams
@@ -60,9 +62,9 @@ type ThingRegistry interface {
 
 // SchemaValidator validates inputs against WoT schemas
 type SchemaValidator interface {
-	ValidateProperty(schema interface{}, value interface{}) error
-	ValidateActionInput(schema interface{}, input interface{}) error
-	ValidateEventData(schema interface{}, data interface{}) error
+	ValidateProperty(propertyName string, propertySchema wot.DataSchema, value interface{}) error
+	ValidateActionInput(schema wot.DataSchema, input interface{}) error
+	ValidateEventData(schema wot.DataSchema, data interface{}) error
 }
 
 // PropertyCache provides fast property access
@@ -78,7 +80,7 @@ type PropertyValue struct {
 
 // EventBroker manages SSE connections for events
 type EventBroker struct {
-	subscribers sync.Map // map[string][]chan Event -> stores []chan Event for a given key
+	subscribers sync.Map     // map[string][]chan models.Event -> stores []chan models.Event for a given key
 	mu          sync.RWMutex // mu protects modifications to the slices stored in subscribers
 }
 
@@ -90,42 +92,42 @@ func NewEventBroker() *EventBroker {
 }
 
 // Subscribe creates a new channel for the given thing and event, adds it to subscribers, and returns it.
-func (eb *EventBroker) Subscribe(thingID, eventName string) <-chan Event {
+func (eb *EventBroker) Subscribe(thingID, eventName string) <-chan models.Event {
 	key := thingID + "/" + eventName
-	ch := make(chan Event, 10) // Buffered channel
+	ch := make(chan models.Event, 10) // Buffered channel, using models.Event
 
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
-	var chans []chan Event
+	var chans []chan models.Event
 	if actual, ok := eb.subscribers.Load(key); ok {
-		chans = actual.([]chan Event)
+		chans = actual.([]chan models.Event)
 	}
 
 	// Create a new slice for storing to avoid modifying a potentially shared slice
-	newChans := make([]chan Event, len(chans)+1)
+	newChans := make([]chan models.Event, len(chans)+1)
 	copy(newChans, chans)
 	newChans[len(chans)] = ch
-	
+
 	eb.subscribers.Store(key, newChans)
 	return ch
 }
 
 // Unsubscribe removes the given channel from the subscribers list for the specific thing and event.
 // It also closes the channel.
-func (eb *EventBroker) Unsubscribe(thingID, eventName string, ch <-chan Event) {
+func (eb *EventBroker) Unsubscribe(thingID, eventName string, ch <-chan models.Event) {
 	key := thingID + "/" + eventName
 
 	eb.mu.Lock()
-	defer eb.mu.Unlock()
-
+	var channelToRemoveAndClose chan models.Event // To store the actual chan models.Event from the map
 	if actual, ok := eb.subscribers.Load(key); ok {
-		chans := actual.([]chan Event)
-		newChans := []chan Event{}
+		chans := actual.([]chan models.Event)
+		newChans := []chan models.Event{}
 		found := false
 		for _, c := range chans {
 			if c == ch {
 				found = true
+				channelToRemoveAndClose = c // This is the chan models.Event from the map
 			} else {
 				newChans = append(newChans, c)
 			}
@@ -137,34 +139,30 @@ func (eb *EventBroker) Unsubscribe(thingID, eventName string, ch <-chan Event) {
 			} else {
 				eb.subscribers.Store(key, newChans)
 			}
+			// Note: channelToRemoveAndClose is now set if found was true.
 		}
 	}
-	
-	// Close the channel after removing it from subscribers list and releasing the lock.
-	// Cast to writeable chan to close.
-	go func(c chan Event) {
-		// Drain the channel before closing to ensure senders in Publish don't panic
-		// if they are in the middle of a non-blocking send.
-		// However, with non-blocking send (select-default), this might not be strictly necessary
-		// but good practice if channel could be full.
-		for range c {}
-		close(c)
-	}(ch.(chan Event))
+	eb.mu.Unlock()
+
+	// If a channel was identified and removed from the map, close it.
+	if channelToRemoveAndClose != nil {
+		go close(channelToRemoveAndClose) // Close the actual `chan models.Event`
+	}
 }
 
 // Publish sends an event to all subscribers of that event.
 // It uses a non-blocking send.
-func (eb *EventBroker) Publish(event Event) {
+func (eb *EventBroker) Publish(event models.Event) {
 	key := event.ThingID + "/" + event.EventName
-	
-	var chansCopy []chan Event
+
+	var chansCopy []chan models.Event
 
 	eb.mu.RLock()
 	if actual, ok := eb.subscribers.Load(key); ok {
-		chans := actual.([]chan Event)
+		chans := actual.([]chan models.Event)
 		// Make a copy of the slice to iterate over,
 		// so we don't hold the lock while sending to channels.
-		chansCopy = make([]chan Event, len(chans))
+		chansCopy = make([]chan models.Event, len(chans))
 		copy(chansCopy, chans)
 	}
 	eb.mu.RUnlock()
@@ -177,13 +175,6 @@ func (eb *EventBroker) Publish(event Event) {
 			// fmt.Printf("EventBroker: Slow subscriber or closed channel for key %s\n", key)
 		}
 	}
-}
-
-type Event struct {
-	ThingID   string      `json:"thingId"`
-	EventName string      `json:"eventName"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
 }
 
 // CaddyModule returns the Caddy module information
@@ -200,10 +191,8 @@ func (h *WoTHandler) Provision(ctx caddy.Context) error {
 	h.propertyCache = &PropertyCache{ttl: 5 * time.Second}
 	h.eventBroker = &EventBroker{}
 
-	// Get dependencies from context
-	// h.logger = ctx.Logger(h) // Get a Caddy logger
-	// h.logger.Info("CoreWoTHandler provisioned. StateManager, StreamBridge, etc. must be injected post-provisioning.")
-	fmt.Println("CoreWoTHandler provisioned by Caddy. StateManager, StreamBridge, etc. must be injected post-provisioning by the main application.")
+	h.logger = ctx.Logger(h) // Get a Caddy logger
+	h.logger.Info("CoreWoTHandler provisioned. StateManager, StreamBridge, etc. must be injected post-provisioning by the main application.")
 	// h.stateManager = ctx.App("wot.state").(StateManager) // These will be injected by main app
 	// h.streamBridge = ctx.App("wot.stream").(StreamBridge) // These will be injected by main app
 	// h.thingRegistry = ctx.App("wot.registry").(ThingRegistry) // These will be injected by main app
@@ -312,7 +301,7 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Validate against schema
-	if err := h.validator.ValidateProperty(property, value); err != nil {
+	if err := h.validator.ValidateProperty(propertyName, property, value); err != nil {
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
 	}
 
@@ -454,7 +443,7 @@ func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID
 	}
 
 	// Get event definition
-	event, err := h.thingRegistry.GetEvent(thingID, eventName)
+	_, err := h.thingRegistry.GetEvent(thingID, eventName)
 	if err != nil {
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
@@ -541,9 +530,11 @@ func (h *WoTHandler) encodeSSEData(data interface{}) string {
 }
 
 func (h *WoTHandler) logError(msg string, err error) {
-	// Log error for monitoring
-	// Consider using a logger if available, e.g., h.logger.Error(...)
-	fmt.Printf("WoT Handler Error: %s: %v\n", msg, err)
+	if h.logger != nil {
+		h.logger.Error(msg, "error", err)
+	} else {
+		fmt.Printf("WoT Handler Error (logger not initialized): %s: %v\n", msg, err)
+	}
 }
 
 func init() {

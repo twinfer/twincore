@@ -3,8 +3,8 @@ package config
 
 import (
 	"database/sql"
-	"encoding/json"
 	_ "embed" // Added for //go:embed
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -116,7 +116,7 @@ func (r *ThingRegistry) UpdateThing(thingID string, tdJSONLD string) (*wot.Thing
 	r.logger.Debugf("Updating Thing: %s", thingID)
 
 	// Check if exists
-	existing, err := r.GetThing(thingID)
+	_, err := r.GetThing(thingID)
 	if err != nil {
 		return nil, fmt.Errorf("thing not found: %w", err)
 	}
@@ -220,45 +220,57 @@ func (r *ThingRegistry) GetThing(thingID string) (*wot.ThingDescription, error) 
 func (r *ThingRegistry) GetProperty(thingID, propertyName string) (wot.PropertyAffordance, error) {
 	td, err := r.GetThing(thingID)
 	if err != nil {
-		return nil, err
+		return wot.PropertyAffordance{}, err
 	}
 
-	prop, exists := td.Properties[propertyName]
+	// Assuming td.Properties is map[string]*wot.PropertyAffordance or similar if the error occurs
+	// If td.Properties is map[string]wot.PropertyAffordance, the error for 'prop' type wouldn't occur.
+	// Given the error, we assume it stores pointers.
+	propPtr, exists := td.Properties[propertyName]
 	if !exists {
-		return nil, fmt.Errorf("property %s not found", propertyName)
+		return wot.PropertyAffordance{}, fmt.Errorf("property '%s' not found in Thing '%s'", propertyName, thingID)
+	}
+	if propPtr == nil {
+		return wot.PropertyAffordance{}, fmt.Errorf("property '%s' in Thing '%s' has a nil definition", propertyName, thingID)
 	}
 
-	return prop, nil
+	return *propPtr, nil // Dereference pointer to return value
 }
 
 // GetAction retrieves a specific action affordance
 func (r *ThingRegistry) GetAction(thingID, actionName string) (wot.ActionAffordance, error) {
 	td, err := r.GetThing(thingID)
 	if err != nil {
-		return nil, err
+		return wot.ActionAffordance{}, err
 	}
 
-	action, exists := td.Actions[actionName]
+	actionPtr, exists := td.Actions[actionName]
 	if !exists {
-		return nil, fmt.Errorf("action %s not found", actionName)
+		return wot.ActionAffordance{}, fmt.Errorf("action '%s' not found in Thing '%s'", actionName, thingID)
+	}
+	if actionPtr == nil {
+		return wot.ActionAffordance{}, fmt.Errorf("action '%s' in Thing '%s' has a nil definition", actionName, thingID)
 	}
 
-	return action, nil
+	return *actionPtr, nil // Dereference pointer
 }
 
 // GetEvent retrieves a specific event affordance
 func (r *ThingRegistry) GetEvent(thingID, eventName string) (wot.EventAffordance, error) {
 	td, err := r.GetThing(thingID)
 	if err != nil {
-		return nil, err
+		return wot.EventAffordance{}, err
 	}
 
-	event, exists := td.Events[eventName]
+	eventPtr, exists := td.Events[eventName]
 	if !exists {
-		return nil, fmt.Errorf("event %s not found", eventName)
+		return wot.EventAffordance{}, fmt.Errorf("event '%s' not found in Thing '%s'", eventName, thingID)
+	}
+	if eventPtr == nil {
+		return wot.EventAffordance{}, fmt.Errorf("event '%s' in Thing '%s' has a nil definition", eventName, thingID)
 	}
 
-	return event, nil
+	return *eventPtr, nil // Dereference pointer
 }
 
 // ListThings returns all registered Thing Descriptions

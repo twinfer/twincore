@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -15,9 +16,10 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/apache/arrow/go/v18/parquet"
 	"github.com/apache/arrow/go/v18/parquet/compress"
-	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 	"github.com/apache/arrow/go/v18/parquet/file" // For managing Parquet file reader/writer if needed more granularly
+	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 
+	"github.com/twinfer/twincore/internal/models" // Adjust if your module path is different
 
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/sirupsen/logrus"
@@ -27,27 +29,9 @@ import (
 type DuckDBStateManager struct {
 	db             *sql.DB
 	logger         *logrus.Logger
-	subscribers    sync.Map // map[string][]chan PropertyUpdate
-	mu             sync.RWMutex
+	subscribers    sync.Map     // map[string][]chan PropertyUpdate
+	mu             sync.RWMutex // Protects subscribers map
 	parquetLogPath string
-}
-
-// PropertyStateParquetRecord defines the schema for Parquet logging of property states.
-type PropertyStateParquetRecord struct {
-	ThingID      string `parquet:"name=thing_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	PropertyName string `parquet:"name=property_name,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	Value        string `parquet:"name=value,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"` // JSON string of the value
-	Timestamp    int64  `parquet:"name=timestamp,type=INT64"`                                      // Unix nanoseconds
-	Source       string `parquet:"name=source,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-}
-
-
-type PropertyUpdate struct {
-	ThingID      string      `json:"thingId"`
-	PropertyName string      `json:"propertyName"`
-	Value        interface{} `json:"value"`
-	Timestamp    time.Time   `json:"timestamp"`
-	Source       string      `json:"source"` // "http", "stream", "device"
 }
 
 func NewDuckDBStateManager(db *sql.DB, logger *logrus.Logger, parquetLogPath string) (*DuckDBStateManager, error) {
@@ -66,7 +50,7 @@ func NewDuckDBStateManager(db *sql.DB, logger *logrus.Logger, parquetLogPath str
 }
 
 // logPropertyToParquet writes a property state record to a daily Parquet file.
-func (m *DuckDBStateManager) logPropertyToParquet(record PropertyStateParquetRecord) error {
+func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStateParquetRecord) error {
 	if m.parquetLogPath == "" {
 		return nil // Parquet logging is disabled
 	}
@@ -79,7 +63,7 @@ func (m *DuckDBStateManager) logPropertyToParquet(record PropertyStateParquetRec
 		m.logger.WithError(err).Errorf("Failed to create Parquet log directory: %s", dirPath)
 		return err
 	}
-	
+
 	// Define Arrow Schema
 	schema := arrow.NewSchema(
 		[]arrow.Field{
@@ -102,11 +86,11 @@ func (m *DuckDBStateManager) logPropertyToParquet(record PropertyStateParquetRec
 	recordBuilder.Field(2).(*array.StringBuilder).Append(record.Value)
 	recordBuilder.Field(3).(*array.Int64Builder).Append(record.Timestamp)
 	recordBuilder.Field(4).(*array.StringBuilder).Append(record.Source)
-	
+
 	arrowRecord := recordBuilder.NewRecord()
 	defer arrowRecord.Release()
 
-	var fw *file.Writer // Parquet file writer
+	// var fw *file.Writer // Parquet file writer
 	var f *os.File
 	var err error
 
@@ -120,13 +104,17 @@ func (m *DuckDBStateManager) logPropertyToParquet(record PropertyStateParquetRec
 		defer f.Close()
 
 		props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
-		err = pqarrow.WriteTable(arrowRecord, f, arrowRecord.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+		// Convert the single Arrow record to an Arrow table for writing.
+		tableFromRecord := array.NewTableFromRecords(schema, []arrow.Record{arrowRecord})
+		defer tableFromRecord.Release()
+
+		err = pqarrow.WriteTable(tableFromRecord, f, tableFromRecord.NumRows(), props, pqarrow.NewFileWriterProperties(props))
 		if err != nil {
 			m.logger.WithError(err).Errorf("Failed to write new Parquet table to file: %s", filePath)
 			return err
 		}
 		m.logger.Debugf("Successfully wrote initial record to new Parquet file: %s", filePath)
-	} else {
+	} else if statErr == nil { // File exists and stat was successful
 		// File exists, attempt to append. This is complex with WriteTable.
 		// A robust append involves reading, merging, and rewriting, or using lower-level Parquet APIs.
 		// For simplicity here, as per note, we'll log that appending is desired but not fully implemented.
@@ -144,7 +132,7 @@ func (m *DuckDBStateManager) logPropertyToParquet(record PropertyStateParquetRec
 		// The pqarrow.WriteTable is not designed for appending to an existing file directly.
 		// We'll open the file in append mode, but this won't work correctly with WriteTable without more logic.
 		// Instead, let's use a strategy of reading the existing content if any, appending the new record, and writing back.
-		
+
 		// Simplified: For now, we'll just log and not append to avoid complexity.
 		// To truly append, one would need to read the existing file, merge records, and write a new file.
 		// For this exercise, each call to logPropertyToParquet will create a parquet file with one record if we use WriteTable naively on an opened file.
@@ -160,54 +148,79 @@ func (m *DuckDBStateManager) logPropertyToParquet(record PropertyStateParquetRec
 		defer f.Close()
 
 		// Read existing table (if any schema is compatible)
-        var existingTable arrow.Table
-        pf, err := file.NewParquetReader(f)
-        if err == nil { // If file is a valid parquet file
-            existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
-            if err != nil {
-                m.logger.WithError(err).Warnf("Could not read existing Parquet table from %s, will overwrite. This might happen if file is empty or corrupt.", filePath)
-				existingTable = nil // Ensure it's nil
-            } else {
-				defer existingTable.Release()
-			}
-        } else {
-			 m.logger.WithError(err).Warnf("File %s is not a valid parquet file or is empty. A new one will be created.", filePath)
+		var existingTable arrow.Table
+		// Get FileInfo from the opened file descriptor
+		fileInfo, statCheckErr := f.Stat()
+		if statCheckErr != nil {
+			m.logger.WithError(statCheckErr).Errorf("Failed to stat opened Parquet file: %s", filePath)
+			return statCheckErr
 		}
 
+		if fileInfo.Size() > 0 { // File exists and is not empty
+			// Attempt to read it as a Parquet file.
+			// NewParquetReader takes an io.ReadSeeker. f is already an *os.File which implements this.
+			// If the file was just opened (O_RDWR), its offset is 0.
+			// Seeking to 0,0 explicitly isn't strictly necessary but can be added for clarity if desired.
+			pf, errReader := file.NewParquetReader(f)
+			if errReader == nil { // Successfully created a Parquet reader
+				existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
+				if err != nil {
+					m.logger.WithError(err).Warnf("Could not read existing Parquet table from %s. A new table will be written.", filePath)
+					existingTable = nil // Ensure it's nil so a new table is created/written
+				} else {
+					defer existingTable.Release()
+				}
+			} else {
+				m.logger.WithError(errReader).Warnf("File %s is not a valid Parquet file but has size > 0. A new table will be written.", filePath)
+				existingTable = nil
+			}
+		}
 
-		var finalTable arrow.Table
+		// Create an Arrow Table from the new record. This table will be used for merging or writing directly.
+		newRecordAsTable := array.NewTableFromRecords(schema, []arrow.Record{arrowRecord})
+		defer newRecordAsTable.Release()
+
+		var tableToWrite arrow.Table
 		if existingTable != nil && existingTable.NumRows() > 0 {
-			// Concatenate existing table with new record
-			mergedTable, err := array.ConcatenateTables(mem, []arrow.Table{existingTable, arrowRecord})
-			if err != nil {
-				m.logger.WithError(err).Errorf("Failed to concatenate new record to existing Parquet table data for: %s", filePath)
-				return err
+			if !existingTable.Schema().Equal(newRecordAsTable.Schema()) {
+				m.logger.Warnf("Schema mismatch between existing table and new record for %s. Overwriting with new record only.", filePath)
+				tableToWrite = newRecordAsTable
+				tableToWrite.Retain() // Retain because newRecordAsTable is deferred for release, and tableToWrite now shares its data
+			} else {
+				// Concatenate existing table with the new record (which is now also an Arrow Table)
+				mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, newRecordAsTable})
+				if concatErr != nil {
+					m.logger.WithError(concatErr).Errorf("Failed to concatenate new record to existing Parquet table data for: %s", filePath)
+					return concatErr
+				}
+				tableToWrite = mergedTable // mergedTable is a new table, takes ownership of data
 			}
-			finalTable = mergedTable
-			defer finalTable.Release()
 		} else {
-			finalTable = arrowRecord
-			// Retain the new record, it will be written as the first/only table
-			finalTable.Retain() // since arrowRecord is deferred released, retain for finalTable
+			// No valid existing data, or existing table was empty. Write only the new record.
+			tableToWrite = newRecordAsTable
+			tableToWrite.Retain() // Retain for the same reason as above
 		}
-		
+		defer tableToWrite.Release() // Release the final table that will be written
+
 		// Need to write to a new temp file and then rename, or truncate and write.
 		// Truncating and writing is simpler for this context.
 		f.Truncate(0)
-		f.Seek(0,0)
+		f.Seek(0, 0)
 
 		props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
-		err = pqarrow.WriteTable(finalTable, f, finalTable.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+		// Corrected typo in NewFileWriterProperties
+		err = pqarrow.WriteTable(tableToWrite, f, tableToWrite.NumRows(), props, pqarrow.NewFileWriterProperties(props))
 		if err != nil {
 			m.logger.WithError(err).Errorf("Failed to write appended Parquet table to file: %s", filePath)
 			return err
 		}
 		m.logger.Debugf("Successfully wrote/appended record to Parquet file: %s", filePath)
-
+	} else { // statErr is not nil and not os.IsNotExist (i.e., another error occurred during stat)
+		m.logger.WithError(statErr).Errorf("Failed to stat Parquet file: %s", filePath)
+		return statErr
 	}
 	return nil
 }
-
 
 func (m *DuckDBStateManager) GetProperty(thingID, propertyName string) (interface{}, error) {
 	m.logger.Debugf("Getting property: %s/%s", thingID, propertyName)
@@ -261,7 +274,7 @@ func (m *DuckDBStateManager) SetProperty(thingID, propertyName string, value int
 
 	// Log to Parquet
 	if m.parquetLogPath != "" {
-		parquetRecord := PropertyStateParquetRecord{
+		parquetRecord := models.PropertyStateParquetRecord{
 			ThingID:      thingID,
 			PropertyName: propertyName,
 			Value:        string(valueJSON), // Already marshaled
@@ -280,8 +293,8 @@ func (m *DuckDBStateManager) SetProperty(thingID, propertyName string, value int
 	return nil
 }
 
-func (m *DuckDBStateManager) SubscribeProperty(thingID, propertyName string) (<-chan PropertyUpdate, error) {
-	ch := make(chan PropertyUpdate, 10)
+func (m *DuckDBStateManager) SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) {
+	ch := make(chan models.PropertyUpdate, 10) // Use models.PropertyUpdate
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	m.logger.Debugf("New subscription for property: %s", key)
@@ -290,19 +303,19 @@ func (m *DuckDBStateManager) SubscribeProperty(thingID, propertyName string) (<-
 	defer m.mu.Unlock()
 
 	if subs, ok := m.subscribers.Load(key); ok {
-		channels := subs.([]chan PropertyUpdate)
+		channels := subs.([]chan models.PropertyUpdate) // Use models.PropertyUpdate
 		channels = append(channels, ch)
 		m.subscribers.Store(key, channels)
 		m.logger.Debugf("Added subscriber to existing list (total: %d)", len(channels))
 	} else {
-		m.subscribers.Store(key, []chan PropertyUpdate{ch})
+		m.subscribers.Store(key, []chan models.PropertyUpdate{ch}) // Use models.PropertyUpdate
 		m.logger.Debugf("Created new subscriber list for %s", key)
 	}
 
 	return ch, nil
 }
 
-func (m *DuckDBStateManager) UnsubscribeProperty(thingID, propertyName string, ch <-chan PropertyUpdate) {
+func (m *DuckDBStateManager) UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate) {
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	m.logger.Debugf("Removing subscription for property: %s", key)
@@ -311,7 +324,7 @@ func (m *DuckDBStateManager) UnsubscribeProperty(thingID, propertyName string, c
 	defer m.mu.Unlock()
 
 	if subs, ok := m.subscribers.Load(key); ok {
-		channels := subs.([]chan PropertyUpdate)
+		channels := subs.([]chan models.PropertyUpdate) // Use models.PropertyUpdate
 		for i, c := range channels {
 			if c == ch {
 				channels = append(channels[:i], channels[i+1:]...)
@@ -322,8 +335,8 @@ func (m *DuckDBStateManager) UnsubscribeProperty(thingID, propertyName string, c
 					m.subscribers.Store(key, channels)
 					m.logger.Debugf("Removed subscriber (remaining: %d)", len(channels))
 				}
-				close(c.(chan PropertyUpdate))
-				return // Exit after finding and removing the channel
+				close(c) // No need to cast if ch is already of the correct specific type
+				return   // Exit after finding and removing the channel
 			}
 		}
 	}
@@ -333,11 +346,11 @@ func (m *DuckDBStateManager) notifySubscribers(thingID, propertyName string, val
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	if subs, ok := m.subscribers.Load(key); ok {
-		channels := subs.([]chan PropertyUpdate)
+		channels := subs.([]chan models.PropertyUpdate) // Use models.PropertyUpdate
 
 		m.logger.Debugf("Notifying %d subscribers for %s", len(channels), key)
 
-		update := PropertyUpdate{
+		update := models.PropertyUpdate{ // Use models.PropertyUpdate
 			ThingID:      thingID,
 			PropertyName: propertyName,
 			Value:        value,

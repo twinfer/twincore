@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 	"github.com/apache/arrow/go/v18/parquet/file"
+	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,9 +41,8 @@ func readPropertyStateParquetFile(t *testing.T, filePath string) []PropertyState
 		for rgReader.Next() {
 			rec := rgReader.Record()
 			// Retain the record for safety if its underlying buffers are released by the reader
-			rec.Retain() 
+			rec.Retain()
 			defer rec.Release()
-
 
 			thingIDs := rec.Column(0).(*array.String)
 			propNames := rec.Column(1).(*array.String)
@@ -92,7 +90,6 @@ func TestDuckDBStateManager_logPropertyToParquet(t *testing.T) {
 		assert.True(t, os.IsNotExist(err), "Properties directory should not be created when logging is disabled")
 	})
 
-
 	sm, err := NewDuckDBStateManager(nil, logger, tempDir) // DB can be nil
 	require.NoError(t, err, "NewDuckDBStateManager should not error")
 
@@ -132,7 +129,6 @@ func TestDuckDBStateManager_logPropertyToParquet(t *testing.T) {
 		// This makes sub-tests more independent for the append logic.
 		_ = os.Remove(expectedFilePath)
 
-
 		record1 := PropertyStateParquetRecord{ // This will be the first record in the new file for this sub-test
 			ThingID:      "thingA",
 			PropertyName: "propA",
@@ -152,7 +148,7 @@ func TestDuckDBStateManager_logPropertyToParquet(t *testing.T) {
 		}
 		err = sm.logPropertyToParquet(record2)
 		require.NoError(t, err, "logPropertyToParquet failed for second append record")
-		
+
 		record3 := PropertyStateParquetRecord{
 			ThingID:      "thingC",
 			PropertyName: "propC",
@@ -163,13 +159,12 @@ func TestDuckDBStateManager_logPropertyToParquet(t *testing.T) {
 		err = sm.logPropertyToParquet(record3)
 		require.NoError(t, err, "logPropertyToParquet failed for third append record")
 
-
 		_, err = os.Stat(expectedFilePath)
 		require.NoError(t, err, "Parquet file was not created or was removed: %s", expectedFilePath)
 
 		readRecords := readPropertyStateParquetFile(t, expectedFilePath)
 		require.Len(t, readRecords, 3, "Expected 3 records in Parquet file after append")
-		
+
 		// Verify order and content
 		assert.Equal(t, record1, readRecords[0], "Record 1 content mismatch")
 		assert.Equal(t, record2, readRecords[1], "Record 2 content mismatch")

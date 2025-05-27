@@ -3,15 +3,12 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 
-	"context" // Added for pqarrow.ReadTable
-	"database/sql"
-	"encoding/json" // Added for marshalling input in PublishActionInvocation
-	"fmt"           // Added for error wrapping
-	"os"            // Added for Parquet logging file operations
-	"path/filepath" // Added for Parquet logging file path manipulation
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -20,34 +17,19 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/apache/arrow/go/v18/parquet"
 	"github.com/apache/arrow/go/v18/parquet/compress"
-	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 	"github.com/apache/arrow/go/v18/parquet/file" // Added for Parquet file reader
+	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
+	model "github.com/twinfer/twincore/internal/models" // Assuming models package contains PropertyUpdate, Event, etc.
 	// Placeholder for actual Kafka client
 )
 
 // Local type definitions
 // These are needed because the methods in StreamIntegration struct and processors use them.
 // If wot_handler.go exported these types, they could be used directly.
-
-// PropertyUpdate represents a property change.
-type PropertyUpdate struct {
-	ThingID      string      `json:"thingId"`
-	PropertyName string      `json:"propertyName"`
-	Value        interface{} `json:"value"`
-	Timestamp    time.Time   `json:"timestamp"`
-}
-
-// Event represents a WoT event.
-type Event struct {
-	ThingID   string      `json:"thingId"`
-	EventName string      `json:"eventName"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
-}
 
 // StreamIntegration provides methods for Benthos processors to interact with core WoT logic.
 // This is a struct that holds references to core components.
@@ -56,17 +38,8 @@ type StreamIntegration struct {
 	eventBroker    *EventBroker // Defined in wot_handler.go
 	streamBridge   StreamBridge // Interface defined in wot_handler.go, implemented by BenthosStreamBridge
 	logger         *logrus.Logger
-	parquetLogPath string       // Path for Parquet logs for events
+	parquetLogPath string // Path for Parquet logs for events
 }
-
-// EventParquetRecord defines the schema for Parquet logging of WoT events.
-type EventParquetRecord struct {
-	ThingID   string `parquet:"name=thing_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	EventName string `parquet:"name=event_name,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	Data      string `parquet:"name=data,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"` // JSON string of the event data
-	Timestamp int64  `parquet:"name=timestamp,type=INT64"`                                      // Unix nanoseconds
-}
-
 
 // NewStreamIntegration creates a new StreamIntegration handler.
 func NewStreamIntegration(sm StateManager, eb *EventBroker, sb StreamBridge, logger *logrus.Logger, parquetLogPath string) *StreamIntegration {
@@ -86,7 +59,7 @@ func NewStreamIntegration(sm StateManager, eb *EventBroker, sb StreamBridge, log
 }
 
 // logEventToParquet writes an event record to a daily Parquet file.
-func (si *StreamIntegration) logEventToParquet(record EventParquetRecord) error {
+func (si *StreamIntegration) logEventToParquet(record model.EventParquetRecord) error {
 	if si.parquetLogPath == "" {
 		return nil // Parquet logging is disabled
 	}
@@ -123,40 +96,62 @@ func (si *StreamIntegration) logEventToParquet(record EventParquetRecord) error 
 	defer arrowRecord.Release()
 
 	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	// Error handling for OpenFile should be immediate
 	if err != nil {
 		si.logger.WithError(err).Errorf("Failed to open Parquet file for events: %s", filePath)
 		return err
 	}
 	defer f.Close()
 
+	// Read existing table logic, similar to state_manager.go
 	var existingTable arrow.Table
-	pf, err := file.NewParquetReader(f)
-    fi, statErr := f.Stat()
-    if statErr == nil && fi.Size() > 0 && err == nil {
-        existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
-        if err != nil {
-            si.logger.WithError(err).Warnf("Could not read existing Parquet table from %s for events, will overwrite.", filePath)
-            existingTable = nil 
-        } else {
-            defer existingTable.Release()
-        }
-    } else if err != nil && statErr == nil && fi.Size() > 0 {
-        si.logger.WithError(err).Warnf("File %s for events is not a valid parquet file but has size > 0. A new one will be created (overwrite).", filePath)
-    }
-
-	var finalTable arrow.Table
-	if existingTable != nil && existingTable.NumRows() > 0 {
-		mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, arrowRecord})
-		if concatErr != nil {
-			si.logger.WithError(concatErr).Errorf("Failed to concatenate new event record to existing Parquet table data for: %s", filePath)
-			return concatErr
+	fi, statErr := f.Stat()
+	if statErr == nil && fi.Size() > 0 { // File exists and is not empty
+		// Attempt to read it as a Parquet file.
+		// NewParquetReader takes an io.ReadSeeker, so f should be fine.
+		// Ensure file pointer is at the beginning for reading after open
+		if _, seekErr := f.Seek(0, 0); seekErr != nil {
+			si.logger.WithError(seekErr).Errorf("Failed to seek Parquet file for reading events: %s", filePath)
+			return seekErr
 		}
-		finalTable = mergedTable
-		defer finalTable.Release()
+		pf, errReader := file.NewParquetReader(f)
+		if errReader == nil {
+			existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
+			if err != nil {
+				si.logger.WithError(err).Warnf("Could not read existing Parquet table from %s for events, will overwrite.", filePath)
+				existingTable = nil // Ensure it's nil so a new table is created
+			} else {
+				defer existingTable.Release()
+			}
+		} else {
+			si.logger.WithError(errReader).Warnf("File %s for events is not a valid parquet file but has size > 0. A new one will be created (overwrite).", filePath)
+			existingTable = nil
+		}
+	} // If statErr is os.IsNotExist or fi.Size() is 0, existingTable remains nil.
+
+	// Create an Arrow Table from the new record.
+	newRecordAsTable := array.NewTableFromRecords(schema, []arrow.Record{arrowRecord})
+	defer newRecordAsTable.Release()
+
+	var tableToWrite arrow.Table
+	if existingTable != nil && existingTable.NumRows() > 0 {
+		if !existingTable.Schema().Equal(newRecordAsTable.Schema()) {
+			si.logger.Warnf("Schema mismatch between existing event table and new record for %s. Overwriting with new record only.", filePath)
+			tableToWrite = newRecordAsTable
+			tableToWrite.Retain()
+		} else {
+			mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, newRecordAsTable})
+			if concatErr != nil {
+				si.logger.WithError(concatErr).Errorf("Failed to concatenate new event record to existing Parquet table data for: %s", filePath)
+				return concatErr
+			}
+			tableToWrite = mergedTable // mergedTable is a new table
+		}
 	} else {
-		finalTable = arrowRecord
-		finalTable.Retain()
+		tableToWrite = newRecordAsTable
+		tableToWrite.Retain() // Retain because newRecordAsTable is deferred for release
 	}
+	defer tableToWrite.Release()
 
 	if err := f.Truncate(0); err != nil {
 		si.logger.WithError(err).Errorf("Failed to truncate Parquet file for events: %s", filePath)
@@ -166,9 +161,9 @@ func (si *StreamIntegration) logEventToParquet(record EventParquetRecord) error 
 		si.logger.WithError(err).Errorf("Failed to seek Parquet file for events: %s", filePath)
 		return err
 	}
-	
+
 	props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
-	err = pqarrow.WriteTable(finalTable, f, finalTable.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+	err = pqarrow.WriteTable(tableToWrite, f, tableToWrite.NumRows(), props, pqarrow.NewFileWriterProperties(props))
 	if err != nil {
 		si.logger.WithError(err).Errorf("Failed to write event Parquet table to file: %s", filePath)
 		return err
@@ -178,7 +173,7 @@ func (si *StreamIntegration) logEventToParquet(record EventParquetRecord) error 
 }
 
 // ProcessStreamUpdate handles property updates received from a Benthos stream.
-func (si *StreamIntegration) ProcessStreamUpdate(update PropertyUpdate) error {
+func (si *StreamIntegration) ProcessStreamUpdate(update model.PropertyUpdate) error {
 	si.logger.Debugf("StreamIntegration: Processing stream update for %s/%s", update.ThingID, update.PropertyName)
 	if si.stateManager == nil {
 		si.logger.Error("StreamIntegration: StateManager is nil in ProcessStreamUpdate")
@@ -200,7 +195,7 @@ func (si *StreamIntegration) ProcessStreamUpdate(update PropertyUpdate) error {
 }
 
 // ProcessStreamEvent handles events received from a Benthos stream and publishes them via the EventBroker.
-func (si *StreamIntegration) ProcessStreamEvent(event Event) error {
+func (si *StreamIntegration) ProcessStreamEvent(event model.Event) error {
 	si.logger.Debugf("StreamIntegration: Processing stream event %s for %s", event.EventName, event.ThingID)
 
 	// Log to Parquet
@@ -218,7 +213,7 @@ func (si *StreamIntegration) ProcessStreamEvent(event Event) error {
 			dataJSON = "{}" // Or "null"
 		}
 
-		parquetRecord := EventParquetRecord{
+		parquetRecord := model.EventParquetRecord{
 			ThingID:   event.ThingID,
 			EventName: event.EventName,
 			Data:      dataJSON,
@@ -234,7 +229,7 @@ func (si *StreamIntegration) ProcessStreamEvent(event Event) error {
 		si.logger.Error("StreamIntegration: EventBroker is nil in ProcessStreamEvent, cannot publish event to subscribers")
 		return fmt.Errorf("StreamIntegration: EventBroker not initialized")
 	}
-	
+
 	si.eventBroker.Publish(event)
 	return nil
 }
@@ -247,16 +242,6 @@ type BenthosStreamBridge struct {
 	pendingActions *sync.Map   // Stores actionID (string) -> chan interface{}
 	parquetLogPath string      // Path for Parquet logs
 }
-
-// ActionInvocationParquetRecord defines the schema for Parquet logging of action invocations.
-type ActionInvocationParquetRecord struct {
-	ThingID    string `parquet:"name=thing_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	ActionName string `parquet:"name=action_name,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	ActionID   string `parquet:"name=action_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
-	Input      string `parquet:"name=input,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"` // JSON string of the input
-	Timestamp  int64  `parquet:"name=timestamp,type=INT64"`                                      // Unix nanoseconds
-}
-
 
 // NewBenthosStreamBridge creates a new BenthosStreamBridge.
 func NewBenthosStreamBridge(env *service.Environment, stateMgr StateManager, db *sql.DB, logger *logrus.Logger, parquetLogPath string) StreamBridge {
@@ -277,7 +262,7 @@ func NewBenthosStreamBridge(env *service.Environment, stateMgr StateManager, db 
 }
 
 // logActionInvocationToParquet writes an action invocation record to a daily Parquet file.
-func (b *BenthosStreamBridge) logActionInvocationToParquet(record ActionInvocationParquetRecord) error {
+func (b *BenthosStreamBridge) logActionInvocationToParquet(record model.ActionInvocationParquetRecord) error {
 	if b.parquetLogPath == "" {
 		return nil // Parquet logging is disabled
 	}
@@ -316,42 +301,54 @@ func (b *BenthosStreamBridge) logActionInvocationToParquet(record ActionInvocati
 	defer arrowRecord.Release()
 
 	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	// Error handling for OpenFile should be immediate
 	if err != nil {
 		b.logger.WithError(err).Errorf("Failed to open Parquet file for actions: %s", filePath)
 		return err
 	}
 	defer f.Close()
 
+	// Read existing table logic
 	var existingTable arrow.Table
-	pf, err := file.NewParquetReader(f)
-    // Check if the file is empty or not a valid Parquet file yet
-    fi, statErr := f.Stat()
-    if statErr == nil && fi.Size() > 0 && err == nil {
-        existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
-        if err != nil {
-            b.logger.WithError(err).Warnf("Could not read existing Parquet table from %s for actions, will overwrite.", filePath)
-            existingTable = nil 
-        } else {
-            defer existingTable.Release()
-        }
-    } else if err != nil && statErr == nil && fi.Size() > 0 {
-         b.logger.WithError(err).Warnf("File %s for actions is not a valid parquet file but has size > 0. A new one will be created (overwrite).", filePath)
-    } // If size is 0 or statErr, it's effectively a new file situation
+	fi, statErr := f.Stat()
+	if statErr == nil && fi.Size() > 0 { // File exists and is not empty
+		// Ensure file pointer is at the beginning for reading
+		if _, seekErr := f.Seek(0, 0); seekErr != nil {
+			b.logger.WithError(seekErr).Errorf("Failed to seek Parquet file for reading actions: %s", filePath)
+			return seekErr
+		}
+		pf, errReader := file.NewParquetReader(f)
+		if errReader == nil {
+			existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
+			if err != nil {
+				b.logger.WithError(err).Warnf("Could not read existing Parquet table from %s for actions, will overwrite.", filePath)
+				existingTable = nil
+			} else {
+				defer existingTable.Release()
+			}
+		} else {
+			b.logger.WithError(errReader).Warnf("File %s for actions is not a valid parquet file but has size > 0. A new one will be created (overwrite).", filePath)
+			existingTable = nil
+		}
+	}
 
+	// Create an Arrow Table from the new record.
+	newRecordAsTable := array.NewTableFromRecords(schema, []arrow.Record{arrowRecord})
+	defer newRecordAsTable.Release()
 
-	var finalTable arrow.Table
+	var tableToWrite arrow.Table
 	if existingTable != nil && existingTable.NumRows() > 0 {
-		mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, arrowRecord})
+		mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, newRecordAsTable})
 		if concatErr != nil {
 			b.logger.WithError(concatErr).Errorf("Failed to concatenate new action record to existing Parquet table data for: %s", filePath)
 			return concatErr
 		}
-		finalTable = mergedTable
-		defer finalTable.Release()
+		tableToWrite = mergedTable
 	} else {
-		finalTable = arrowRecord
-		finalTable.Retain()
+		tableToWrite = newRecordAsTable
+		tableToWrite.Retain() // Retain because newRecordAsTable is deferred for release
 	}
+	defer tableToWrite.Release()
 
 	if err := f.Truncate(0); err != nil {
 		b.logger.WithError(err).Errorf("Failed to truncate Parquet file for actions: %s", filePath)
@@ -361,9 +358,9 @@ func (b *BenthosStreamBridge) logActionInvocationToParquet(record ActionInvocati
 		b.logger.WithError(err).Errorf("Failed to seek Parquet file for actions: %s", filePath)
 		return err
 	}
-	
+
 	props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
-	err = pqarrow.WriteTable(finalTable, f, finalTable.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+	err = pqarrow.WriteTable(tableToWrite, f, tableToWrite.NumRows(), props, pqarrow.NewFileWriterProperties(props))
 	if err != nil {
 		b.logger.WithError(err).Errorf("Failed to write action invocation Parquet table to file: %s", filePath)
 		return err
@@ -372,14 +369,13 @@ func (b *BenthosStreamBridge) logActionInvocationToParquet(record ActionInvocati
 	return nil
 }
 
-
 // PublishPropertyUpdate sends a property update to the appropriate Benthos/Kafka topic.
 func (b *BenthosStreamBridge) PublishPropertyUpdate(thingID, propertyName string, value interface{}) error {
 	msg := map[string]interface{}{
-		"deviceId":   thingID, // Matching the 'property-updates' stream's Bloblang
-		"property":   propertyName,
-		"value":      value,
-		"timestamp":  time.Now().UTC().Format(time.RFC3339Nano), // Consistent timestamp format
+		"deviceId":  thingID, // Matching the 'property-updates' stream's Bloblang
+		"property":  propertyName,
+		"value":     value,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano), // Consistent timestamp format
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
@@ -417,7 +413,7 @@ func (b *BenthosStreamBridge) PublishActionInvocation(thingID, actionName string
 			inputJSON = "{}" // Or "null" if preferred for nil input
 		}
 
-		parquetRecord := ActionInvocationParquetRecord{
+		parquetRecord := model.ActionInvocationParquetRecord{
 			ThingID:    thingID,
 			ActionName: actionName,
 			ActionID:   actionID,
@@ -536,7 +532,6 @@ func (b *BenthosStreamBridge) ProcessActionResult(result map[string]interface{})
 	}
 	return nil
 }
-
 
 // CreateWoTStreams creates all necessary Benthos streams for WoT
 // The original 'builder *service.StreamBuilder' parameter is also removed as each stream now gets its own builder.
@@ -677,16 +672,16 @@ output:
 
 // WoTPropertyUpdateProcessor processes property updates.
 type WoTPropertyUpdateProcessor struct {
-	integration *StreamIntegration // Changed to the new StreamIntegration struct type
-	logger      *logrus.Logger
+	integration *StreamIntegration
+	logger      logrus.FieldLogger // Changed to interface
 }
 
 // NewWoTPropertyUpdateProcessor creates a new processor for property updates.
-func NewWoTPropertyUpdateProcessor(integration *StreamIntegration, logger *logrus.Logger) *WoTPropertyUpdateProcessor {
+func NewWoTPropertyUpdateProcessor(integration *StreamIntegration, logger logrus.FieldLogger) *WoTPropertyUpdateProcessor {
 	return &WoTPropertyUpdateProcessor{integration: integration, logger: logger}
 }
 
-func (p *WoTPropertyUpdateProcessor) Process(ctx context.Context, msg *service.Message) ([]*service.Message, error) {
+func (p *WoTPropertyUpdateProcessor) Process(ctx context.Context, msg *service.Message) (service.MessageBatch, error) {
 	if p.integration == nil {
 		p.logger.Error("WoTPropertyUpdateProcessor: integration is nil")
 		return nil, fmt.Errorf("WoTPropertyUpdateProcessor: integration not initialized")
@@ -697,7 +692,7 @@ func (p *WoTPropertyUpdateProcessor) Process(ctx context.Context, msg *service.M
 		return nil, err
 	}
 
-	var update PropertyUpdate // Assuming PropertyUpdate is defined elsewhere (e.g. wot_handler.go or a models package)
+	var update model.PropertyUpdate // Assuming PropertyUpdate is defined elsewhere (e.g. wot_handler.go or a models package)
 	if err := json.Unmarshal(content, &update); err != nil {
 		p.logger.WithError(err).Errorf("WoTPropertyUpdateProcessor: Failed to unmarshal property update: %s", string(content))
 		return nil, err
@@ -709,7 +704,7 @@ func (p *WoTPropertyUpdateProcessor) Process(ctx context.Context, msg *service.M
 		return nil, err // Propagate error, Benthos might retry or send to dead-letter queue
 	}
 	p.logger.Debugf("WoTPropertyUpdateProcessor: Successfully processed property update for %s/%s", update.ThingID, update.PropertyName)
-	return []*service.Message{msg}, nil
+	return service.MessageBatch{msg}, nil
 }
 
 // Close is called by Benthos when the processor is shutting down.
@@ -720,16 +715,16 @@ func (p *WoTPropertyUpdateProcessor) Close(ctx context.Context) error {
 
 // WoTActionResultProcessor processes action results.
 type WoTActionResultProcessor struct {
-	integration *StreamIntegration // Changed to the new StreamIntegration struct type
-	logger      *logrus.Logger
+	integration *StreamIntegration
+	logger      logrus.FieldLogger // Changed to interface
 }
 
 // NewWoTActionResultProcessor creates a new processor for action results.
-func NewWoTActionResultProcessor(integration *StreamIntegration, logger *logrus.Logger) *WoTActionResultProcessor {
+func NewWoTActionResultProcessor(integration *StreamIntegration, logger logrus.FieldLogger) *WoTActionResultProcessor {
 	return &WoTActionResultProcessor{integration: integration, logger: logger}
 }
 
-func (p *WoTActionResultProcessor) Process(ctx context.Context, msg *service.Message) ([]*service.Message, error) {
+func (p *WoTActionResultProcessor) Process(ctx context.Context, msg *service.Message) (service.MessageBatch, error) {
 	if p.integration == nil {
 		p.logger.Error("WoTActionResultProcessor: integration is nil")
 		return nil, fmt.Errorf("WoTActionResultProcessor: integration not initialized")
@@ -768,7 +763,7 @@ func (p *WoTActionResultProcessor) Process(ctx context.Context, msg *service.Mes
 	}
 
 	p.logger.Debugf("WoTActionResultProcessor: Successfully processed action result for actionID %s", actionID)
-	return []*service.Message{msg}, nil
+	return service.MessageBatch{msg}, nil
 }
 
 // Close is called by Benthos when the processor is shutting down.
@@ -779,16 +774,16 @@ func (p *WoTActionResultProcessor) Close(ctx context.Context) error {
 
 // WoTEventProcessor processes events.
 type WoTEventProcessor struct {
-	integration *StreamIntegration // Changed to the new StreamIntegration struct type
-	logger      *logrus.Logger
+	integration *StreamIntegration
+	logger      logrus.FieldLogger // Changed to interface
 }
 
 // NewWoTEventProcessor creates a new processor for events.
-func NewWoTEventProcessor(integration *StreamIntegration, logger *logrus.Logger) *WoTEventProcessor {
+func NewWoTEventProcessor(integration *StreamIntegration, logger logrus.FieldLogger) *WoTEventProcessor {
 	return &WoTEventProcessor{integration: integration, logger: logger}
 }
 
-func (p *WoTEventProcessor) Process(ctx context.Context, msg *service.Message) ([]*service.Message, error) {
+func (p *WoTEventProcessor) Process(ctx context.Context, msg *service.Message) (service.MessageBatch, error) {
 	if p.integration == nil {
 		p.logger.Error("WoTEventProcessor: integration is nil")
 		return nil, fmt.Errorf("WoTEventProcessor: integration not initialized")
@@ -799,7 +794,7 @@ func (p *WoTEventProcessor) Process(ctx context.Context, msg *service.Message) (
 		return nil, err
 	}
 
-	var event Event // Assuming Event is defined elsewhere (e.g. wot_handler.go or a models package)
+	var event model.Event // Using the model.Event type
 	if err := json.Unmarshal(content, &event); err != nil {
 		p.logger.WithError(err).Errorf("WoTEventProcessor: Failed to unmarshal event: %s", string(content))
 		return nil, err
@@ -811,7 +806,7 @@ func (p *WoTEventProcessor) Process(ctx context.Context, msg *service.Message) (
 		return nil, err
 	}
 	p.logger.Debugf("WoTEventProcessor: Successfully processed event %s for thing %s", event.EventName, event.ThingID)
-	return []*service.Message{msg}, nil
+	return service.MessageBatch{msg}, nil
 }
 
 // Close is called by Benthos when the processor is shutting down.

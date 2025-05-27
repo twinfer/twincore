@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/twinfer/twincore/pkg/wot"
 	"github.com/xeipuuv/gojsonschema"
@@ -22,14 +21,51 @@ func NewJSONSchemaValidator() *JSONSchemaValidator {
 	}
 }
 
-func (v *JSONSchemaValidator) ValidateProperty(property wot.PropertyAffordance, value interface{}) error {
-	schema := v.getOrCompileSchema(property.GetName(), property)
-	if schema == nil {
+// getCachedOrCompile attempts to retrieve a compiled schema from cache.
+// If not found, it compiles the provided dataSchema, caches it, and returns it.
+// The cacheKey must uniquely identify the schema.
+func (v *JSONSchemaValidator) getCachedOrCompile(cacheKey string, dataSchema wot.DataSchema) (*gojsonschema.Schema, error) {
+	if compiled, ok := v.schemaCache[cacheKey]; ok {
+		return compiled, nil
+	}
+
+	if dataSchema == nil { // If no schema is provided, no validation can occur.
+		// Cache nil to avoid recompilation attempts for this key if it's intentionally nil.
+		v.schemaCache[cacheKey] = nil
+		return nil, nil
+	}
+
+	schemaJSON, err := json.Marshal(dataSchema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema to JSON for key '%s': %w", cacheKey, err)
+	}
+
+	schemaLoader := gojsonschema.NewStringLoader(string(schemaJSON))
+	compiledSchema, err := gojsonschema.NewSchema(schemaLoader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile schema for key '%s': %w", cacheKey, err)
+	}
+
+	v.schemaCache[cacheKey] = compiledSchema
+	return compiledSchema, nil
+}
+
+func (v *JSONSchemaValidator) ValidateProperty(propertyName string, propertySchema wot.DataSchema, value interface{}) error {
+	// Note: propertyName as a cache key might not be globally unique if the validator
+	// is shared across different Things with potentially colliding property names.
+	// A more robust key might involve a ThingID if available at this layer.
+	// For now, we use propertyName, assuming it's unique enough in the validator's context.
+	compiledSchema, err := v.getCachedOrCompile(propertyName, propertySchema)
+	if err != nil {
+		// This error means schema compilation failed.
+		return fmt.Errorf("schema compilation/retrieval error for property '%s': %w", propertyName, err)
+	}
+	if compiledSchema == nil {
 		return nil // No schema defined, accept any value
 	}
 
 	documentLoader := gojsonschema.NewGoLoader(value)
-	result, err := schema.Validate(documentLoader)
+	result, err := compiledSchema.Validate(documentLoader)
 	if err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
@@ -47,16 +83,22 @@ func (v *JSONSchemaValidator) ValidateProperty(property wot.PropertyAffordance, 
 
 func (v *JSONSchemaValidator) ValidateActionInput(schema wot.DataSchema, input interface{}) error {
 	if schema == nil {
-		return nil
+		return nil // No schema to validate against
 	}
 
-	jsonSchema, err := v.compileSchema(schema)
+	// Generate a cache key from the schema itself by marshalling it.
+	schemaKeyBytes, err := json.Marshal(schema)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal action input schema for cache key generation: %w", err)
 	}
+	cacheKey := string(schemaKeyBytes)
 
+	compiledSchema, err := v.getCachedOrCompile(cacheKey, schema)
+	if err != nil {
+		return fmt.Errorf("schema compilation/retrieval error for action input: %w", err)
+	}
 	documentLoader := gojsonschema.NewGoLoader(input)
-	result, err := jsonSchema.Validate(documentLoader)
+	result, err := compiledSchema.Validate(documentLoader)
 	if err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
@@ -74,16 +116,22 @@ func (v *JSONSchemaValidator) ValidateActionInput(schema wot.DataSchema, input i
 
 func (v *JSONSchemaValidator) ValidateEventData(schema wot.DataSchema, data interface{}) error {
 	if schema == nil {
-		return nil
+		return nil // No schema to validate against
 	}
 
-	jsonSchema, err := v.compileSchema(schema)
+	// Generate a cache key from the schema itself
+	schemaKeyBytes, err := json.Marshal(schema)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal event data schema for cache key generation: %w", err)
 	}
+	cacheKey := string(schemaKeyBytes)
 
+	compiledSchema, err := v.getCachedOrCompile(cacheKey, schema)
+	if err != nil {
+		return fmt.Errorf("schema compilation/retrieval error for event data: %w", err)
+	}
 	documentLoader := gojsonschema.NewGoLoader(data)
-	result, err := jsonSchema.Validate(documentLoader)
+	result, err := compiledSchema.Validate(documentLoader)
 	if err != nil {
 		return fmt.Errorf("validation error: %w", err)
 	}
@@ -94,108 +142,6 @@ func (v *JSONSchemaValidator) ValidateEventData(schema wot.DataSchema, data inte
 			errors += fmt.Sprintf("- %s\n", err)
 		}
 		return fmt.Errorf("event data does not match schema:\n%s", errors)
-	}
-
-	return nil
-}
-
-func (v *JSONSchemaValidator) getOrCompileSchema(key string, property wot.PropertyAffordance) *gojsonschema.Schema {
-	if schema, ok := v.schemaCache[key]; ok {
-		return schema
-	}
-
-	// This depends on how the property schema is structured
-	// For now, return nil if no schema
-	return nil
-}
-
-func (v *JSONSchemaValidator) compileSchema(schema interface{}) (*gojsonschema.Schema, error) {
-	schemaJSON, err := json.Marshal(schema)
-	if err != nil {
-		return nil, err
-	}
-
-	schemaLoader := gojsonschema.NewStringLoader(string(schemaJSON))
-	return gojsonschema.NewSchema(schemaLoader)
-}
-
-// StreamIntegration handles bidirectional communication between HTTP and streams
-type StreamIntegration struct {
-	stateManager StateManager
-	streamBridge StreamBridge
-	eventBroker  *EventBroker
-}
-
-func NewStreamIntegration(stateManager StateManager, streamBridge StreamBridge, eventBroker *EventBroker) *StreamIntegration {
-	return &StreamIntegration{
-		stateManager: stateManager,
-		streamBridge: streamBridge,
-		eventBroker:  eventBroker,
-	}
-}
-
-// ProcessStreamUpdate handles property updates from streams
-func (s *StreamIntegration) ProcessStreamUpdate(update PropertyUpdate) error {
-	// Update state
-	if err := s.stateManager.SetProperty(update.ThingID, update.PropertyName, update.Value); err != nil {
-		return err
-	}
-
-	// Don't republish to stream if it came from stream
-	if update.Source == "stream" {
-		return nil
-	}
-
-	// Publish to stream for other consumers
-	return s.streamBridge.PublishPropertyUpdate(update.ThingID, update.PropertyName, update.Value)
-}
-
-// ProcessStreamEvent handles events from streams
-func (s *StreamIntegration) ProcessStreamEvent(event Event) error {
-	// Publish to SSE subscribers
-	s.eventBroker.Publish(event)
-	return nil
-}
-
-// ProcessActionResult handles action results from streams
-func (s *StreamIntegration) ProcessActionResult(result map[string]interface{}) error {
-	actionID, ok := result["actionId"].(string)
-	if !ok {
-		return fmt.Errorf("missing actionId in result")
-	}
-
-	output := result["output"]
-	errorMsg, hasError := result["error"].(string)
-
-	// Update database
-	if hasError {
-		_, err := s.streamBridge.(*BenthosStreamBridge).db.Exec(`
-            UPDATE action_state 
-            SET status = 'failed', error = ?, completed_at = ?
-            WHERE action_id = ?
-        `, errorMsg, time.Now(), actionID)
-		return err
-	}
-
-	outputJSON, _ := json.Marshal(output)
-	_, err := s.streamBridge.(*BenthosStreamBridge).db.Exec(`
-        UPDATE action_state 
-        SET status = 'completed', output = ?, completed_at = ?
-        WHERE action_id = ?
-    `, string(outputJSON), time.Now(), actionID)
-
-	if err != nil {
-		return err
-	}
-
-	// Notify waiter
-	if waiter, ok := s.streamBridge.(*BenthosStreamBridge).actionWaiters.Load(actionID); ok {
-		resultChan := waiter.(chan ActionResult)
-		if hasError {
-			resultChan <- ActionResult{Error: fmt.Errorf(errorMsg)}
-		} else {
-			resultChan <- ActionResult{Output: output}
-		}
 	}
 
 	return nil
