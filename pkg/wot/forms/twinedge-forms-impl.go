@@ -5,6 +5,8 @@ import (
     _ "embed"
     "bytes"
     "text/template"
+    "fmt"     // Retained for potential logging, or remove if not used
+    "strings" // Added for SCRAM mechanism
     
     "github.com/twinfer/twincore/pkg/wot"
 )
@@ -90,9 +92,78 @@ func (f *KafkaForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (
 }
 
 func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme) map[string]interface{} {
-    // Extract security configuration based on WoT security definitions
-    // This would map WoT security schemes to Kafka SASL/SSL configs
-    return nil
+    for _, schemeInterface := range securityDefs {
+        // Attempt to treat schemeInterface as map[string]interface{}
+        schemeData, ok := schemeInterface.(map[string]interface{})
+        if !ok {
+            // Potentially log or handle cases where schemeInterface is not a map
+            // For this subtask, we'll skip if it's not in the expected map format
+            continue
+        }
+
+        schemeTypeStr, ok := schemeData["scheme"].(string)
+        if !ok {
+            continue // Scheme type is mandatory
+        }
+
+        switch strings.ToLower(schemeTypeStr) {
+        case "basic", "plain": // SASL PLAIN
+            username := "${TWINEDGE_KAFKA_USER}" // Default placeholder
+            password := "${TWINEDGE_KAFKA_PASS}" // Default placeholder
+
+            if userVal, ok := schemeData["user"].(string); ok && userVal != "" {
+                username = userVal
+            } else if userVal, ok := schemeData["username"].(string); ok && userVal != "" {
+                username = userVal
+            }
+
+            if passVal, ok := schemeData["password"].(string); ok && passVal != "" {
+                password = passVal
+            }
+            return map[string]interface{}{
+                "mechanism": "PLAIN",
+                "username":  username,
+                "password":  password,
+            }
+
+        case "scram-sha-256", "scram-sha-512":
+            username := "${TWINEDGE_KAFKA_USER}"
+            password := "${TWINEDGE_KAFKA_PASS}"
+            mechanism := strings.ToUpper(schemeTypeStr) // SCRAM-SHA-256 or SCRAM-SHA-512
+
+            if userVal, ok := schemeData["user"].(string); ok && userVal != "" {
+                username = userVal
+            } else if userVal, ok := schemeData["username"].(string); ok && userVal != "" {
+                username = userVal
+            }
+            if passVal, ok := schemeData["password"].(string); ok && passVal != "" {
+                password = passVal
+            }
+            return map[string]interface{}{
+                "mechanism": mechanism,
+                "username":  username,
+                "password":  password,
+            }
+
+        case "oauth2":
+            // SASL OAUTHBEARER. Benthos expects the token to be provided.
+            // The actual token must be sourced externally (e.g., env var).
+            tokenPlaceholder := "${TWINEDGE_KAFKA_OAUTH_TOKEN}"
+             if tokenVal, ok := schemeData["token"].(string); ok && tokenVal != "" { // If TD provides a direct token string
+                tokenPlaceholder = tokenVal
+            }
+            // The current Kafka template (kafka_input.yaml/kafka_output.yaml) needs to be updated
+            // to actually use this token. It currently only has username/password fields for SASL.
+            return map[string]interface{}{
+                "mechanism": "OAUTHBEARER",
+                "token": tokenPlaceholder, // Custom field for template to use
+            }
+
+        case "nosec":
+            return nil // No auth config needed
+        }
+    }
+    return nil // No suitable and configured security scheme found
 }
 
 // pkg/wot/forms/http.go
@@ -103,7 +174,7 @@ import (
     "bytes"
     "text/template"
     
-    "github.com/twinedge/gateway/pkg/wot"
+    "github.com/twinfer/twincore/pkg/wot"
 )
 
 //go:embed templates/http_client.yaml
@@ -193,22 +264,85 @@ func (f *HTTPForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
     }, nil
 }
 
+// Removed the misplaced import block that was here.
+
 func (f *HTTPForm) extractAuthHeaders(securityDefs map[string]wot.SecurityScheme) map[string]string {
     headers := make(map[string]string)
-    
-    for _, scheme := range securityDefs {
-        switch scheme.Scheme {
-        case "bearer":
-            headers["Authorization"] = "Bearer ${TOKEN}"
+
+    for _, schemeInterface := range securityDefs {
+        // Treat schemeInterface as map[string]interface{} to access fields
+        // The input is map[string]wot.SecurityScheme.
+        // So `schemeInterface` inside the loop IS of type wot.SecurityScheme.
+        // We will use type assertion to map[string]interface{} on `schemeInterface`.
+        
+        tempSchemeMap, ok := schemeInterface.(map[string]interface{})
+        if !ok {
+            // If it's not a map, we cannot proceed with dynamic key access.
+            // Log or skip. For this task, we skip.
+            // fmt.Printf("Warning: SecurityScheme is not a map[string]interface{}, skipping: %T\n", schemeInterface)
+            continue
+        }
+
+        schemeTypeStr := ""
+        if st, okSt := tempSchemeMap["scheme"].(string); okSt {
+            schemeTypeStr = st
+        } else {
+            // If "scheme" key is not present or not a string, we can't determine the type.
+            // fmt.Printf("Warning: SecurityScheme does not have a valid 'scheme' field, skipping.\n")
+            continue 
+        }
+
+        switch schemeTypeStr {
         case "basic":
-            headers["Authorization"] = "Basic ${CREDENTIALS}"
-        case "apikey":
-            if scheme.In == "header" {
-                headers[scheme.Name] = "${API_KEY}"
+            // W3C: name (optional), user (optional), password (optional)
+            // Benthos http_client basic_auth needs: username, password.
+            // We'll construct a placeholder if specific user/pass not in TD.
+            authUsername := "${TWINEDGE_BASIC_USER}" // Default placeholder
+            authPassword := "${TWINEDGE_BASIC_PASS}" // Default placeholder
+
+            if userVal, okUser := tempSchemeMap["user"].(string); okUser && userVal != "" {
+                authUsername = userVal
             }
+            if passVal, okPass := tempSchemeMap["password"].(string); okPass && passVal != "" {
+                authPassword = passVal
+            }
+            authVal := base64.StdEncoding.EncodeToString([]byte(authUsername + ":" + authPassword))
+            headers["Authorization"] = "Basic " + authVal
+        case "bearer":
+            // W3C: token (optional string for direct token - not common), format (e.g. "jwt"), alg, authorization (URL)
+            // Benthos http_client oauth2.token or a direct bearer token.
+            // For now, we'll assume a placeholder that should be externally resolved.
+            bearerToken := "${TWINEDGE_BEARER_TOKEN}"
+            if tokenVal, okToken := tempSchemeMap["token"].(string); okToken && tokenVal != "" { // If TD provides a direct token string
+                bearerToken = tokenVal
+            }
+            headers["Authorization"] = "Bearer " + bearerToken
+        case "apikey":
+            // W3C: in ("header", "query", "cookie"), name (header/query/cookie name)
+            // We only handle "header" for Benthos http_client headers.
+            // A field for the actual key value is needed, e.g. "keyValue" or "token"
+            inVal, _ := tempSchemeMap["in"].(string)
+            nameVal, _ := tempSchemeMap["name"].(string)
+
+            if inVal == "header" && nameVal != "" {
+                apiKey := fmt.Sprintf("${TWINEDGE_APIKEY_%s}", nameVal) // Placeholder by default
+                if keyVal, okKey := tempSchemeMap["token"].(string); okKey && keyVal != "" { // Assuming "token" field holds the key
+                    apiKey = keyVal
+                } else if keyValAlt, okKeyAlt := tempSchemeMap["keyValue"].(string); okKeyAlt && keyValAlt != "" {
+                     apiKey = keyValAlt
+                }
+                headers[nameVal] = apiKey
+            }
+        case "oauth2":
+            // W3C: authorization (URL), token (URL), refresh (URL), scopes, flow
+            // Benthos http_client has oauth2 block for client_credentials, password_owner, etc.
+            // This is complex. For forms, we'll just indicate intent with a placeholder.
+            // The actual token must be fetched by an external process and made available.
+            headers["Authorization"] = "Bearer ${TWINEDGE_OAUTH2_TOKEN}"
+            // Optionally, could pass through flow, authorization, token URLs if Benthos template can use them
+            // For instance, as comments or for a more advanced Benthos processor.
         }
     }
-    
     return headers
 }
 

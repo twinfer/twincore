@@ -1,0 +1,11 @@
+output:
+  http_client:
+    url: "{{ .url }}"
+    verb: "{{ .method }}"
+    headers:
+      Content-Type: "{{ .contentType }}"
+      {{- range $key, $value := .headers }}
+      {{ $key }}: "{{ $value }}"
+      {{- end }}
+    rate_limit: "10s"
+    timeout: "30s"

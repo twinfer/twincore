@@ -68,10 +68,11 @@ func main() {
 	}
 
 	// Start API management server
-	apiServer := startAPIServer(cnt, *apiPort, logger)
+	apiServerErrChan := make(chan error, 1)
+	apiServer := startAPIServer(cnt, *apiPort, logger, apiServerErrChan)
 
 	// Setup graceful shutdown
-	sigChan := make(chan os.Signal, 1)
+	sigChan := make(chan os.Signal, 1) // Ensure this is buffered enough if new senders are added.
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Health check ticker
@@ -83,6 +84,15 @@ func main() {
 	// Main loop
 	for {
 		select {
+		case err := <-apiServerErrChan:
+			logger.Errorf("API server failed: %v. Initiating shutdown...", err)
+			// Trigger graceful shutdown. Sending to sigChan reuses existing shutdown logic.
+			select {
+			case sigChan <- syscall.SIGTERM: // Attempt to send to sigChan
+			default: // If sigChan is full (e.g. already processing a signal)
+				logger.Warn("sigChan is full, cannot send SIGTERM for API server error shutdown.")
+				// As a fallback, directly initiate parts of shutdown or os.Exit if critical.
+			}
 		case <-sigChan:
 			logger.Info("Shutting down TwinEdge Gateway...")
 
@@ -112,7 +122,7 @@ func main() {
 }
 
 // startAPIServer starts the management API server
-func startAPIServer(cnt *container.Container, port string, logger *logrus.Logger) *http.Server {
+func startAPIServer(cnt *container.Container, port string, logger *logrus.Logger, errChan chan<- error) *http.Server {
 	mux := http.NewServeMux()
 
 	// Thing management endpoints
@@ -133,8 +143,14 @@ func startAPIServer(cnt *container.Container, port string, logger *logrus.Logger
 
 	go func() {
 		logger.Infof("API server listening on port %s", port)
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			logger.Fatalf("API server error: %v", err)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Errorf("API server ListenAndServe error: %v", err) // Log the error
+			// Send the error to the main goroutine for graceful shutdown
+			select {
+			case errChan <- err:
+			default: // Should not happen if channel is buffered and read by select
+				logger.Error("Failed to send API server error to main channel.")
+			}
 		}
 	}()
 

@@ -1,0 +1,15 @@
+{
+  "title": "Placeholder Thing Description Schema",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "@context": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    }
+  },
+  "required": ["id", "title", "@context"]
+}

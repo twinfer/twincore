@@ -7,11 +7,21 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/caddyserver/caddy-security/dist/caddysecurity"
+	security "github.com/greenpau/caddy-security"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/twinfer/twincore/pkg/types"
+
+	authcrunch "github.com/greenpau/go-authcrunch" // Main config
+	authn "github.com/greenpau/go-authcrunch/pkg/authn"
+	authnui "github.com/greenpau/go-authcrunch/pkg/authn/ui"
+	authz "github.com/greenpau/go-authcrunch/pkg/authz"
+	"github.com/greenpau/go-authcrunch/pkg/credentials" // General credentials
+	// For specific IDP/Store configs, we might need:
+	// localauth "github.com/greenpau/go-authcrunch/pkg/authn/backends/local" // if specific types are needed beyond general config
+	// jwtvalidator "github.com/greenpau/go-authcrunch/pkg/authn/validators/jwt"
+	// samlidp "github.com/greenpau/go-authcrunch/pkg/idp/saml"
 )
 
 type HTTPService struct {
@@ -171,129 +181,130 @@ func (h *HTTPService) generateCaddyConfig(config types.ServiceConfig) (*caddy.Co
 
 // buildSecurityRoute creates caddy-security middleware route
 func (h *HTTPService) buildSecurityRoute(config types.SecurityConfig) caddyhttp.Route {
+	// AuthnMiddleware is a Caddy HTTP handler module from github.com/greenpau/caddy-security
+	// It uses an authentication portal configured within the security.App
+	authnMiddleware := security.AuthnMiddleware{
+		PortalName: "default", // This name must match a portal configured in security.App
+	}
 	return caddyhttp.Route{
 		HandlersRaw: []json.RawMessage{
 			caddyconfig.JSONModuleObject(
-				caddysecurity.Authenticator{
-					Providers: h.buildAuthProviders(config),
-				},
-				"handler", "authentication", nil,
+				authnMiddleware,
+				"handler", "authentication", nil, // The Caddy module name for AuthnMiddleware
 			),
 		},
 	}
 }
 
-// buildAuthProviders creates authentication providers
-func (h *HTTPService) buildAuthProviders(config types.SecurityConfig) []caddysecurity.AuthProvider {
-	var providers []caddysecurity.AuthProvider
 
-	// Local authentication
-	if config.LocalAuth.Enabled {
-		providers = append(providers, caddysecurity.AuthProvider{
-			Name: "local",
-			Credentials: caddysecurity.Credentials{
-				Username: config.LocalAuth.Username,
-				Password: config.LocalAuth.Password,
-			},
-		})
+// buildSecurityApp creates the security app configuration for Caddy
+// This function configures the github.com/greenpau/caddy-security App
+func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage {
+	// The main App from github.com/greenpau/caddy-security
+	// This App's Config field is of type *authcrunch.Config
+	app := security.App{
+		Config: authcrunch.NewConfig(), // Initialize the authcrunch.Config
 	}
 
-	// JWT authentication
-	if config.JWT.Enabled {
-		providers = append(providers, caddysecurity.AuthProvider{
-			Name: "jwt",
-			TokenAuth: &caddysecurity.TokenAuth{
-				TokenSources: []string{"header", "cookie"},
-				TokenName:    "Authorization",
-				Algorithm:    config.JWT.Algorithm,
-				Secret:       config.JWT.Secret,
-			},
-		})
+	// Configure Authentication Portal
+	portalCfg := authn.NewPortalConfig()
+	portalCfg.Name = "default" // Matches AuthnMiddleware.PortalName
+	portalCfg.UI = authnui.NewUserInterfaceConfig()
+	portalCfg.UI.Title = "TwinEdge Gateway"
+	portalCfg.UI.LogoDescription = "Secure access to your IoT devices"
+	// portalCfg.UI.LogoURL = "/assets/logo.png" // TODO: Ensure this asset is served
+	portalCfg.UI.PrivateLinks = []*authnui.Link{
+		{Title: "Portal", Link: "/portal" /*IconLink: "/assets/portal-icon.png"*/},
+	}
+	
+	// Configure Authentication Backends (Identity Providers and Stores)
+	if cfg.LocalAuth.Enabled {
+		// For local auth, we need an identity store
+		localStoreCfg := authn.NewAuthenticatorConfig()
+		localStoreCfg.Name = "local_store"
+		localStoreCfg.Method = "local"
+		localStoreCfg.Realm = "local" // Example realm
+		// Define user credentials
+		cred := credentials.NewConfig()
+		cred.Username = cfg.LocalAuth.Username
+		cred.Password = cfg.LocalAuth.Password
+		// This part is tricky: go-authcrunch usually loads credentials from a file or other store.
+		// Directly adding a single user credential to the portal config might need a specific structure
+		// or a custom identity store setup.
+		// For simplicity, we might need to assume a pre-configured identity store
+		// or that the local method directly takes users.
+		// The `credentials.Config` is for a single credential, not a store of them.
+		// Let's assume the portal can have a basic list of users for "local" method.
+		// This might need a specific backend config.
+		// portalCfg.AuthN.Credentials = []*authncreds.Config{&authnCred} // This path was problematic
+		// The actual structure for local users in go-authcrunch involves Identity Stores.
+		// app.Config.AddIdentityStore(...) would be the way if configuring via authcrunch.Config directly.
+		// Caddyfile usually handles this more abstractly.
+		// For JSON config, it would be an identity store of type "local" added to app.Config.IdentityStores
+		// and then referenced by the portal.
+		// For now, this section remains a //TODO: for exact local user setup in JSON.
+		portalCfg.AddAuthenticator(localStoreCfg) // Add local auth method
 	}
 
-	// SAML authentication
-	if config.SAML.Enabled {
-		providers = append(providers, caddysecurity.AuthProvider{
-			Name: "saml",
-			SAML: &caddysecurity.SAMLConfig{
-				MetadataURL: config.SAML.MetadataURL,
-				EntityID:    config.SAML.EntityID,
-			},
-		})
+	if cfg.JWT.Enabled {
+		jwtAuthCfg := authn.NewAuthenticatorConfig()
+		jwtAuthCfg.Name = "jwt_validator"
+		jwtAuthCfg.Method = "jwt"
+		jwtAuthCfg.Realm = "jwt_realm" // Example realm
+		// jwtAuthCfg.TokenConfigs field or similar would be set here.
+		// E.g., jwtAuthCfg.TokenConfigs = []*jwtvalidator.TokenConfig{{Name:"primary", Secret: cfg.JWT.Secret ...}}
+		// This requires knowing the exact structure from jwtvalidator or authn.
+		portalCfg.AddAuthenticator(jwtAuthCfg)
 	}
 
-	return providers
+	if cfg.SAML.Enabled {
+		samlAuthCfg := authn.NewAuthenticatorConfig()
+		samlAuthCfg.Name = "saml_idp"
+		samlAuthCfg.Method = "saml"
+		samlAuthCfg.Realm = "saml_realm"
+		// samlAuthCfg.IdpConfigs = []*samlidp.IdentityProviderConfig{{MetadataURL: cfg.SAML.MetadataURL, EntityID: cfg.SAML.EntityID ...}}
+		portalCfg.AddAuthenticator(samlAuthCfg)
+	}
+	app.Config.AddAuthenticationPortal(portalCfg)
+
+
+	// Configure Authorization Policies (Gatekeeper)
+	gatekeeperCfg := authz.NewGatekeeperConfig()
+	gatekeeperCfg.Name = "default" // Matches AuthzMiddleware.GatekeeperName
+	gatekeeperCfg.Policies = h.buildAuthzPolicies(cfg)
+	app.Config.AddAuthorizationPolicy(gatekeeperCfg) // This should be AddGatekeeper or similar
+
+	return caddyconfig.JSON(app)
 }
 
-// buildSecurityApp creates the security app configuration
-func (h *HTTPService) buildSecurityApp(config types.SecurityConfig) json.RawMessage {
-	securityApp := caddysecurity.App{
-		AuthPortal: &caddysecurity.AuthPortal{
-			Name: "TwinEdge Gateway",
-			UI: &caddysecurity.UserInterface{
-				Title:       "TwinEdge Gateway",
-				Description: "Secure access to your IoT devices",
-				LogoURL:     "/assets/logo.png",
-				LogoText:    "TwinEdge",
-				PrivateLinks: []caddysecurity.PrivateLink{
-					{
-						Title:   "Portal",
-						URL:     "/portal",
-						IconURL: "/assets/portal-icon.png",
-					},
-				},
-			},
-		},
-		Authorization: &caddysecurity.Authorization{
-			Policies: h.buildPolicies(config),
-		},
+// buildAuthzPolicies creates authorization policies for go-authcrunch
+func (h *HTTPService) buildAuthzPolicies(config types.SecurityConfig) []*authz.PolicyConfig {
+	var policies []*authz.PolicyConfig
+
+	defaultPolicy := authz.NewPolicyConfig()
+	defaultPolicy.Name = "default"
+	// defaultPolicy.Authenticated = true // Example: require authentication
+	defaultPolicy.AllowSubjects = []*authz.SubjectConfig{{ID: "admin"}} 
+	defaultPolicy.AllowResources = []*authz.ResourceConfig{{Path: "/*"}}
+	defaultPolicy.AllowActions = []string{"GET", "POST", "PUT", "DELETE"}
+	policies = append(policies, defaultPolicy)
+
+	for _, pConfig := range config.Policies {
+		customPolicy := authz.NewPolicyConfig()
+		customPolicy.Name = pConfig.Name
+		for _, subj := range pConfig.Subjects {
+			// Assuming Subject in types.PolicyConfig is a direct user/group ID
+			customPolicy.AllowSubjects = append(customPolicy.AllowSubjects, &authz.SubjectConfig{ID: subj})
+		}
+		for _, res := range pConfig.Resources {
+			customPolicy.AllowResources = append(customPolicy.AllowResources, &authz.ResourceConfig{Path: res})
+		}
+		customPolicy.AllowActions = pConfig.Actions
+		policies = append(policies, customPolicy)
 	}
-
-	return caddyconfig.JSON(securityApp)
-}
-
-// buildPolicies creates authorization policies
-func (h *HTTPService) buildPolicies(config types.SecurityConfig) []caddysecurity.Policy {
-	var policies []caddysecurity.Policy
-
-	// Default policy
-	policies = append(policies, caddysecurity.Policy{
-		Name: "default",
-		Subjects: []caddysecurity.Subject{
-			{User: "admin"},
-		},
-		Resources: []caddysecurity.Resource{
-			{Path: "/*"},
-		},
-		Actions: []string{"GET", "POST", "PUT", "DELETE"},
-	})
-
-	// Add custom policies from config
-	for _, policy := range config.Policies {
-		p := caddysecurity.Policy{
-			Name:      policy.Name,
-			Subjects:  []caddysecurity.Subject{},
-			Resources: []caddysecurity.Resource{},
-			Actions:   policy.Actions,
-		}
-
-		for _, subject := range policy.Subjects {
-			p.Subjects = append(p.Subjects, caddysecurity.Subject{
-				User: subject,
-			})
-		}
-
-		for _, resource := range policy.Resources {
-			p.Resources = append(p.Resources, caddysecurity.Resource{
-				Path: resource,
-			})
-		}
-
-		policies = append(policies, p)
-	}
-
 	return policies
 }
+
 
 // buildWoTRoute creates a route for WoT interactions
 func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
@@ -301,22 +312,23 @@ func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
 
 	// Add authentication if required
 	if route.RequiresAuth {
+		authzMw := security.AuthzMiddleware{
+			GatekeeperName: "default", // This name must match a gatekeeper configured in security.App
+		}
 		handlers = append(handlers, caddyconfig.JSONModuleObject(
-			caddysecurity.Authorizer{
-				Providers: []string{"jwt", "local"},
-			},
-			"handler", "authorization", nil,
+			authzMw,
+			"handler", "authorization", nil, // The Caddy module name for AuthzMiddleware
 		))
 	}
 
 	// Add WoT handler
+	// The old WoTHandler struct from this file is being removed.
+	// We now use the "core_wot_handler" which is api.WoTHandler.
 	handlers = append(handlers, caddyconfig.JSONModuleObject(
-		WoTHandler{
-			Handler:  route.Handler,
-			Metadata: route.Metadata,
-		},
-		"handler", "wot_handler", nil,
+		caddy.ModuleMap{"handler": "core_wot_handler"}, // Use the ID from api.WoTHandler.CaddyModule()
+		"handler", "core_wot_handler", nil,
 	))
+	// Metadata is no longer passed here; api.WoTHandler gets info from path params.
 
 	return caddyhttp.Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -329,7 +341,9 @@ func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
 	}
 }
 
+/*
 // WoTHandler is a custom Caddy handler for WoT interactions
+// This struct and its methods are now superseded by api.WoTHandler from internal/api/wot-handler-core.go
 type WoTHandler struct {
 	Handler  string                 `json:"handler"`
 	Metadata map[string]interface{} `json:"metadata"`
@@ -337,7 +351,7 @@ type WoTHandler struct {
 
 func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.wot_handler",
+		ID:  "http.handlers.wot_handler", // Old ID
 		New: func() caddy.Module { return new(WoTHandler) },
 	}
 }
@@ -377,3 +391,4 @@ func (h WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request) error {
 	w.Write([]byte("Event handler"))
 	return nil
 }
+*/

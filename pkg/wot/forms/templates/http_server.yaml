@@ -1,0 +1,8 @@
+input:
+  http_server:
+    address: "0.0.0.0:8081" # Note: This address might need to be configurable
+    path: "{{ .url }}"
+    allowed_verbs:
+    - "{{ .method }}"
+    sync_response:
+      status: 200
