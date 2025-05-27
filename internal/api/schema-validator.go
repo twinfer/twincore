@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/twinfer/twincore/pkg/wot"
 	"github.com/xeipuuv/gojsonschema"
 )
 

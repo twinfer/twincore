@@ -17,7 +17,10 @@ import (
 	authn "github.com/greenpau/go-authcrunch/pkg/authn"
 	authnui "github.com/greenpau/go-authcrunch/pkg/authn/ui"
 	authz "github.com/greenpau/go-authcrunch/pkg/authz"
-	"github.com/greenpau/go-authcrunch/pkg/credentials" // General credentials
+	"github.com/greenpau/go-authcrunch/pkg/user" // Added for user.UserConfig
+	"github.com/sirupsen/logrus"                  // Added for logger field
+	"database/sql"                                // Added for db field
+	"strings"                                     // Added for strings.Split
 	// For specific IDP/Store configs, we might need:
 	// localauth "github.com/greenpau/go-authcrunch/pkg/authn/backends/local" // if specific types are needed beyond general config
 	// jwtvalidator "github.com/greenpau/go-authcrunch/pkg/authn/validators/jwt"
@@ -28,10 +31,19 @@ type HTTPService struct {
 	instance *caddy.Caddy
 	config   *caddy.Config
 	running  bool
+	db       *sql.DB // Added DB field
+	logger   *logrus.Logger // Added logger field
+	// configManager *config.ConfigManager // Assuming this was meant to be a field if passed in New
 }
 
-func NewHTTPService() types.Service {
-	return &HTTPService{}
+// NewHTTPService now accepts db *sql.DB and logger *logrus.Logger
+// Assuming configManager is not directly used by HTTPService methods being modified,
+// but if it was, it should be passed and stored too.
+func NewHTTPService(logger *logrus.Logger, db *sql.DB) types.Service {
+	return &HTTPService{
+		logger: logger,
+		db:     db,
+	}
 }
 
 func (h *HTTPService) Name() string {
@@ -202,109 +214,105 @@ func (h *HTTPService) buildSecurityRoute(config types.SecurityConfig) caddyhttp.
 func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage {
 	// The main App from github.com/greenpau/caddy-security
 	// This App's Config field is of type *authcrunch.Config
-	app := security.App{
-		Config: authcrunch.NewConfig(), // Initialize the authcrunch.Config
+	
+	crunchConfig := authcrunch.NewConfig() // Create a new authcrunch.Config
+
+	// Directly assign configurations from types.SecurityConfig to authcrunch.Config
+	// The types.SecurityConfig is now designed to hold slices of *authn.PortalConfig, etc.
+	crunchConfig.AuthenticationPortals = cfg.AuthenticationPortals
+	// crunchConfig.IdentityStores = cfg.IdentityStores // This will be populated from DB if kind is 'local'
+	crunchConfig.TokenValidators = cfg.TokenValidators
+	crunchConfig.AuthorizationGatekeepers = cfg.AuthorizationGatekeepers
+
+	// Populate IdentityStores, especially local ones from DB
+	if crunchConfig.IdentityStores == nil && len(cfg.IdentityStores) > 0 {
+		crunchConfig.IdentityStores = cfg.IdentityStores
 	}
 
-	// Configure Authentication Portal
-	portalCfg := authn.NewPortalConfig()
-	portalCfg.Name = "default" // Matches AuthnMiddleware.PortalName
-	portalCfg.UI = authnui.NewUserInterfaceConfig()
-	portalCfg.UI.Title = "TwinEdge Gateway"
-	portalCfg.UI.LogoDescription = "Secure access to your IoT devices"
-	// portalCfg.UI.LogoURL = "/assets/logo.png" // TODO: Ensure this asset is served
-	portalCfg.UI.PrivateLinks = []*authnui.Link{
-		{Title: "Portal", Link: "/portal" /*IconLink: "/assets/portal-icon.png"*/},
+	for _, storeConfig := range crunchConfig.IdentityStores {
+		// Identify if this storeConfig is meant to be a DB-backed local store.
+		// Convention: Kind == "localdb" or a specific Name.
+		// For this implementation, we'll assume Kind == "localdb" indicates DB-backed.
+		// Note: go-authcrunch's built-in "local" kind typically uses UserConfigs field directly.
+		// We are effectively creating a custom "localdb" store behavior here.
+		if storeConfig.Kind == "localdb" { // Using "localdb" to distinguish from in-memory "local"
+			h.logger.Debugf("Configuring DB-backed local identity store: %s", storeConfig.Name)
+			var loadedUserConfigs []*user.UserConfig
+			rows, err := h.db.Query("SELECT username, password_hash, roles, email, name, disabled FROM local_users WHERE disabled = FALSE")
+			if err != nil {
+				h.logger.Errorf("Failed to query local_users table for store %s: %v", storeConfig.Name, err)
+				storeConfig.UserConfigs = []*user.UserConfig{} // Ensure it's empty on error
+				continue
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var username, passwordHash, rolesStr, email, name sql.NullString
+				var disabled sql.NullBool 
+				if err := rows.Scan(&username, &passwordHash, &rolesStr, &email, &name, &disabled); err != nil {
+					h.logger.Errorf("Failed to scan row from local_users for store %s: %v", storeConfig.Name, err)
+					continue
+				}
+
+				userCfg := &user.UserConfig{
+					Username: username.String,
+					Password: passwordHash.String, // go-authcrunch expects the hash directly for local kind
+					Name:     name.String,
+					Email:    email.String,
+					// Disabled status is handled by the SQL query `WHERE disabled = FALSE`
+				}
+				if rolesStr.Valid && rolesStr.String != "" {
+					userCfg.Roles = strings.Split(rolesStr.String, ",")
+					for i, r := range userCfg.Roles { userCfg.Roles[i] = strings.TrimSpace(r) }
+				} else {
+					userCfg.Roles = []string{} 
+				}
+				loadedUserConfigs = append(loadedUserConfigs, userCfg)
+			}
+			if err := rows.Err(); err != nil { 
+				 h.logger.Errorf("Error iterating local_users rows for store %s: %v", storeConfig.Name, err)
+			}
+			
+			// Assign the loaded users to the storeConfig.
+			// For go-authcrunch, a local identity store is typically configured with UserConfigs.
+			// We are populating this field from the database.
+			storeConfig.UserConfigs = loadedUserConfigs
+			// Change Kind to "local" as go-authcrunch understands this for UserConfigs.
+			storeConfig.Kind = "local" 
+			h.logger.Infof("Loaded %d users from database for local identity store: %s", len(loadedUserConfigs), storeConfig.Name)
+		}
 	}
 	
-	// Configure Authentication Backends (Identity Providers and Stores)
-	if cfg.LocalAuth.Enabled {
-		// For local auth, we need an identity store
-		localStoreCfg := authn.NewAuthenticatorConfig()
-		localStoreCfg.Name = "local_store"
-		localStoreCfg.Method = "local"
-		localStoreCfg.Realm = "local" // Example realm
-		// Define user credentials
-		cred := credentials.NewConfig()
-		cred.Username = cfg.LocalAuth.Username
-		cred.Password = cfg.LocalAuth.Password
-		// This part is tricky: go-authcrunch usually loads credentials from a file or other store.
-		// Directly adding a single user credential to the portal config might need a specific structure
-		// or a custom identity store setup.
-		// For simplicity, we might need to assume a pre-configured identity store
-		// or that the local method directly takes users.
-		// The `credentials.Config` is for a single credential, not a store of them.
-		// Let's assume the portal can have a basic list of users for "local" method.
-		// This might need a specific backend config.
-		// portalCfg.AuthN.Credentials = []*authncreds.Config{&authnCred} // This path was problematic
-		// The actual structure for local users in go-authcrunch involves Identity Stores.
-		// app.Config.AddIdentityStore(...) would be the way if configuring via authcrunch.Config directly.
-		// Caddyfile usually handles this more abstractly.
-		// For JSON config, it would be an identity store of type "local" added to app.Config.IdentityStores
-		// and then referenced by the portal.
-		// For now, this section remains a //TODO: for exact local user setup in JSON.
-		portalCfg.AddAuthenticator(localStoreCfg) // Add local auth method
+	// Example: If types.SecurityConfig had LogLevel and LogFilePath (which it currently doesn't)
+	// if cfg.LogLevel != "" {
+	// 	crunchConfig.LogLevel = cfg.LogLevel
+	// }
+	// if cfg.LogFilePath != "" {
+	// 	crunchConfig.LogFilePath = cfg.LogFilePath
+	// }
+
+	// Validate the constructed authcrunch.Config
+	// This step is crucial and part of go-authcrunch's typical usage.
+	if err := crunchConfig.Validate(); err != nil {
+		// Log this error appropriately in a real scenario.
+		// For now, we'll proceed, but this indicates a misconfiguration.
+		// In a production system, you might want to return an error or panic
+		// if the static security configuration is invalid.
+		// This service's logger (h.Logger) isn't available in this static function context.
+		// A global logger or passing logger instance might be needed for production logging here.
+		fmt.Printf("Warning: authcrunch.Config validation failed: %v. This may lead to runtime issues with Caddy security features.\n", err)
 	}
-
-	if cfg.JWT.Enabled {
-		jwtAuthCfg := authn.NewAuthenticatorConfig()
-		jwtAuthCfg.Name = "jwt_validator"
-		jwtAuthCfg.Method = "jwt"
-		jwtAuthCfg.Realm = "jwt_realm" // Example realm
-		// jwtAuthCfg.TokenConfigs field or similar would be set here.
-		// E.g., jwtAuthCfg.TokenConfigs = []*jwtvalidator.TokenConfig{{Name:"primary", Secret: cfg.JWT.Secret ...}}
-		// This requires knowing the exact structure from jwtvalidator or authn.
-		portalCfg.AddAuthenticator(jwtAuthCfg)
+	
+	app := security.App{ // This is github.com/greenpau/caddy-security.App
+		Config: crunchConfig,
 	}
-
-	if cfg.SAML.Enabled {
-		samlAuthCfg := authn.NewAuthenticatorConfig()
-		samlAuthCfg.Name = "saml_idp"
-		samlAuthCfg.Method = "saml"
-		samlAuthCfg.Realm = "saml_realm"
-		// samlAuthCfg.IdpConfigs = []*samlidp.IdentityProviderConfig{{MetadataURL: cfg.SAML.MetadataURL, EntityID: cfg.SAML.EntityID ...}}
-		portalCfg.AddAuthenticator(samlAuthCfg)
-	}
-	app.Config.AddAuthenticationPortal(portalCfg)
-
-
-	// Configure Authorization Policies (Gatekeeper)
-	gatekeeperCfg := authz.NewGatekeeperConfig()
-	gatekeeperCfg.Name = "default" // Matches AuthzMiddleware.GatekeeperName
-	gatekeeperCfg.Policies = h.buildAuthzPolicies(cfg)
-	app.Config.AddAuthorizationPolicy(gatekeeperCfg) // This should be AddGatekeeper or similar
 
 	return caddyconfig.JSON(app)
 }
 
-// buildAuthzPolicies creates authorization policies for go-authcrunch
-func (h *HTTPService) buildAuthzPolicies(config types.SecurityConfig) []*authz.PolicyConfig {
-	var policies []*authz.PolicyConfig
-
-	defaultPolicy := authz.NewPolicyConfig()
-	defaultPolicy.Name = "default"
-	// defaultPolicy.Authenticated = true // Example: require authentication
-	defaultPolicy.AllowSubjects = []*authz.SubjectConfig{{ID: "admin"}} 
-	defaultPolicy.AllowResources = []*authz.ResourceConfig{{Path: "/*"}}
-	defaultPolicy.AllowActions = []string{"GET", "POST", "PUT", "DELETE"}
-	policies = append(policies, defaultPolicy)
-
-	for _, pConfig := range config.Policies {
-		customPolicy := authz.NewPolicyConfig()
-		customPolicy.Name = pConfig.Name
-		for _, subj := range pConfig.Subjects {
-			// Assuming Subject in types.PolicyConfig is a direct user/group ID
-			customPolicy.AllowSubjects = append(customPolicy.AllowSubjects, &authz.SubjectConfig{ID: subj})
-		}
-		for _, res := range pConfig.Resources {
-			customPolicy.AllowResources = append(customPolicy.AllowResources, &authz.ResourceConfig{Path: res})
-		}
-		customPolicy.AllowActions = pConfig.Actions
-		policies = append(policies, customPolicy)
-	}
-	return policies
-}
-
+// buildAuthzPolicies, buildAuthProviders / buildAuthBackends are removed as their logic
+// is now encapsulated within the structure of types.SecurityConfig, which directly
+// provides []*authn.PortalConfig, []*authz.GatekeeperConfig, etc.
 
 // buildWoTRoute creates a route for WoT interactions
 func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {

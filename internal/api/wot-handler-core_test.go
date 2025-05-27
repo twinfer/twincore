@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +13,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/twinfer/twincore/pkg/wot"
+	"github.com/twinfer/twincore/pkg/wot" // Assuming this package path
 )
 
 // --- Mock Dependencies ---
@@ -127,27 +129,25 @@ type MockWotForm struct {
 
 func (m *MockWotForm) GetHref() string        { return m.HrefVal }
 func (m *MockWotForm) GetContentType() string { return m.ContentTypeVal }
-func (m *MockWotForm) GetOp() []string        { return m.OpVal }
-
+func (m *MockWotForm) GetOp() []string          { return m.OpVal }
 // Add other methods if wot.Form interface requires them, e.g., GetProtocol, GenerateConfig
 func (m *MockWotForm) GetProtocol() string { return "http" } // Default mock
-func (m *MockWotForm) GenerateConfig(_ map[string]wot.SecurityScheme) (map[string]interface{}, error) {
-	return nil, nil
-}
+func (m *MockWotForm) GenerateConfig(_ map[string]wot.SecurityScheme) (map[string]interface{}, error) { return nil, nil }
+
 
 // MockWotPropertyAffordance implements wot.PropertyAffordance
 type MockWotPropertyAffordance struct {
 	mock.Mock
-	PForms []wot.Form
-	PIsRO  bool
-	PIsWO  bool
-	PIsObs bool
+	PForms    []wot.Form
+	PIsRO     bool
+	PIsWO     bool
+	PIsObs    bool
 }
 
 func (m *MockWotPropertyAffordance) GetForms() []wot.Form { return m.PForms }
-func (m *MockWotPropertyAffordance) IsReadOnly() bool     { return m.PIsRO }
-func (m *MockWotPropertyAffordance) IsWriteOnly() bool    { return m.PIsWO }
-func (m *MockWotPropertyAffordance) IsObservable() bool   { return m.PIsObs }
+func (m *MockWotPropertyAffordance) IsReadOnly() bool   { return m.PIsRO }
+func (m *MockWotPropertyAffordance) IsWriteOnly() bool  { return m.PIsWO }
+func (m *MockWotPropertyAffordance) IsObservable() bool { return m.PIsObs }
 
 // MockWotDataSchema implements wot.DataSchema (assuming it's an interface)
 type MockWotDataSchema struct {
@@ -162,7 +162,7 @@ type MockWotActionAffordance struct {
 	AOutput wot.DataSchema
 }
 
-func (m *MockWotActionAffordance) GetForms() []wot.Form      { return m.AForms }
+func (m *MockWotActionAffordance) GetForms() []wot.Form    { return m.AForms }
 func (m *MockWotActionAffordance) GetInput() wot.DataSchema  { return m.AInput }
 func (m *MockWotActionAffordance) GetOutput() wot.DataSchema { return m.AOutput }
 
@@ -173,7 +173,7 @@ type MockWotEventAffordance struct {
 	EData  wot.DataSchema
 }
 
-func (m *MockWotEventAffordance) GetForms() []wot.Form    { return m.EForms }
+func (m *MockWotEventAffordance) GetForms() []wot.Form   { return m.EForms }
 func (m *MockWotEventAffordance) GetData() wot.DataSchema { return m.EData }
 
 // MockWotThingDescription for wot.ThingDescription
@@ -257,6 +257,7 @@ func TestWoTHandler_handlePropertyWrite_Success(t *testing.T) {
 	mockProperty := &MockWotPropertyAffordance{PIsRO: false, PIsWO: false} // Writable
 	mockProperty.PForms = []wot.Form{&MockWotForm{ContentTypeVal: "application/json"}}
 
+
 	mockThingRegistry.On("GetProperty", "thing1", "prop1").Return(mockProperty, nil) // Not directly used by handlePropertyWrite, but good practice
 	mockSchemaValidator.On("ValidateProperty", mockProperty, "newValue").Return(nil)
 	mockStateManager.On("SetProperty", "thing1", "prop1", "newValue").Return(nil)
@@ -291,6 +292,7 @@ func TestWoTHandler_handleAction_SyncSuccess(t *testing.T) {
 	mockSchemaValidator.On("ValidateActionInput", mockAction.AInput, actionInput).Return(nil)
 	mockStreamBridge.On("PublishActionInvocation", "thing1", "action1", actionInput).Return("actionID123", nil)
 	mockStreamBridge.On("GetActionResult", "actionID123", 30*time.Second).Return(actionOutput, nil)
+
 
 	body := strings.NewReader(`{"param":"value"}`)
 	req := httptest.NewRequest(http.MethodPost, "/", body)
@@ -382,6 +384,7 @@ func TestWoTHandler_handleEvent_Subscription(t *testing.T) {
 	// bodyString := string(bodyBytes)
 	// assert.Contains(t, bodyString, "event: event1")
 	// assert.Contains(t, bodyString, `data: {"thingId":"thing1","eventName":"event1","data":{"value":"sample_event"}`)
-
+	
 	mockThingRegistry.AssertCalled(t, "GetEvent", "thing1", "event1")
 }
+```

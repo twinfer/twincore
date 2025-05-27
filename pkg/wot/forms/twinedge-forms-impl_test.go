@@ -16,9 +16,9 @@ func newTestSecurityDef(schemes map[string]map[string]interface{}) map[string]wo
 	defs := make(map[string]wot.SecurityScheme)
 	for k, v := range schemes {
 		defs[k] = v // This assignment assumes wot.SecurityScheme is an interface type or a map type.
-		// If wot.SecurityScheme is a concrete struct, this would require conversion/casting
-		// or direct construction of that struct type.
-		// Given the problem description, we treat it as assignable from map[string]interface{}.
+		            // If wot.SecurityScheme is a concrete struct, this would require conversion/casting
+		            // or direct construction of that struct type.
+		            // Given the problem description, we treat it as assignable from map[string]interface{}.
 	}
 	return defs
 }
@@ -27,7 +27,7 @@ func newTestSecurityDef(schemes map[string]map[string]interface{}) map[string]wo
 
 func TestHTTPForm_extractAuthHeaders_Basic(t *testing.T) {
 	form := forms.HTTPForm{}
-
+	
 	// Test with user and password
 	securityDefsWithUserPass := newTestSecurityDef(map[string]map[string]interface{}{
 		"basic_auth": {
@@ -78,7 +78,7 @@ func TestHTTPForm_extractAuthHeaders_Bearer(t *testing.T) {
 	headersPlaceholder := form.extractAuthHeaders(securityDefsPlaceholder)
 	assert.Contains(t, headersPlaceholder, "Authorization")
 	assert.Equal(t, "Bearer ${TWINEDGE_BEARER_TOKEN}", headersPlaceholder["Authorization"])
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -111,6 +111,7 @@ func TestHTTPForm_extractAuthHeaders_APIKey(t *testing.T) {
 	assert.Contains(t, headersKeyValue, "X-Another-Key")
 	assert.Equal(t, "anotherKeyValue456", headersKeyValue["X-Another-Key"])
 
+
 	// Test with in: "header", missing token/keyValue (placeholder)
 	securityDefsHeaderPlaceholder := newTestSecurityDef(map[string]map[string]interface{}{
 		"apikey_auth_placeholder": {
@@ -134,7 +135,7 @@ func TestHTTPForm_extractAuthHeaders_APIKey(t *testing.T) {
 	headersQuery := form.extractAuthHeaders(securityDefsQuery)
 	assert.NotContains(t, headersQuery, "api_token")
 	assert.Empty(t, headersQuery, "Should be no headers for apikey in query")
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -149,7 +150,7 @@ func TestHTTPForm_extractAuthHeaders_OAuth2(t *testing.T) {
 	headers := form.extractAuthHeaders(securityDefs)
 	assert.Contains(t, headers, "Authorization")
 	assert.Equal(t, "Bearer ${TWINEDGE_OAUTH2_TOKEN}", headers["Authorization"])
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -158,7 +159,7 @@ func TestHTTPForm_extractAuthHeaders_NoScheme(t *testing.T) {
 	securityDefs := newTestSecurityDef(map[string]map[string]interface{}{})
 	headers := form.extractAuthHeaders(securityDefs)
 	assert.Empty(t, headers, "Headers map should be empty for no security schemes")
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -237,7 +238,7 @@ func TestKafkaForm_extractAuthConfig_SCRAM(t *testing.T) {
 	assert.Equal(t, "SCRAM-SHA-512", authConfig512["mechanism"])
 	assert.Equal(t, "${TWINEDGE_KAFKA_USER}", authConfig512["username"])
 	assert.Equal(t, "${TWINEDGE_KAFKA_PASS}", authConfig512["password"])
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -266,7 +267,7 @@ func TestKafkaForm_extractAuthConfig_OAuth2(t *testing.T) {
 	assert.NotNil(t, authConfigPlaceholder)
 	assert.Equal(t, "OAUTHBEARER", authConfigPlaceholder["mechanism"])
 	assert.Equal(t, "${TWINEDGE_KAFKA_OAUTH_TOKEN}", authConfigPlaceholder["token"])
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -279,7 +280,7 @@ func TestKafkaForm_extractAuthConfig_NoSec(t *testing.T) {
 	})
 	authConfig := form.extractAuthConfig(securityDefs)
 	assert.Nil(t, authConfig, "Auth config should be nil for nosec scheme")
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -288,7 +289,7 @@ func TestKafkaForm_extractAuthConfig_NoScheme(t *testing.T) {
 	securityDefs := newTestSecurityDef(map[string]map[string]interface{}{})
 	authConfig := form.extractAuthConfig(securityDefs)
 	assert.Nil(t, authConfig, "Auth config should be nil for empty security definitions")
-
+	
 	// TODO: Implement actual assertions and edge cases.
 }
 
@@ -304,3 +305,5 @@ func TestKafkaForm_extractAuthConfig_UnsupportedScheme(t *testing.T) {
 
 	// TODO: Implement actual assertions and edge cases.
 }
+
+```

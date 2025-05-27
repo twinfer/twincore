@@ -385,6 +385,20 @@ func runMigrations(db *sql.DB) error {
     CREATE INDEX IF NOT EXISTS idx_things_updated ON things(updated_at);
     CREATE INDEX IF NOT EXISTS idx_caddy_active ON caddy_configs(active);
     CREATE INDEX IF NOT EXISTS idx_action_status ON action_state(status);
+
+    -- Local users for caddy-security/go-authcrunch
+    CREATE TABLE IF NOT EXISTS local_users (
+        username TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL, -- IMPORTANT: Store only hashed passwords
+        roles TEXT,                  -- Could be comma-separated string or JSON array
+        email TEXT UNIQUE,           -- Optional, but often useful
+        name TEXT,                   -- Display name, optional
+        disabled BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_local_users_email ON local_users(email);
+    CREATE INDEX IF NOT EXISTS idx_local_users_disabled ON local_users(disabled);
     `
 
 	_, err := db.Exec(schema)
