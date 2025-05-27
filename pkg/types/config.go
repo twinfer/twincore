@@ -4,10 +4,6 @@ package types
 import (
 	authn "github.com/greenpau/go-authcrunch/pkg/authn"
 	authz "github.com/greenpau/go-authcrunch/pkg/authz"
-	// portalui "github.com/greenpau/go-authcrunch/pkg/authn/ui" // For UI elements
-	// idstore "github.com/greenpau/go-authcrunch/pkg/identity" // For identity stores
-	// validator "github.com/greenpau/go-authcrunch/pkg/authn/validators" // For token validators
-	// backend "github.com/greenpau/go-authcrunch/pkg/authn/backends" // For specific backends
 )
 
 // HTTPRoute represents a HTTP route configuration
@@ -52,7 +48,7 @@ type SecurityConfig struct {
 	// Configuration for Token Validators (e.g., JWT validators)
 	// Similar to IdentityStores, these are often part of PortalConfig.
 	TokenValidators []*authn.TokenValidatorConfig `json:"tokenValidators,omitempty"`
-	
+
 	// Configuration for Authorization (Gatekeepers and Policies)
 	// Typically, one gatekeeper containing multiple policies is defined.
 	AuthorizationGatekeepers []*authz.GatekeeperConfig `json:"authorizationGatekeepers,omitempty"`
@@ -61,12 +57,6 @@ type SecurityConfig struct {
 	// LogLevel string `json:"logLevel,omitempty"`
 	// LogFilePath string `json:"logFilePath,omitempty"`
 }
-
-// Note: The previous structs LocalAuthConfig, JWTConfig, SAMLConfig, OIDCConfig, PolicyConfig
-// have been REMOVED as their functionality is now covered by configuring
-// authn.PortalConfig, authn.IdentityStoreConfig, authn.TokenValidatorConfig, and authz.GatekeeperConfig directly.
-// The user of TwinEdge will need to provide configuration matching these go-authcrunch structures.
-
 
 // HTTPConfig with Security field
 type HTTPConfig struct {

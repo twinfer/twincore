@@ -1,4 +1,4 @@
-// tests/integration/gateway_test.go
+// tests/integration/twincore_integration_test.go
 package integration
 
 import (

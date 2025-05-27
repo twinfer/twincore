@@ -10,9 +10,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/api"
 	"github.com/twinfer/twincore/internal/config"
-	"github.com/twinfer/twincore/internal/security"
-	svc "github.com/twinfer/twincore/internal/service"
+
 	"github.com/twinfer/twincore/pkg/types"
+	svc "github.com/twinfer/twincore/service"
 )
 
 // Container holds all application dependencies

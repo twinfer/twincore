@@ -19,9 +19,9 @@ import (
 )
 
 var (
-	licensePath = flag.String("license", "/etc/twinedge/license.jwt", "Path to license file")
-	publicKey   = flag.String("pubkey", "/etc/twinedge/public.key", "Path to public key")
-	dbPath      = flag.String("db", "/var/lib/twinedge/config.db", "Path to DuckDB database")
+	licensePath = flag.String("license", "/etc/twincore/license.jwt", "Path to license file")
+	publicKey   = flag.String("pubkey", "/etc/twincore/public.key", "Path to public key")
+	dbPath      = flag.String("db", "/var/lib/twincore/config.db", "Path to DuckDB database")
 	logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	apiPort     = flag.String("api-port", "8090", "API management port")
 )
@@ -40,7 +40,7 @@ func main() {
 		FullTimestamp: true,
 	})
 
-	logger.Info("TwinEdge Gateway starting...")
+	logger.Info("twincore Gateway starting...")
 
 	// Read public key
 	pubKeyData, err := os.ReadFile(*publicKey)
@@ -79,7 +79,7 @@ func main() {
 	healthTicker := time.NewTicker(30 * time.Second)
 	defer healthTicker.Stop()
 
-	logger.Info("TwinEdge Gateway started successfully")
+	logger.Info("twincore Gateway started successfully")
 
 	// Main loop
 	for {
@@ -94,7 +94,7 @@ func main() {
 				// As a fallback, directly initiate parts of shutdown or os.Exit if critical.
 			}
 		case <-sigChan:
-			logger.Info("Shutting down TwinEdge Gateway...")
+			logger.Info("Shutting down twincore Gateway...")
 
 			// Shutdown API server
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

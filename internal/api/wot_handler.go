@@ -12,7 +12,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	// "github.com/gorilla/mux" // No longer needed for path parameters
+
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -121,9 +121,9 @@ func (h *WoTHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	if !ok {
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("path variables not available"))
 	}
-	thingID := vars["id"]        // Key "id" as per WoTMapper pattern /things/{id}/...
+	thingID := vars["id"]           // Key "id" as per WoTMapper pattern /things/{id}/...
 	interactionType := vars["type"] // Key "type" as per WoTMapper pattern /things/{id}/{type}/...
-	name := vars["name"]        // Key "name" as per WoTMapper pattern /things/{id}/{type}/{name}
+	name := vars["name"]            // Key "name" as per WoTMapper pattern /things/{id}/{type}/{name}
 
 	// Route based on interaction type
 	switch interactionType {

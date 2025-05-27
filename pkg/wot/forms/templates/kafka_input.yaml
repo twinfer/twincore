@@ -18,3 +18,4 @@ input:
       username: "{{ .auth.username }}"
       password: "{{ .auth.password }}"
     {{- end }}
+

@@ -5,7 +5,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"github.com/twinfer/twincore/pkg/types"
 	// "github.com/twinfer/twincore/pkg/wot" // Attempting to use, but will define mocks as primary
 )
 
@@ -38,8 +37,10 @@ func (mf MockForm) GetContentType() string {
 	}
 	return mf.MContentType
 }
-func (mf MockForm) GetOp() []string                                                           { return mf.MOp }
-func (mf MockForm) GenerateConfig(_ map[string]SecurityScheme) (map[string]interface{}, error) { return nil, nil }
+func (mf MockForm) GetOp() []string { return mf.MOp }
+func (mf MockForm) GenerateConfig(_ map[string]SecurityScheme) (map[string]interface{}, error) {
+	return nil, nil
+}
 
 // wot.PropertyAffordance interface methods (simplified)
 type PropertyAffordance interface {
@@ -57,10 +58,10 @@ type MockPropertyAffordance struct {
 	MObservable bool
 }
 
-func (mpa MockPropertyAffordance) GetForms() []Form       { return mpa.MForms }
-func (mpa MockPropertyAffordance) IsReadOnly() bool     { return mpa.MReadOnly }
-func (mpa MockPropertyAffordance) IsWriteOnly() bool    { return mpa.MWriteOnly }
-func (mpa MockPropertyAffordance) IsObservable() bool   { return mpa.MObservable }
+func (mpa MockPropertyAffordance) GetForms() []Form   { return mpa.MForms }
+func (mpa MockPropertyAffordance) IsReadOnly() bool   { return mpa.MReadOnly }
+func (mpa MockPropertyAffordance) IsWriteOnly() bool  { return mpa.MWriteOnly }
+func (mpa MockPropertyAffordance) IsObservable() bool { return mpa.MObservable }
 
 // wot.DataSchema interface (simplified)
 type DataSchema interface {
@@ -84,9 +85,9 @@ type MockActionAffordance struct {
 	MOutput DataSchema
 }
 
-func (maa MockActionAffordance) GetForms() []Form     { return maa.MForms }
-func (maa MockActionAffordance) GetInput() DataSchema { return maa.MInput }
-func (maa MockActionAffordance) GetOutput() DataSchema{ return maa.MOutput }
+func (maa MockActionAffordance) GetForms() []Form      { return maa.MForms }
+func (maa MockActionAffordance) GetInput() DataSchema  { return maa.MInput }
+func (maa MockActionAffordance) GetOutput() DataSchema { return maa.MOutput }
 
 // wot.EventAffordance interface methods (simplified)
 type EventAffordance interface {
@@ -113,11 +114,11 @@ type SecurityScheme struct {
 type ThingDescription struct {
 	ID                  string
 	Title               string
-	Security            []string                       // Names of security schemes
-	SecurityDefinitions map[string]SecurityScheme      // Using our mock SecurityScheme
-	Properties          map[string]PropertyAffordance  // Using interface
-	Actions             map[string]ActionAffordance    // Using interface
-	Events              map[string]EventAffordance     // Using interface
+	Security            []string                      // Names of security schemes
+	SecurityDefinitions map[string]SecurityScheme     // Using our mock SecurityScheme
+	Properties          map[string]PropertyAffordance // Using interface
+	Actions             map[string]ActionAffordance   // Using interface
+	Events              map[string]EventAffordance    // Using interface
 }
 
 // --- End of Mock WoT Types for Testing ---
@@ -151,7 +152,7 @@ func TestWoTMapper_ProcessTD_Properties(t *testing.T) {
 
 	// Assert HTTP Routes for properties
 	assert.Len(t, config.HTTP.Routes, 2, "Should be 2 HTTP routes for properties")
-	
+
 	foundStatusRoute := false
 	foundBrightnessRoute := false
 	for _, route := range config.HTTP.Routes {
@@ -173,7 +174,6 @@ func TestWoTMapper_ProcessTD_Properties(t *testing.T) {
 	assert.True(t, foundStatusRoute, "Status property route not found")
 	assert.True(t, foundBrightnessRoute, "Brightness property route not found")
 
-
 	// Assert Stream Topics for properties
 	assert.Len(t, config.Stream.Topics, 2, "Should be 2 stream topics for properties")
 	// TODO: Implement detailed assertion details for stream topics
@@ -190,7 +190,7 @@ func TestWoTMapper_ProcessTD_Actions(t *testing.T) {
 		Actions: map[string]ActionAffordance{
 			"fade": MockActionAffordance{
 				MForms: []Form{MockForm{MHref: "/things/urn:dev:test:action-thing/actions/fade"}},
-				MInput: MockDataSchema{}, 
+				MInput: MockDataSchema{},
 				// MOutput: MockDataSchema{}, // Optional
 			},
 		},
@@ -300,7 +300,7 @@ func TestWoTMapper_getPropertyMethods(t *testing.T) {
 	woProp := MockPropertyAffordance{MReadOnly: false, MWriteOnly: true}
 	methods = mapper.getPropertyMethods(woProp)
 	assert.Equal(t, []string{"PUT"}, methods, "Write-only property should only have PUT")
-	
+
 	// Read-write
 	rwProp := MockPropertyAffordance{MReadOnly: false, MWriteOnly: false}
 	methods = mapper.getPropertyMethods(rwProp)
@@ -317,7 +317,7 @@ func TestWoTMapper_getPropertyMethods(t *testing.T) {
 func TestWoTMapper_expandPattern(t *testing.T) {
 	mapper := NewWoTMapper(logrus.New())
 	pattern := "/things/{id}/{type}/{name}"
-	
+
 	expanded := mapper.expandPattern(pattern, "dev123", "properties", "temp")
 	assert.Equal(t, "/things/dev123/properties/temp", expanded)
 
@@ -332,15 +332,15 @@ func TestWoTMapper_mapSecuritySchemes(t *testing.T) {
 	mapper := NewWoTMapper(logrus.New().WithField("test", "mapSecuritySchemes"))
 
 	securityDefs := map[string]SecurityScheme{ // Using our mock SecurityScheme
-		"basic_auth": {Scheme: "basic"},
-		"bearer_auth": {Scheme: "bearer", /* Assuming default format for JWT */},
-		"apikey_header": {Scheme: "apikey", In: "header", Name: "X-Custom-API-Key"},
-		"apikey_query": {Scheme: "apikey", In: "query", Name: "token"}, // mapSecuritySchemes only handles header
+		"basic_auth":     {Scheme: "basic"},
+		"bearer_auth":    {Scheme: "bearer" /* Assuming default format for JWT */},
+		"apikey_header":  {Scheme: "apikey", In: "header", Name: "X-Custom-API-Key"},
+		"apikey_query":   {Scheme: "apikey", In: "query", Name: "token"}, // mapSecuritySchemes only handles header
 		"unknown_scheme": {Scheme: "something_else"},
 	}
 
 	mapped := mapper.mapSecuritySchemes(securityDefs)
-	
+
 	assert.Contains(t, mapped, "basic_auth")
 	assert.Equal(t, "basic", mapped["basic_auth"].(map[string]interface{})["type"])
 
@@ -348,7 +348,6 @@ func TestWoTMapper_mapSecuritySchemes(t *testing.T) {
 	assert.Equal(t, "jwt", mapped["bearer_auth"].(map[string]interface{})["type"])
 	assert.Equal(t, "header", mapped["bearer_auth"].(map[string]interface{})["source"])
 	assert.Equal(t, "Authorization", mapped["bearer_auth"].(map[string]interface{})["name"])
-
 
 	assert.Contains(t, mapped, "apikey_header")
 	assert.Equal(t, "apikey", mapped["apikey_header"].(map[string]interface{})["type"])
@@ -368,4 +367,3 @@ func TestWoTMapper_mapSecuritySchemes(t *testing.T) {
 // If `github.com/twinfer/twincore/pkg/wot` could be imported and its types were defined (even if empty structs),
 // it would be slightly cleaner, but these local mocks are a workaround for the current environment.
 // The use of `PropertyAffordance` etc. as interfaces in the MockThingDescription allows for this flexibility.
-```

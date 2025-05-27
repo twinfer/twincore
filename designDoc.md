@@ -1,10 +1,10 @@
-TwinEdge Gateway - High-Level Design Document
+twincore Gateway - High-Level Design Document
 Executive Summary
-TwinEdge  is a configuration-driven W3C WoT servient /TD Processor that unifies HTTP serving (via embedded Caddy) and high-throughput streaming (via Redpanda) into a single, dynamically configurable application. The system translates W3C Web of Things (WoT) Thing Descriptions into both HTTP API endpoints and streaming data pipelines, providing a unified interface for IoT and edge computing scenarios.
+twincore  is a configuration-driven W3C WoT servient /TD Processor that unifies HTTP serving (via embedded Caddy) and high-throughput streaming (via Redpanda) into a single, dynamically configurable application. The system translates W3C Web of Things (WoT) Thing Descriptions into both HTTP API endpoints and streaming data pipelines, providing a unified interface for IoT and edge computing scenarios.
 System Architecture Overview
 Core Architectural Pattern: WoT Binding-Driven Gateway
 ┌─────────────────────────────────────────────────────────────┐
-│                    TwinEdge Gateway                         │
+│                    twincore Gateway                         │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐    ┌─────────────────┐                │
 │  │   WoT Service   │    │ Binding Engine  │                │
@@ -48,11 +48,11 @@ Key Design Principles
 4.  **Edge/Cloud Hybrid:** Designed to function as an edge gateway or a cloud-based device shadow.
 
 Data Persistence for Property States
-TwinEdge employs a hybrid approach for managing property state data to balance fast access to current states with durable historical logging:
+twincore employs a hybrid approach for managing property state data to balance fast access to current states with durable historical logging:
 
 *   **Historical Data (Source of Truth):**
     *   All property state updates are written to Apache Parquet files on disk.
-    *   These files are typically partitioned by day (e.g., `props_YYYY-MM-DD.parquet`) and stored in a configurable base path (e.g., `./twinedge_data/property_states_parquet/`).
+    *   These files are typically partitioned by day (e.g., `props_YYYY-MM-DD.parquet`) and stored in a configurable base path (e.g., `./twincore_data/property_states_parquet/`).
     *   This append-only, columnar storage is optimized for analytics and serves as the long-term source of truth for property history.
     *   This Parquet-based logging approach is planned for future extension to event data and action invocation history.
 
@@ -65,7 +65,7 @@ TwinEdge employs a hybrid approach for managing property state data to balance f
     *   When `StateManager.GetProperty` is called, it reads directly from the DuckDB `property_state` table for low-latency access.
 
 HTTP Security Configuration
-The security for HTTP-based WoT interactions and other API endpoints provided by TwinEdge is managed via its embedded Caddy server. The configuration for Caddy's security features is derived from the `types.SecurityConfig` structure, which is designed to align closely with `go-authcrunch`, the underlying library powering Caddy's advanced authentication and authorization capabilities.
+The security for HTTP-based WoT interactions and other API endpoints provided by twincore is managed via its embedded Caddy server. The configuration for Caddy's security features is derived from the `types.SecurityConfig` structure, which is designed to align closely with `go-authcrunch`, the underlying library powering Caddy's advanced authentication and authorization capabilities.
 
 *   **Configuration Structure**: The `types.SecurityConfig` (typically part of the gateway's main configuration file) allows defining:
     *   `AuthenticationPortals`: Define how users authenticate (e.g., login forms, UI settings).
@@ -74,6 +74,6 @@ The security for HTTP-based WoT interactions and other API endpoints provided by
     *   `AuthorizationGatekeepers`: Define policies for controlling access to resources.
 
 *   **DB-Backed Local User Store**:
-    *   TwinEdge supports a local identity store backed by the DuckDB database. This is configured by including an `authn.IdentityStoreConfig` in the `types.SecurityConfig.IdentityStores` array with its `Kind` field set to `"local"`.
+    *   twincore supports a local identity store backed by the DuckDB database. This is configured by including an `authn.IdentityStoreConfig` in the `types.SecurityConfig.IdentityStores` array with its `Kind` field set to `"local"`.
     *   When a "local" identity store is specified, user credentials (username, bcrypt/scrypt hashed password, roles, email, etc.) are loaded by the `HTTPService` from the `local_users` table in DuckDB at startup.
     *   **Operational Note**: Passwords in the `local_users` table must be hashed using a format compatible with `go-authcrunch` (e.g., bcrypt, scrypt). Populating and managing users in this table can be done via direct SQL initially, with plans for future administrative APIs.

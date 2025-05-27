@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2" // Import caddy
+	"github.com/sirupsen/logrus"      // Import logrus
 	"github.com/wI2L/jsondiff"
-	"github.com/sirupsen/logrus" // Import logrus
 )
 
 // ConfigManager manages configurations via API
@@ -171,27 +171,7 @@ func (cm *ConfigManager) RollbackCaddyConfig() error {
 
 	cm.logger.Warn("RollbackCaddyConfig is currently non-functional pending a proper historical version fetching implementation.")
 	return fmt.Errorf("rollback is temporarily disabled")
-	/*
-	// Old logic that needs replacement:
-	currentJSON, _ := json.Marshal(cm.caddyConfig)
-	var patch jsondiff.Patch
-	if err := json.Unmarshal(cm.caddyPatches, &patch); err != nil { // Assuming cm.caddyPatches stores the latest single patch JSON
-	    return fmt.Errorf("failed to unmarshal patch for rollback: %w", err)
-	}
-	// Note: jsondiff.Patch.Apply applies the patch. For rollback, you'd typically apply the inverse
-	// or fetch a previous state. jsondiff doesn't directly provide an "inverse patch" apply.
-	// This part needs careful redesign if true patch-based rollback is desired.
-	// For now, as per above, we disable it.
-	modifiedJSON, err := patch.Apply(currentJSON)
-	if err != nil {
-	    return fmt.Errorf("failed to apply patch for rollback: %w", err)
-	}
-	var rolledBackConfig caddy.Config
-	if err := json.Unmarshal(modifiedJSON, &rolledBackConfig); err != nil {
-	    return err
-	}
-	return cm.UpdateCaddyConfig(&rolledBackConfig) // This will then save it as a new version
-	*/
+
 }
 
 // UpdateBenthosStream updates a Benthos stream configuration (no JD, just reload)
