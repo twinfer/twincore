@@ -78,8 +78,105 @@ type PropertyValue struct {
 
 // EventBroker manages SSE connections for events
 type EventBroker struct {
-	subscribers sync.Map // map[string][]chan Event
-	mu          sync.RWMutex
+	subscribers sync.Map // map[string][]chan Event -> stores []chan Event for a given key
+	mu          sync.RWMutex // mu protects modifications to the slices stored in subscribers
+}
+
+// NewEventBroker creates a new EventBroker.
+// Note: WoTHandler.Provision already initializes its eventBroker field.
+// This constructor is provided if EventBroker needs to be created independently.
+func NewEventBroker() *EventBroker {
+	return &EventBroker{} // sync.Map is ready to use from zero value
+}
+
+// Subscribe creates a new channel for the given thing and event, adds it to subscribers, and returns it.
+func (eb *EventBroker) Subscribe(thingID, eventName string) <-chan Event {
+	key := thingID + "/" + eventName
+	ch := make(chan Event, 10) // Buffered channel
+
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+
+	var chans []chan Event
+	if actual, ok := eb.subscribers.Load(key); ok {
+		chans = actual.([]chan Event)
+	}
+
+	// Create a new slice for storing to avoid modifying a potentially shared slice
+	newChans := make([]chan Event, len(chans)+1)
+	copy(newChans, chans)
+	newChans[len(chans)] = ch
+	
+	eb.subscribers.Store(key, newChans)
+	return ch
+}
+
+// Unsubscribe removes the given channel from the subscribers list for the specific thing and event.
+// It also closes the channel.
+func (eb *EventBroker) Unsubscribe(thingID, eventName string, ch <-chan Event) {
+	key := thingID + "/" + eventName
+
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+
+	if actual, ok := eb.subscribers.Load(key); ok {
+		chans := actual.([]chan Event)
+		newChans := []chan Event{}
+		found := false
+		for _, c := range chans {
+			if c == ch {
+				found = true
+			} else {
+				newChans = append(newChans, c)
+			}
+		}
+
+		if found {
+			if len(newChans) == 0 {
+				eb.subscribers.Delete(key)
+			} else {
+				eb.subscribers.Store(key, newChans)
+			}
+		}
+	}
+	
+	// Close the channel after removing it from subscribers list and releasing the lock.
+	// Cast to writeable chan to close.
+	go func(c chan Event) {
+		// Drain the channel before closing to ensure senders in Publish don't panic
+		// if they are in the middle of a non-blocking send.
+		// However, with non-blocking send (select-default), this might not be strictly necessary
+		// but good practice if channel could be full.
+		for range c {}
+		close(c)
+	}(ch.(chan Event))
+}
+
+// Publish sends an event to all subscribers of that event.
+// It uses a non-blocking send.
+func (eb *EventBroker) Publish(event Event) {
+	key := event.ThingID + "/" + event.EventName
+	
+	var chansCopy []chan Event
+
+	eb.mu.RLock()
+	if actual, ok := eb.subscribers.Load(key); ok {
+		chans := actual.([]chan Event)
+		// Make a copy of the slice to iterate over,
+		// so we don't hold the lock while sending to channels.
+		chansCopy = make([]chan Event, len(chans))
+		copy(chansCopy, chans)
+	}
+	eb.mu.RUnlock()
+
+	for _, c := range chansCopy {
+		select {
+		case c <- event:
+		default:
+			// Optional: Log or handle slow subscriber.
+			// fmt.Printf("EventBroker: Slow subscriber or closed channel for key %s\n", key)
+		}
+	}
 }
 
 type Event struct {
