@@ -97,3 +97,26 @@ type Service interface {
 	UpdateConfig(config ServiceConfig) error
 	HealthCheck() error
 }
+
+// License defines the interface for license information.
+// Implementations of this interface will provide details about licensed features.
+type License interface {
+	IsFeatureEnabled(feature string) bool
+	// GetFeatures() []string // Example of another method it might have
+	// GetExpiry() time.Time // Example
+}
+
+// LicenseManager defines the interface for license parsing and validation.
+type LicenseManager interface {
+	// ParseAndValidate parses and validates a license token string.
+	// It returns a License interface (which security.License implements) or an error.
+	ParseAndValidate(tokenString string) (License, error)
+}
+
+// ServiceRegistry defines the interface for managing application services.
+type ServiceRegistry interface {
+	RegisterService(name string, service Service)
+	LoadPermittedServices(license License) error
+	StartService(ctx context.Context, name string) error
+	StopService(ctx context.Context, name string) error
+}

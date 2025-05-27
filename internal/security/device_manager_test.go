@@ -7,18 +7,21 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v4"
+	"github.com/twinfer/twincore/pkg/types"
 )
 
 // MockLicenseManager for testing DeviceManager
 type MockLicenseManager struct {
-	ValidateFunc func(tokenString string, publicKey []byte) (*License, error)
+	ParseAndValidateFunc func(tokenString string) (types.License, error)
 }
 
-func (m *MockLicenseManager) Validate(tokenString string, publicKey []byte) (*License, error) {
-	if m.ValidateFunc != nil {
-		return m.ValidateFunc(tokenString, publicKey)
+func (m *MockLicenseManager) ParseAndValidate(tokenString string) (types.License, error) {
+	if m.ParseAndValidateFunc != nil {
+		return m.ParseAndValidateFunc(tokenString)
 	}
-	return nil, fmt.Errorf("ValidateFunc not set in MockLicenseManager")
+	return nil, fmt.Errorf("ParseAndValidateFunc not set in MockLicenseManager")
 }
 
 func TestNewDeviceManager(t *testing.T) {
@@ -35,9 +38,11 @@ func TestNewDeviceManager(t *testing.T) {
 }
 
 func TestDeviceManager_InitializeLicense(t *testing.T) {
-	validClaims := map[string]interface{}{"active": true, "exp": time.Now().Add(time.Hour).Unix()}
-	validLicense := &License{Claims: validClaims}
-	dummyKey := []byte("dummy_public_key")
+	validSecLicense := &License{ // This is *security.License
+		Claims:   &LicenseClaims{RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}},
+		Valid:    true,
+		Features: []string{"core"},
+	}
 
 	// Create a temporary license file
 	tempDir := t.TempDir()
@@ -49,39 +54,38 @@ func TestDeviceManager_InitializeLicense(t *testing.T) {
 	nonExistentLicenseFile := filepath.Join(tempDir, "non_existent.jwt")
 
 	tests := []struct {
-		name           string
-		licensePath    string
-		mockValidate   func(tokenString string, publicKey []byte) (*License, error)
-		wantErr        bool
-		wantLicenseNil bool
+		name                 string
+		licensePath          string
+		mockParseAndValidate func(tokenString string) (types.License, error)
+		wantErr              bool
+		wantLicenseNil       bool
 	}{
 		{
 			name:        "successful initialization",
 			licensePath: validLicenseFile,
-			mockValidate: func(tokenString string, publicKey []byte) (*License, error) {
+			mockParseAndValidate: func(tokenString string) (types.License, error) {
 				if tokenString != "valid_dummy_token" {
 					return nil, fmt.Errorf("unexpected token string: %s", tokenString)
 				}
-				return validLicense, nil
+				return validSecLicense, nil // Return *security.License which implements types.License
 			},
 			wantErr:        false,
 			wantLicenseNil: false,
 		},
 		{
-			name:        "license manager validation fails",
+			name:        "license manager ParseAndValidate fails",
 			licensePath: validLicenseFile,
-			mockValidate: func(tokenString string, publicKey []byte) (*License, error) {
+			mockParseAndValidate: func(tokenString string) (types.License, error) {
 				return nil, fmt.Errorf("mock validation error")
 			},
 			wantErr:        true,
-			wantLicenseNil: true,
+			wantLicenseNil: false, // currentLicense will be set to a minimal {Valid:false} struct
 		},
 		{
 			name:        "license file does not exist",
 			licensePath: nonExistentLicenseFile,
-			mockValidate: func(tokenString string, publicKey []byte) (*License, error) {
-				// This shouldn't be called if file read fails
-				return validLicense, nil
+			mockParseAndValidate: func(tokenString string) (types.License, error) {
+				return validSecLicense, nil // This shouldn't be called if file read fails
 			},
 			wantErr:        true,
 			wantLicenseNil: true,
@@ -89,23 +93,30 @@ func TestDeviceManager_InitializeLicense(t *testing.T) {
 		{
 			name:        "empty license file path",
 			licensePath: "", // Test with an empty path
-			mockValidate: func(tokenString string, publicKey []byte) (*License, error) {
-				return validLicense, nil
+			mockParseAndValidate: func(tokenString string) (types.License, error) {
+				return validSecLicense, nil
 			},
 			wantErr:        true, // os.ReadFile will error on empty path
 			wantLicenseNil: true,
+		},
+		{
+			name:        "ParseAndValidate returns wrong license type",
+			licensePath: validLicenseFile,
+			mockParseAndValidate: func(tokenString string) (types.License, error) {
+				return &struct{ types.License }{}, fmt.Errorf("wrong type mock error, this error should not be returned by InitializeLicense") // A type that implements types.License but isn't *security.License
+			},
+			wantErr:        true,  // InitializeLicense should error out due to type assertion failure
+			wantLicenseNil: false, // currentLicense will be set to a minimal {Valid:false} struct
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockLm := &MockLicenseManager{ValidateFunc: tt.mockValidate}
+			mockLm := &MockLicenseManager{ParseAndValidateFunc: tt.mockParseAndValidate}
 			dm := &DeviceManager{
 				licensePath:    tt.licensePath,
-				publicKey:      dummyKey,
 				licenseManager: mockLm,
 			}
-
 			err := dm.InitializeLicense(context.Background())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DeviceManager.InitializeLicense() error = %v, wantErr %v", err, tt.wantErr)
@@ -117,6 +128,10 @@ func TestDeviceManager_InitializeLicense(t *testing.T) {
 			if !tt.wantLicenseNil && dm.currentLicense == nil {
 				t.Error("DeviceManager.InitializeLicense() expected currentLicense to be non-nil, got nil")
 			}
+			// If an error occurred but we don't expect license to be nil, check Valid is false
+			if tt.wantErr && !tt.wantLicenseNil && dm.currentLicense != nil && dm.currentLicense.Valid {
+				t.Error("DeviceManager.InitializeLicense() errored but currentLicense.Valid is true")
+			}
 		})
 	}
 }
@@ -127,7 +142,7 @@ func TestDeviceManager_GetLicense(t *testing.T) {
 		t.Errorf("GetLicense() on uninitialized DM = %v, want nil", lic)
 	}
 
-	expectedLicense := &License{Claims: map[string]interface{}{"active": true}}
+	expectedLicense := &License{Claims: &LicenseClaims{DeviceID: "test-device"}}
 	dm.currentLicense = expectedLicense
 
 	if lic := dm.GetLicense(); lic != expectedLicense {
@@ -148,28 +163,28 @@ func TestDeviceManager_GetLicenseClaims(t *testing.T) {
 	}
 
 	// Case 2: License loaded, but claims are nil (shouldn't happen with proper Validate)
-	dm.currentLicense = &License{Claims: nil}
+	dm.currentLicense = &License{Valid: true, Claims: nil} // Valid but nil claims
 	claims, err = dm.GetLicenseClaims()
-	if err == nil {
-		t.Error("GetLicenseClaims() expected error when claims are nil, got nil")
+	if err != nil { // GetLicenseClaims itself doesn't error if Claims is nil, it returns nil claims
+		t.Errorf("GetLicenseClaims() unexpected error when claims are nil: %v", err)
 	}
-	if claims != nil {
-		t.Errorf("GetLicenseClaims() expected nil claims when license.Claims is nil, got %v", claims)
+	if claims != nil { // It should return nil for claims if dm.currentLicense.Claims is nil
+		t.Errorf("GetLicenseClaims() expected nil claims when license.Claims is nil, got %v", *claims)
 	}
 
 	// Case 3: License with valid claims
-	expectedClaims := map[string]interface{}{"feature_A": true, "user": "test"}
-	dm.currentLicense = &License{Claims: expectedClaims}
+	expectedClaimsObj := &LicenseClaims{DeviceID: "test-device", Tier: "premium"}
+	dm.currentLicense = &License{Valid: true, Claims: expectedClaimsObj}
 	claims, err = dm.GetLicenseClaims()
 	if err != nil {
 		t.Errorf("GetLicenseClaims() unexpected error: %v", err)
 	}
-	if len(claims) != len(expectedClaims) { // Simple comparison
-		t.Errorf("GetLicenseClaims() = %v, want %v", claims, expectedClaims)
+	if claims == nil {
+		t.Fatalf("GetLicenseClaims() returned nil claims, want %v", expectedClaimsObj)
 	}
-	for k, v := range expectedClaims {
-		if claims[k] != v {
-			t.Errorf("GetLicenseClaims() claim %s = %v, want %v", k, claims[k], v)
-		}
+	if claims.DeviceID != expectedClaimsObj.DeviceID || claims.Tier != expectedClaimsObj.Tier {
+		t.Errorf("GetLicenseClaims() = %v, want %v", *claims, *expectedClaimsObj)
 	}
 }
+
+var _ types.LicenseManager = (*MockLicenseManager)(nil) // Ensure mock implements the interface

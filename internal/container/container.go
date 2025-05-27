@@ -15,6 +15,7 @@ import (
 	"github.com/twinfer/twincore/internal/config"
 	"github.com/twinfer/twincore/internal/security" // Added for new security types
 	"github.com/twinfer/twincore/pkg/types"
+
 	svc "github.com/twinfer/twincore/service"
 )
 
@@ -124,9 +125,9 @@ func (c *Container) initSecurity(cfg *Config) error {
 
 	// Initialize license manager using the new constructor from internal/security
 	// The types.LicenseManager in Container struct should be compatible with security.LicenseManager interface
-	var lm types.LicenseManager // Ensure this type matches what NewLicenseManager returns or is compatible
-	var specificLm security.LicenseManager
-	specificLm, err := security.NewLicenseManager(cfg.PublicKey)
+	var lm types.LicenseManager                                  // Ensure this type matches what NewLicenseManager returns or is compatible
+	var specificLm *security.LicenseManager                      // Corrected type to pointer
+	specificLm, err := security.NewLicenseManager(cfg.PublicKey) // Corrected assignment
 	if err != nil {
 		return fmt.Errorf("failed to create license manager: %w", err)
 	}
@@ -262,10 +263,10 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 	c.ServiceRegistry.RegisterService("wot", c.WoTService)
 
 	// Load permitted services based on license
-	license, err := c.DeviceManager.GetLicense() // Assuming GetLicense exists and might return error
-	if err != nil {
-		c.Logger.Warnf("Failed to retrieve license for loading permitted services: %v. Proceeding with default/no restrictions.", err)
-		// Potentially load a default "no license" or "base features" license object
+	license := c.DeviceManager.GetLicense()
+	if license == nil { // Or a more specific check if the License interface/impl allows
+		c.Logger.Warnf("No valid license retrieved for loading permitted services. Proceeding with default/no restrictions or features.")
+		// The LoadPermittedServices method should handle a nil license gracefully.
 	}
 	if err := c.ServiceRegistry.LoadPermittedServices(license); err != nil {
 		return err
@@ -277,11 +278,6 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 
 func (c *Container) wireDependencies(cfg *Config) error { // Added cfg parameter
 	c.Logger.Debug("Wiring dependencies")
-
-	// Wire WoT handler to HTTP service
-	if httpSvc, ok := c.HTTPService.(*svc.HTTPService); ok {
-		httpSvc.SetWoTHandler(c.WoTHandler)
-	}
 
 	// Wire stream integration
 	// Pass ParquetLogPath to NewStreamIntegration
@@ -336,6 +332,37 @@ func (c *Container) Stop(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// buildInitialHTTPServiceConfig creates the default configuration for the HTTP service.
+// This is crucial for providing baseline settings, especially security configurations,
+// that are used when dynamically updating Caddy.
+func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceConfig {
+	// TODO: Load this from a static gateway configuration file or define robust defaults.
+	// For now, providing a minimal structure.
+	// The `security` part is essential for `main.go` when registering new Things.
+	defaultSecurityConfig := types.SecurityConfig{
+		Enabled:                  true, // Or false, depending on default posture
+		AuthenticationPortals:    []*authn.PortalConfig{},
+		IdentityStores:           []*authn.IdentityStoreConfig{},
+		TokenValidators:          []*authn.TokenValidatorConfig{},
+		AuthorizationGatekeepers: []*authz.Config{},
+	}
+
+	return types.ServiceConfig{
+		Name: "http",
+		Type: "http_service", // Or a more descriptive type
+		Config: map[string]interface{}{
+			"http":     types.HTTPConfig{Routes: []types.HTTPRoute{}}, // Initially no dynamic routes
+			"security": defaultSecurityConfig,
+		},
+	}
+}
+
+// buildInitialStreamServiceConfig creates the default configuration for the Stream service.
+func (c *Container) buildInitialStreamServiceConfig(appCfg *Config) types.ServiceConfig {
+	// TODO: Define default stream configurations if any are needed at startup.
+	return types.ServiceConfig{Name: "stream", Type: "stream_service", Config: map[string]interface{}{"stream": types.StreamConfig{}}}
 }
 
 // Config holds container configuration

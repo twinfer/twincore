@@ -179,6 +179,29 @@ func (eb *EventBroker) Publish(event models.Event) {
 	}
 }
 
+// NewWoTHandler creates a new WoTHandler with its dependencies.
+// This constructor is used when the WoTHandler is managed by the application container,
+// as opposed to being solely provisioned by Caddy.
+func NewWoTHandler(
+	sm StateManager,
+	sb StreamBridge,
+	tr ThingRegistry,
+	eb *EventBroker,
+	logger *logrus.Logger,
+) *WoTHandler {
+	return &WoTHandler{
+		stateManager:  sm,
+		streamBridge:  sb,
+		thingRegistry: tr,
+		eventBroker:   eb,
+		logger:        logger,
+		validator:     NewJSONSchemaValidator(),             // Initialize the validator
+		propertyCache: &PropertyCache{ttl: 5 * time.Second}, // Initialize property cache
+		// metrics field is a struct, not a pointer, so it's zero-value initialized.
+		// If MetricsCollector needs specific construction, do it here.
+	}
+}
+
 // CaddyModule returns the Caddy module information
 func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
@@ -190,6 +213,7 @@ func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the handler
 func (h *WoTHandler) Provision(ctx caddy.Context) error {
 	// Initialize components
+	h.validator = NewJSONSchemaValidator() // Ensure validator is initialized
 	h.propertyCache = &PropertyCache{ttl: 5 * time.Second}
 	// Retrieve logger from Caddy app context
 	appLogger, err := ctx.App("twincore.logger")
@@ -418,24 +442,33 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
-	// Parse input
 	var input interface{}
-	if action.GetInput() != nil {
+	inputSchema := action.GetInput() // Assume this returns wot.DataSchema (value type)
+
+	// Attempt to read and parse the body if the request method implies a body (e.g., POST)
+	// and ContentLength is positive.
+	// If the action expects no input (schema is empty/zero), but a body is provided,
+	// the permissive validation on an empty schema will likely pass.
+	// If the action expects input, it will be validated against the schema.
+	if r.ContentLength > 0 {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			return caddyhttp.Error(http.StatusBadRequest, err)
 		}
+		defer r.Body.Close()
 
-		if err := json.Unmarshal(body, &input); err != nil {
-			return caddyhttp.Error(http.StatusBadRequest, err)
+		if len(body) > 0 { // Only unmarshal if body is not empty
+			if err := json.Unmarshal(body, &input); err != nil {
+				h.logError(fmt.Sprintf("Failed to unmarshal action input for %s/%s", thingID, actionName), err)
+				return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("invalid JSON input: %w", err))
+			}
 		}
+	} // If ContentLength is 0 or body was empty, `input` remains `nil`.
 
-		// Validate input
-		if err := h.validator.ValidateActionInput(action.GetInput(), input); err != nil {
-			return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
-		}
+	// Validate input. `inputSchema` is wot.DataSchema. If it's a zero struct, validator is permissive.
+	if err := h.validator.ValidateActionInput(inputSchema, input); err != nil {
+		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
 	}
-
 	// Publish action invocation
 	actionID, err := h.streamBridge.PublishActionInvocation(thingID, actionName, input)
 	if err != nil {
