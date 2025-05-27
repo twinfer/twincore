@@ -4,7 +4,6 @@ go 1.24.3
 
 require (
 	github.com/apache/arrow/go/v18 v18.0.0-20241007013041-ab95a4d25142
-	github.com/aws/smithy-go v1.22.2
 	github.com/caddyserver/caddy/v2 v2.10.0
 	github.com/elastic/go-elasticsearch/v8 v8.18.0
 	github.com/google/uuid v1.6.0

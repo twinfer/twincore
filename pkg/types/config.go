@@ -2,8 +2,10 @@
 package types
 
 import (
-	authn "github.com/greenpau/go-authcrunch/pkg/authn"
-	authz "github.com/greenpau/go-authcrunch/pkg/authz"
+	"context"
+
+	"github.com/greenpau/go-authcrunch/pkg/authn/ui"
+	"github.com/greenpau/go-authcrunch/pkg/authz"
 )
 
 // HTTPRoute represents a HTTP route configuration
@@ -37,21 +39,21 @@ type SecurityConfig struct {
 
 	// Configuration for Authentication Portals
 	// Typically, one portal is defined.
-	AuthenticationPortals []*authn.PortalConfig `json:"authenticationPortals,omitempty"`
+	AuthenticationPortals []*ui.PortalConfig `json:"authenticationPortals,omitempty"`
 
 	// Configuration for Identity Stores (e.g., local user database, LDAP)
 	// Note: authn.PortalConfig.IdentityStores and authn.PortalConfig.IdentityProviders are the typical way to link these.
 	// Exposing these at top level might be redundant if PortalConfig is fully specified.
 	// For now, including as per prompt, assuming they might be used to populate the main authcrunch.Config.
-	IdentityStores []*authn.IdentityStoreConfig `json:"identityStores,omitempty"`
+	IdentityStores []*ui.IdentityStoreConfig `json:"identityStores,omitempty"`
 
 	// Configuration for Token Validators (e.g., JWT validators)
 	// Similar to IdentityStores, these are often part of PortalConfig.
-	TokenValidators []*authn.TokenValidatorConfig `json:"tokenValidators,omitempty"`
+	TokenValidators []*ui.TokenValidatorConfig `json:"tokenValidators,omitempty"`
 
 	// Configuration for Authorization (Gatekeepers and Policies)
 	// Typically, one gatekeeper containing multiple policies is defined.
-	AuthorizationGatekeepers []*authz.GatekeeperConfig `json:"authorizationGatekeepers,omitempty"`
+	AuthorizationGatekeepers []*authz.Config `json:"authorizationGatekeepers,omitempty"`
 
 	// Other global settings from authcrunch.Config if necessary
 	// LogLevel string `json:"logLevel,omitempty"`
@@ -62,4 +64,35 @@ type SecurityConfig struct {
 type HTTPConfig struct {
 	Routes   []HTTPRoute            `json:"routes"`
 	Security map[string]interface{} `json:"security,omitempty"` // This might become redundant or change if HTTPConfig itself is part of SecurityConfig
+}
+
+// StreamConfig holds configurations for streaming topics and commands.
+type StreamConfig struct {
+	Topics   []StreamTopic   `json:"topics"`
+	Commands []CommandStream `json:"commands"`
+}
+
+// UnifiedConfig represents the overall configuration generated from a Thing Description.
+type UnifiedConfig struct {
+	Version string       `json:"version"`
+	HTTP    HTTPConfig   `json:"http"`
+	Stream  StreamConfig `json:"stream"`
+}
+
+// ServiceConfig holds the generic configuration for a service.
+type ServiceConfig struct {
+	Name   string                 `json:"name"`
+	Type   string                 `json:"type"`
+	Config map[string]interface{} `json:"config"` // Generic config map
+}
+
+// Service defines the interface for a manageable service within the application.
+type Service interface {
+	Name() string
+	RequiredLicense() []string
+	Dependencies() []string
+	Start(ctx context.Context, config ServiceConfig) error
+	Stop(ctx context.Context) error
+	UpdateConfig(config ServiceConfig) error
+	HealthCheck() error
 }

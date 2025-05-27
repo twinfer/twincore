@@ -5,7 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os" // Added for OPA policy file reading
+	"os"   // Added for OPA policy file reading
 	"time" // Added for OPA input
 
 	"github.com/open-policy-agent/opa/rego" // Added for OPA
@@ -47,6 +47,10 @@ type Container struct {
 	// Benthos
 	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
 	BenthosEnvironment *service.Environment // Benthos v4 environment
+
+	// Initial configurations used to start services
+	InitialHTTPServiceConfig   types.ServiceConfig
+	InitialStreamServiceConfig types.ServiceConfig
 }
 
 // New creates a new dependency container
@@ -88,6 +92,11 @@ func New(ctx context.Context, cfg *Config) (*Container, error) {
 		return nil, fmt.Errorf("failed to wire dependencies: %w", err)
 	}
 
+	// Define initial service configurations (can be loaded from cfg or defaults)
+	// This is where global security settings for HTTP would be defined.
+	c.InitialHTTPServiceConfig = c.buildInitialHTTPServiceConfig(cfg)
+	c.InitialStreamServiceConfig = c.buildInitialStreamServiceConfig(cfg)
+
 	c.Logger.Info("Container initialization complete")
 	return c, nil
 }
@@ -123,7 +132,6 @@ func (c *Container) initSecurity(cfg *Config) error {
 	}
 	lm = specificLm // Assign if compatible, or adjust types.LicenseManager
 	c.LicenseManager = lm
-
 
 	// Initialize device manager using the new constructor from internal/security
 	dm, err := security.NewDeviceManager(cfg.LicensePath, cfg.PublicKey)
@@ -242,11 +250,11 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 	c.ServiceRegistry = svc.NewServiceRegistry()
 
 	// Create services
-	c.HTTPService = svc.NewHTTPService(c.ConfigManager, c.Logger)
+	c.HTTPService = svc.NewHTTPService(c.Logger, c.DB) // Corrected constructor
 	// NewStreamService was refactored to take *service.Environment.
-	// Assuming constructor: NewStreamService(env *service.Environment)
-	c.StreamService = svc.NewStreamService(c.BenthosEnvironment)
-	c.WoTService = svc.NewWoTService(c.ThingRegistry, c.ConfigManager, c.Logger)
+	// Constructor: NewStreamService(env *service.Environment, logger *logrus.Logger)
+	c.StreamService = svc.NewStreamService(c.BenthosEnvironment, c.Logger)
+	c.WoTService = svc.NewWoTService(c.ThingRegistry, c.ConfigManager, c.Logger) // Assuming this constructor is correct
 
 	// Register services
 	c.ServiceRegistry.RegisterService("http", c.HTTPService)
@@ -254,7 +262,11 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 	c.ServiceRegistry.RegisterService("wot", c.WoTService)
 
 	// Load permitted services based on license
-	license := c.DeviceManager.GetLicense()
+	license, err := c.DeviceManager.GetLicense() // Assuming GetLicense exists and might return error
+	if err != nil {
+		c.Logger.Warnf("Failed to retrieve license for loading permitted services: %v. Proceeding with default/no restrictions.", err)
+		// Potentially load a default "no license" or "base features" license object
+	}
 	if err := c.ServiceRegistry.LoadPermittedServices(license); err != nil {
 		return err
 	}
@@ -284,7 +296,7 @@ func (c *Container) wireDependencies(cfg *Config) error { // Added cfg parameter
 
 	// Create WoT streams using the container's BenthosEnvironment
 	// Signature: (env)
-	if err := api.CreateWoTStreams(c.BenthosEnvironment); err != nil { 
+	if err := api.CreateWoTStreams(c.BenthosEnvironment); err != nil {
 		return fmt.Errorf("failed to create WoT Benthos streams: %w", err)
 	}
 

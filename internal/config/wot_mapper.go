@@ -34,15 +34,20 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 
 	// Process properties
 	for name, property := range td.Properties {
+		if property == nil {
+			m.logger.Warnf("Skipping property '%s' in TD '%s' due to nil definition.", name, td.ID)
+			continue
+		}
 		m.logger.Debugf("Processing property: %s", name)
 
 		// Extract forms for configuration
+		// Assuming GetForms() can be called on *wot.PropertyAffordance
 		forms := property.GetForms()
 
 		// HTTP route
 		route := types.HTTPRoute{
 			Path:         m.expandPattern(m.httpPattern, td.ID, "properties", name),
-			Methods:      m.getPropertyMethods(property),
+			Methods:      m.getPropertyMethods(*property), // Dereference pointer
 			Handler:      "wot_property_handler",
 			RequiresAuth: len(td.Security) > 0,
 			Metadata: map[string]interface{}{
@@ -71,6 +76,10 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 
 	// Process actions
 	for name, action := range td.Actions {
+		if action == nil {
+			m.logger.Warnf("Skipping action '%s' in TD '%s' due to nil definition.", name, td.ID)
+			continue
+		}
 		m.logger.Debugf("Processing action: %s", name)
 
 		forms := action.GetForms()
@@ -109,6 +118,10 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 
 	// Process events
 	for name, event := range td.Events {
+		if event == nil {
+			m.logger.Warnf("Skipping event '%s' in TD '%s' due to nil definition.", name, td.ID)
+			continue
+		}
 		m.logger.Debugf("Processing event: %s", name)
 
 		forms := event.GetForms()

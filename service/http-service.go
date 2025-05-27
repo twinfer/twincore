@@ -7,20 +7,18 @@ import (
 	"fmt"
 	"net/http"
 
-	security "github.com/greenpau/caddy-security"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	security "github.com/greenpau/caddy-security"
 	"github.com/twinfer/twincore/pkg/types"
 
+	"database/sql" // Added for db field
+	"strings"      // Added for strings.Split
+
 	authcrunch "github.com/greenpau/go-authcrunch" // Main config
-	authn "github.com/greenpau/go-authcrunch/pkg/authn"
-	authnui "github.com/greenpau/go-authcrunch/pkg/authn/ui"
-	authz "github.com/greenpau/go-authcrunch/pkg/authz"
-	"github.com/greenpau/go-authcrunch/pkg/user" // Added for user.UserConfig
-	"github.com/sirupsen/logrus"                  // Added for logger field
-	"database/sql"                                // Added for db field
-	"strings"                                     // Added for strings.Split
+	"github.com/greenpau/go-authcrunch/pkg/user"   // Added for user.UserConfig
+	"github.com/sirupsen/logrus"                   // Added for logger field
 	// For specific IDP/Store configs, we might need:
 	// localauth "github.com/greenpau/go-authcrunch/pkg/authn/backends/local" // if specific types are needed beyond general config
 	// jwtvalidator "github.com/greenpau/go-authcrunch/pkg/authn/validators/jwt"
@@ -31,7 +29,7 @@ type HTTPService struct {
 	instance *caddy.Caddy
 	config   *caddy.Config
 	running  bool
-	db       *sql.DB // Added DB field
+	db       *sql.DB        // Added DB field
 	logger   *logrus.Logger // Added logger field
 	// configManager *config.ConfigManager // Assuming this was meant to be a field if passed in New
 }
@@ -64,7 +62,7 @@ func (h *HTTPService) Start(ctx context.Context, config types.ServiceConfig) err
 	}
 
 	// Generate Caddy configuration
-	caddyConfig, err := h.generateCaddyConfig(config)
+	caddyConfig, err := h.GenerateCaddyConfig(config)
 	if err != nil {
 		return fmt.Errorf("failed to generate Caddy config: %w", err)
 	}
@@ -105,7 +103,7 @@ func (h *HTTPService) UpdateConfig(config types.ServiceConfig) error {
 		return fmt.Errorf("service not running")
 	}
 
-	newConfig, err := h.generateCaddyConfig(config)
+	newConfig, err := h.GenerateCaddyConfig(config)
 	if err != nil {
 		return fmt.Errorf("failed to generate new config: %w", err)
 	}
@@ -142,8 +140,8 @@ func (h *HTTPService) HealthCheck() error {
 	return nil
 }
 
-// generateCaddyConfig creates Caddy configuration with security module
-func (h *HTTPService) generateCaddyConfig(config types.ServiceConfig) (*caddy.Config, error) {
+// GenerateCaddyConfig creates Caddy configuration with security module
+func (h *HTTPService) GenerateCaddyConfig(config types.ServiceConfig) (*caddy.Config, error) {
 	httpConfig, ok := config.Config["http"].(types.HTTPConfig)
 	if !ok {
 		return nil, fmt.Errorf("missing HTTP configuration")
@@ -179,11 +177,11 @@ func (h *HTTPService) generateCaddyConfig(config types.ServiceConfig) (*caddy.Co
 			Listen: "localhost:2019",
 		},
 		AppsRaw: caddy.ModuleMap{
-			"http": caddyconfig.JSON(caddyhttp.App{
+			"http": caddyconfig.JSON(caddyhttp.App{ // Added nil for the warnings argument
 				Servers: map[string]*caddyhttp.Server{
 					"srv0": server,
 				},
-			}),
+			}, nil),
 			"security": h.buildSecurityApp(securityConfig),
 		},
 	}
@@ -208,13 +206,12 @@ func (h *HTTPService) buildSecurityRoute(config types.SecurityConfig) caddyhttp.
 	}
 }
 
-
 // buildSecurityApp creates the security app configuration for Caddy
 // This function configures the github.com/greenpau/caddy-security App
 func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage {
 	// The main App from github.com/greenpau/caddy-security
 	// This App's Config field is of type *authcrunch.Config
-	
+
 	crunchConfig := authcrunch.NewConfig() // Create a new authcrunch.Config
 
 	// Directly assign configurations from types.SecurityConfig to authcrunch.Config
@@ -248,7 +245,7 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 
 			for rows.Next() {
 				var username, passwordHash, rolesStr, email, name sql.NullString
-				var disabled sql.NullBool 
+				var disabled sql.NullBool
 				if err := rows.Scan(&username, &passwordHash, &rolesStr, &email, &name, &disabled); err != nil {
 					h.logger.Errorf("Failed to scan row from local_users for store %s: %v", storeConfig.Name, err)
 					continue
@@ -263,26 +260,28 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 				}
 				if rolesStr.Valid && rolesStr.String != "" {
 					userCfg.Roles = strings.Split(rolesStr.String, ",")
-					for i, r := range userCfg.Roles { userCfg.Roles[i] = strings.TrimSpace(r) }
+					for i, r := range userCfg.Roles {
+						userCfg.Roles[i] = strings.TrimSpace(r)
+					}
 				} else {
-					userCfg.Roles = []string{} 
+					userCfg.Roles = []string{}
 				}
 				loadedUserConfigs = append(loadedUserConfigs, userCfg)
 			}
-			if err := rows.Err(); err != nil { 
-				 h.logger.Errorf("Error iterating local_users rows for store %s: %v", storeConfig.Name, err)
+			if err := rows.Err(); err != nil {
+				h.logger.Errorf("Error iterating local_users rows for store %s: %v", storeConfig.Name, err)
 			}
-			
+
 			// Assign the loaded users to the storeConfig.
 			// For go-authcrunch, a local identity store is typically configured with UserConfigs.
 			// We are populating this field from the database.
 			storeConfig.UserConfigs = loadedUserConfigs
 			// Change Kind to "local" as go-authcrunch understands this for UserConfigs.
-			storeConfig.Kind = "local" 
+			storeConfig.Kind = "local"
 			h.logger.Infof("Loaded %d users from database for local identity store: %s", len(loadedUserConfigs), storeConfig.Name)
 		}
 	}
-	
+
 	// Example: If types.SecurityConfig had LogLevel and LogFilePath (which it currently doesn't)
 	// if cfg.LogLevel != "" {
 	// 	crunchConfig.LogLevel = cfg.LogLevel
@@ -300,14 +299,14 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 		// if the static security configuration is invalid.
 		// This service's logger (h.Logger) isn't available in this static function context.
 		// A global logger or passing logger instance might be needed for production logging here.
-		fmt.Printf("Warning: authcrunch.Config validation failed: %v. This may lead to runtime issues with Caddy security features.\n", err)
+		h.logger.Warnf("authcrunch.Config validation failed: %v. This may lead to runtime issues with Caddy security features.", err)
 	}
-	
+
 	app := security.App{ // This is github.com/greenpau/caddy-security.App
 		Config: crunchConfig,
 	}
 
-	return caddyconfig.JSON(app)
+	return caddyconfig.JSON(app, nil) // No warnings expected, but passing nil for compatibility
 }
 
 // buildAuthzPolicies, buildAuthProviders / buildAuthBackends are removed as their logic
@@ -331,11 +330,8 @@ func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
 
 	// Add WoT handler
 	// The old WoTHandler struct from this file is being removed.
-	// We now use the "core_wot_handler" which is api.WoTHandler.
-	handlers = append(handlers, caddyconfig.JSONModuleObject(
-		caddy.ModuleMap{"handler": "core_wot_handler"}, // Use the ID from api.WoTHandler.CaddyModule()
-		"handler", "core_wot_handler", nil,
-	))
+	// We now use the "core_wot_handler" which is api.WoTHandler, registered globally.
+	handlers = append(handlers, caddyconfig.JSON(map[string]interface{}{"handler": "core_wot_handler"}, nil)) // Added nil for the warnings argument
 	// Metadata is no longer passed here; api.WoTHandler gets info from path params.
 
 	return caddyhttp.Route{
