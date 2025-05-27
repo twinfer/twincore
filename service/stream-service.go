@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/redpanda-data/benthos/v4/public/service"
-	"github.com/ttwinfer/twincore/pkg/types"
-	"github.com/ttwinfer/twincore/pkg/wot"
+	"github.com/twinfer/twincore/pkg/types"
+	"github.com/twinfer/twincore/pkg/wot"
 )
 
 type StreamService struct {

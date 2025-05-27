@@ -75,7 +75,7 @@ input:
   kafka:
     addresses: ["localhost:9092"]
     topics: ["device.property.updates"]
-    consumer_group: "twinedge-property-processor"
+    consumer_group: "twincore-property-processor"
 
 pipeline:
   processors:
@@ -113,7 +113,7 @@ input:
   kafka:
     addresses: ["localhost:9092"]
     topics: ["wot.action.invocations"]
-    consumer_group: "twinedge-action-processor"
+    consumer_group: "twincore-action-processor"
 
 pipeline:
   processors:
@@ -142,7 +142,7 @@ input:
   kafka:
     addresses: ["localhost:9092"]
     topics: ["device.action.results"]
-    consumer_group: "twinedge-result-processor"
+    consumer_group: "twincore-result-processor"
 
 pipeline:
   processors:
@@ -169,7 +169,7 @@ input:
   kafka:
     addresses: ["localhost:9092"]
     topics: ["device.events"]
-    consumer_group: "twinedge-event-processor"
+    consumer_group: "twincore-event-processor"
 
 pipeline:
   processors:

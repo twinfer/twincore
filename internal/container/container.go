@@ -8,11 +8,11 @@ import (
 
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
-	"github.com/twinfer/twincorey/internal/api"
-	"github.com/twinfer/twincorey/internal/config"
-	"github.com/twinfer/twincorey/internal/security"
-	svc "github.com/twinfer/twincorey/internal/service"
-	"github.com/twinfer/twincorey/pkg/types"
+	"github.com/twinfer/twincore/internal/api"
+	"github.com/twinfer/twincore/internal/config"
+
+	"github.com/twinfer/twincore/pkg/types"
+	svc "github.com/twinfer/twincore/service"
 )
 
 // Container holds all application dependencies
@@ -128,7 +128,55 @@ func (c *Container) initSecurity(cfg *Config) error {
 		return fmt.Errorf("license validation failed: %w", err)
 	}
 
-	c.Logger.Info("Security components initialized")
+	// TODO: Implement OPA-based license validation here.
+	// This is a placeholder for querying an OPA engine with the license claims.
+	//
+	// Assumed steps:
+	// 1. Define a method on DeviceManager, e.g., `GetLicenseClaims() (map[string]interface{}, error)`,
+	//    to expose the parsed license claims.
+	//
+	//    Example claims structure (input to OPA):
+	//    {
+	//      "iss": "twinedge.io",
+	//      "sub": "device-123",
+	//      "exp": 1700000000,
+	//      "features": ["core", "http", "streaming"],
+	//      "active": true,
+	//      "tier": "premium"
+	//    }
+	//
+	// 2. Prepare OPA input, including the license claims and any other necessary data like current time:
+	//    /*
+	//    licenseClaims, err := c.DeviceManager.GetLicenseClaims()
+	//    if err != nil {
+	//        return fmt.Errorf("failed to get license claims for OPA validation: %w", err)
+	//    }
+	//    opaInput := map[string]interface{}{
+	//        "license": licenseClaims,
+	//        "current_time_unix": time.Now().Unix(), // Ensure 'time' package is imported
+	//    }
+	//    */
+	//
+	// 3. Initialize OPA engine (load policy from "internal/container/license.rego").
+	//    (e.g., using github.com/open-policy-agent/opa/rego package)
+	//    /*
+	//    ctxOpa := context.Background()
+	//    r := rego.New(
+	//        rego.Query("data.twinedge.authz.allow"),
+	//        rego.Load([]string{"internal/container/license.rego"}, nil), // Or load policy string directly
+	//        rego.Input(opaInput),
+	//    )
+	//    rs, err := r.Eval(ctxOpa)
+	//    if err != nil {
+	//        return fmt.Errorf("OPA policy evaluation error: %w", err)
+	//    }
+	//    if len(rs) == 0 || !rs[0].Expressions[0].Value.(bool) {
+	//        return fmt.Errorf("license is not valid based on OPA policy evaluation")
+	//    }
+	//    c.Logger.Info("License successfully validated with OPA policy.")
+	//    */
+
+	c.Logger.Info("Security components initialized (OPA validation placeholder added)")
 	return nil
 }
 
@@ -337,6 +385,20 @@ func runMigrations(db *sql.DB) error {
     CREATE INDEX IF NOT EXISTS idx_things_updated ON things(updated_at);
     CREATE INDEX IF NOT EXISTS idx_caddy_active ON caddy_configs(active);
     CREATE INDEX IF NOT EXISTS idx_action_status ON action_state(status);
+
+    -- Local users for caddy-security/go-authcrunch
+    CREATE TABLE IF NOT EXISTS local_users (
+        username TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL, -- IMPORTANT: Store only hashed passwords
+        roles TEXT,                  -- Could be comma-separated string or JSON array
+        email TEXT UNIQUE,           -- Optional, but often useful
+        name TEXT,                   -- Display name, optional
+        disabled BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_local_users_email ON local_users(email);
+    CREATE INDEX IF NOT EXISTS idx_local_users_disabled ON local_users(disabled);
     `
 
 	_, err := db.Exec(schema)

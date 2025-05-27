@@ -1,0 +1,21 @@
+input:
+  kafka:
+    addresses:
+    {{- range .addresses }}
+    - "{{ . }}"
+    {{- end }}
+    topics:
+    - "{{ .topic }}"
+    consumer_group: "twinedge-{{ .topic }}"
+    {{- if .partition }}
+    partition: {{ .partition }}
+    {{- end }}
+    {{- if .auth }}
+    tls:
+      enabled: true
+    sasl:
+      mechanism: "{{ .auth.mechanism }}"
+      username: "{{ .auth.username }}"
+      password: "{{ .auth.password }}"
+    {{- end }}
+

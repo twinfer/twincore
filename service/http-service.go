@@ -7,21 +7,43 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/caddyserver/caddy-security/dist/caddysecurity"
+	security "github.com/greenpau/caddy-security"
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/twinfer/twincore/pkg/types"
+
+	authcrunch "github.com/greenpau/go-authcrunch" // Main config
+	authn "github.com/greenpau/go-authcrunch/pkg/authn"
+	authnui "github.com/greenpau/go-authcrunch/pkg/authn/ui"
+	authz "github.com/greenpau/go-authcrunch/pkg/authz"
+	"github.com/greenpau/go-authcrunch/pkg/user" // Added for user.UserConfig
+	"github.com/sirupsen/logrus"                  // Added for logger field
+	"database/sql"                                // Added for db field
+	"strings"                                     // Added for strings.Split
+	// For specific IDP/Store configs, we might need:
+	// localauth "github.com/greenpau/go-authcrunch/pkg/authn/backends/local" // if specific types are needed beyond general config
+	// jwtvalidator "github.com/greenpau/go-authcrunch/pkg/authn/validators/jwt"
+	// samlidp "github.com/greenpau/go-authcrunch/pkg/idp/saml"
 )
 
 type HTTPService struct {
 	instance *caddy.Caddy
 	config   *caddy.Config
 	running  bool
+	db       *sql.DB // Added DB field
+	logger   *logrus.Logger // Added logger field
+	// configManager *config.ConfigManager // Assuming this was meant to be a field if passed in New
 }
 
-func NewHTTPService() types.Service {
-	return &HTTPService{}
+// NewHTTPService now accepts db *sql.DB and logger *logrus.Logger
+// Assuming configManager is not directly used by HTTPService methods being modified,
+// but if it was, it should be passed and stored too.
+func NewHTTPService(logger *logrus.Logger, db *sql.DB) types.Service {
+	return &HTTPService{
+		logger: logger,
+		db:     db,
+	}
 }
 
 func (h *HTTPService) Name() string {
@@ -171,129 +193,126 @@ func (h *HTTPService) generateCaddyConfig(config types.ServiceConfig) (*caddy.Co
 
 // buildSecurityRoute creates caddy-security middleware route
 func (h *HTTPService) buildSecurityRoute(config types.SecurityConfig) caddyhttp.Route {
+	// AuthnMiddleware is a Caddy HTTP handler module from github.com/greenpau/caddy-security
+	// It uses an authentication portal configured within the security.App
+	authnMiddleware := security.AuthnMiddleware{
+		PortalName: "default", // This name must match a portal configured in security.App
+	}
 	return caddyhttp.Route{
 		HandlersRaw: []json.RawMessage{
 			caddyconfig.JSONModuleObject(
-				caddysecurity.Authenticator{
-					Providers: h.buildAuthProviders(config),
-				},
-				"handler", "authentication", nil,
+				authnMiddleware,
+				"handler", "authentication", nil, // The Caddy module name for AuthnMiddleware
 			),
 		},
 	}
 }
 
-// buildAuthProviders creates authentication providers
-func (h *HTTPService) buildAuthProviders(config types.SecurityConfig) []caddysecurity.AuthProvider {
-	var providers []caddysecurity.AuthProvider
 
-	// Local authentication
-	if config.LocalAuth.Enabled {
-		providers = append(providers, caddysecurity.AuthProvider{
-			Name: "local",
-			Credentials: caddysecurity.Credentials{
-				Username: config.LocalAuth.Username,
-				Password: config.LocalAuth.Password,
-			},
-		})
+// buildSecurityApp creates the security app configuration for Caddy
+// This function configures the github.com/greenpau/caddy-security App
+func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage {
+	// The main App from github.com/greenpau/caddy-security
+	// This App's Config field is of type *authcrunch.Config
+	
+	crunchConfig := authcrunch.NewConfig() // Create a new authcrunch.Config
+
+	// Directly assign configurations from types.SecurityConfig to authcrunch.Config
+	// The types.SecurityConfig is now designed to hold slices of *authn.PortalConfig, etc.
+	crunchConfig.AuthenticationPortals = cfg.AuthenticationPortals
+	// crunchConfig.IdentityStores = cfg.IdentityStores // This will be populated from DB if kind is 'local'
+	crunchConfig.TokenValidators = cfg.TokenValidators
+	crunchConfig.AuthorizationGatekeepers = cfg.AuthorizationGatekeepers
+
+	// Populate IdentityStores, especially local ones from DB
+	if crunchConfig.IdentityStores == nil && len(cfg.IdentityStores) > 0 {
+		crunchConfig.IdentityStores = cfg.IdentityStores
 	}
 
-	// JWT authentication
-	if config.JWT.Enabled {
-		providers = append(providers, caddysecurity.AuthProvider{
-			Name: "jwt",
-			TokenAuth: &caddysecurity.TokenAuth{
-				TokenSources: []string{"header", "cookie"},
-				TokenName:    "Authorization",
-				Algorithm:    config.JWT.Algorithm,
-				Secret:       config.JWT.Secret,
-			},
-		})
+	for _, storeConfig := range crunchConfig.IdentityStores {
+		// Identify if this storeConfig is meant to be a DB-backed local store.
+		// Convention: Kind == "localdb" or a specific Name.
+		// For this implementation, we'll assume Kind == "localdb" indicates DB-backed.
+		// Note: go-authcrunch's built-in "local" kind typically uses UserConfigs field directly.
+		// We are effectively creating a custom "localdb" store behavior here.
+		if storeConfig.Kind == "localdb" { // Using "localdb" to distinguish from in-memory "local"
+			h.logger.Debugf("Configuring DB-backed local identity store: %s", storeConfig.Name)
+			var loadedUserConfigs []*user.UserConfig
+			rows, err := h.db.Query("SELECT username, password_hash, roles, email, name, disabled FROM local_users WHERE disabled = FALSE")
+			if err != nil {
+				h.logger.Errorf("Failed to query local_users table for store %s: %v", storeConfig.Name, err)
+				storeConfig.UserConfigs = []*user.UserConfig{} // Ensure it's empty on error
+				continue
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var username, passwordHash, rolesStr, email, name sql.NullString
+				var disabled sql.NullBool 
+				if err := rows.Scan(&username, &passwordHash, &rolesStr, &email, &name, &disabled); err != nil {
+					h.logger.Errorf("Failed to scan row from local_users for store %s: %v", storeConfig.Name, err)
+					continue
+				}
+
+				userCfg := &user.UserConfig{
+					Username: username.String,
+					Password: passwordHash.String, // go-authcrunch expects the hash directly for local kind
+					Name:     name.String,
+					Email:    email.String,
+					// Disabled status is handled by the SQL query `WHERE disabled = FALSE`
+				}
+				if rolesStr.Valid && rolesStr.String != "" {
+					userCfg.Roles = strings.Split(rolesStr.String, ",")
+					for i, r := range userCfg.Roles { userCfg.Roles[i] = strings.TrimSpace(r) }
+				} else {
+					userCfg.Roles = []string{} 
+				}
+				loadedUserConfigs = append(loadedUserConfigs, userCfg)
+			}
+			if err := rows.Err(); err != nil { 
+				 h.logger.Errorf("Error iterating local_users rows for store %s: %v", storeConfig.Name, err)
+			}
+			
+			// Assign the loaded users to the storeConfig.
+			// For go-authcrunch, a local identity store is typically configured with UserConfigs.
+			// We are populating this field from the database.
+			storeConfig.UserConfigs = loadedUserConfigs
+			// Change Kind to "local" as go-authcrunch understands this for UserConfigs.
+			storeConfig.Kind = "local" 
+			h.logger.Infof("Loaded %d users from database for local identity store: %s", len(loadedUserConfigs), storeConfig.Name)
+		}
+	}
+	
+	// Example: If types.SecurityConfig had LogLevel and LogFilePath (which it currently doesn't)
+	// if cfg.LogLevel != "" {
+	// 	crunchConfig.LogLevel = cfg.LogLevel
+	// }
+	// if cfg.LogFilePath != "" {
+	// 	crunchConfig.LogFilePath = cfg.LogFilePath
+	// }
+
+	// Validate the constructed authcrunch.Config
+	// This step is crucial and part of go-authcrunch's typical usage.
+	if err := crunchConfig.Validate(); err != nil {
+		// Log this error appropriately in a real scenario.
+		// For now, we'll proceed, but this indicates a misconfiguration.
+		// In a production system, you might want to return an error or panic
+		// if the static security configuration is invalid.
+		// This service's logger (h.Logger) isn't available in this static function context.
+		// A global logger or passing logger instance might be needed for production logging here.
+		fmt.Printf("Warning: authcrunch.Config validation failed: %v. This may lead to runtime issues with Caddy security features.\n", err)
+	}
+	
+	app := security.App{ // This is github.com/greenpau/caddy-security.App
+		Config: crunchConfig,
 	}
 
-	// SAML authentication
-	if config.SAML.Enabled {
-		providers = append(providers, caddysecurity.AuthProvider{
-			Name: "saml",
-			SAML: &caddysecurity.SAMLConfig{
-				MetadataURL: config.SAML.MetadataURL,
-				EntityID:    config.SAML.EntityID,
-			},
-		})
-	}
-
-	return providers
+	return caddyconfig.JSON(app)
 }
 
-// buildSecurityApp creates the security app configuration
-func (h *HTTPService) buildSecurityApp(config types.SecurityConfig) json.RawMessage {
-	securityApp := caddysecurity.App{
-		AuthPortal: &caddysecurity.AuthPortal{
-			Name: "TwinEdge Gateway",
-			UI: &caddysecurity.UserInterface{
-				Title:       "TwinEdge Gateway",
-				Description: "Secure access to your IoT devices",
-				LogoURL:     "/assets/logo.png",
-				LogoText:    "TwinEdge",
-				PrivateLinks: []caddysecurity.PrivateLink{
-					{
-						Title:   "Portal",
-						URL:     "/portal",
-						IconURL: "/assets/portal-icon.png",
-					},
-				},
-			},
-		},
-		Authorization: &caddysecurity.Authorization{
-			Policies: h.buildPolicies(config),
-		},
-	}
-
-	return caddyconfig.JSON(securityApp)
-}
-
-// buildPolicies creates authorization policies
-func (h *HTTPService) buildPolicies(config types.SecurityConfig) []caddysecurity.Policy {
-	var policies []caddysecurity.Policy
-
-	// Default policy
-	policies = append(policies, caddysecurity.Policy{
-		Name: "default",
-		Subjects: []caddysecurity.Subject{
-			{User: "admin"},
-		},
-		Resources: []caddysecurity.Resource{
-			{Path: "/*"},
-		},
-		Actions: []string{"GET", "POST", "PUT", "DELETE"},
-	})
-
-	// Add custom policies from config
-	for _, policy := range config.Policies {
-		p := caddysecurity.Policy{
-			Name:      policy.Name,
-			Subjects:  []caddysecurity.Subject{},
-			Resources: []caddysecurity.Resource{},
-			Actions:   policy.Actions,
-		}
-
-		for _, subject := range policy.Subjects {
-			p.Subjects = append(p.Subjects, caddysecurity.Subject{
-				User: subject,
-			})
-		}
-
-		for _, resource := range policy.Resources {
-			p.Resources = append(p.Resources, caddysecurity.Resource{
-				Path: resource,
-			})
-		}
-
-		policies = append(policies, p)
-	}
-
-	return policies
-}
+// buildAuthzPolicies, buildAuthProviders / buildAuthBackends are removed as their logic
+// is now encapsulated within the structure of types.SecurityConfig, which directly
+// provides []*authn.PortalConfig, []*authz.GatekeeperConfig, etc.
 
 // buildWoTRoute creates a route for WoT interactions
 func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
@@ -301,22 +320,23 @@ func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
 
 	// Add authentication if required
 	if route.RequiresAuth {
+		authzMw := security.AuthzMiddleware{
+			GatekeeperName: "default", // This name must match a gatekeeper configured in security.App
+		}
 		handlers = append(handlers, caddyconfig.JSONModuleObject(
-			caddysecurity.Authorizer{
-				Providers: []string{"jwt", "local"},
-			},
-			"handler", "authorization", nil,
+			authzMw,
+			"handler", "authorization", nil, // The Caddy module name for AuthzMiddleware
 		))
 	}
 
 	// Add WoT handler
+	// The old WoTHandler struct from this file is being removed.
+	// We now use the "core_wot_handler" which is api.WoTHandler.
 	handlers = append(handlers, caddyconfig.JSONModuleObject(
-		WoTHandler{
-			Handler:  route.Handler,
-			Metadata: route.Metadata,
-		},
-		"handler", "wot_handler", nil,
+		caddy.ModuleMap{"handler": "core_wot_handler"}, // Use the ID from api.WoTHandler.CaddyModule()
+		"handler", "core_wot_handler", nil,
 	))
+	// Metadata is no longer passed here; api.WoTHandler gets info from path params.
 
 	return caddyhttp.Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
@@ -329,7 +349,9 @@ func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
 	}
 }
 
+/*
 // WoTHandler is a custom Caddy handler for WoT interactions
+// This struct and its methods are now superseded by api.WoTHandler from internal/api/wot-handler-core.go
 type WoTHandler struct {
 	Handler  string                 `json:"handler"`
 	Metadata map[string]interface{} `json:"metadata"`
@@ -337,7 +359,7 @@ type WoTHandler struct {
 
 func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.wot_handler",
+		ID:  "http.handlers.wot_handler", // Old ID
 		New: func() caddy.Module { return new(WoTHandler) },
 	}
 }
@@ -377,3 +399,4 @@ func (h WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request) error {
 	w.Write([]byte("Event handler"))
 	return nil
 }
+*/

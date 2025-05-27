@@ -12,7 +12,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/gorilla/mux"
+
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -92,7 +92,7 @@ type Event struct {
 // CaddyModule returns the Caddy module information
 func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.wot",
+		ID:  "core_wot_handler", // Changed ID
 		New: func() caddy.Module { return new(WoTHandler) },
 	}
 }
@@ -104,20 +104,26 @@ func (h *WoTHandler) Provision(ctx caddy.Context) error {
 	h.eventBroker = &EventBroker{}
 
 	// Get dependencies from context
-	// h.stateManager = ctx.App("wot.state").(StateManager)
-	// h.streamBridge = ctx.App("wot.stream").(StreamBridge)
-	// h.thingRegistry = ctx.App("wot.registry").(ThingRegistry)
+	// h.logger = ctx.Logger(h) // Get a Caddy logger
+	// h.logger.Info("CoreWoTHandler provisioned. StateManager, StreamBridge, etc. must be injected post-provisioning.")
+	fmt.Println("CoreWoTHandler provisioned by Caddy. StateManager, StreamBridge, etc. must be injected post-provisioning by the main application.")
+	// h.stateManager = ctx.App("wot.state").(StateManager) // These will be injected by main app
+	// h.streamBridge = ctx.App("wot.stream").(StreamBridge) // These will be injected by main app
+	// h.thingRegistry = ctx.App("wot.registry").(ThingRegistry) // These will be injected by main app
 
 	return nil
 }
 
 // ServeHTTP handles WoT requests
 func (h *WoTHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	// Extract path parameters
-	vars := mux.Vars(r)
-	thingID := vars["thingId"]
-	interactionType := vars["type"]
-	name := vars["name"]
+	// Extract path parameters using Caddy's mechanism
+	vars, ok := r.Context().Value(caddyhttp.VarsCtxKey).(map[string]string)
+	if !ok {
+		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("path variables not available"))
+	}
+	thingID := vars["id"]           // Key "id" as per WoTMapper pattern /things/{id}/...
+	interactionType := vars["type"] // Key "type" as per WoTMapper pattern /things/{id}/{type}/...
+	name := vars["name"]            // Key "name" as per WoTMapper pattern /things/{id}/{type}/{name}
 
 	// Route based on interaction type
 	switch interactionType {
@@ -386,6 +392,11 @@ func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID
 // Helper methods
 
 func (h *WoTHandler) getPropertyValue(thingID, propertyName string) (interface{}, error) {
+	// Ensure dependencies are initialized before use
+	if h.stateManager == nil {
+		// This check is for safety; in a real scenario, dependencies must be injected.
+		return nil, fmt.Errorf("stateManager not initialized in WoTHandler")
+	}
 	cacheKey := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	// Check cache
@@ -434,5 +445,10 @@ func (h *WoTHandler) encodeSSEData(data interface{}) string {
 
 func (h *WoTHandler) logError(msg string, err error) {
 	// Log error for monitoring
+	// Consider using a logger if available, e.g., h.logger.Error(...)
 	fmt.Printf("WoT Handler Error: %s: %v\n", msg, err)
+}
+
+func init() {
+	caddy.RegisterModule(WoTHandler{})
 }

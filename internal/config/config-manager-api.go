@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/caddyserver/caddy/v2" // Import caddy
-	"github.com/josephburnett/jd"
-	"github.com/sirupsen/logrus" // Import logrus
+	"github.com/sirupsen/logrus"      // Import logrus
+	"github.com/wI2L/jsondiff"
 )
 
 // ConfigManager manages configurations via API
@@ -22,7 +22,7 @@ type ConfigManager struct {
 	benthosConfigs map[string]string // streamName -> YAML
 
 	// Config history for rollback
-	caddyPatches []jd.Patch
+	caddyPatches []byte // Store JSON representation of jsondiff.Patch
 
 	mu sync.RWMutex
 }
@@ -95,18 +95,37 @@ func (cm *ConfigManager) UpdateCaddyConfig(newConfig *caddy.Config) error {
 	}
 
 	// Generate patches if we have current config
-	var patches []jd.Patch
+	var patchesJSON []byte
 	if cm.caddyConfig != nil {
-		oldJSON, _ := json.Marshal(cm.caddyConfig)
-		newJSON, _ := json.Marshal(newConfig)
-		patches, _ = jd.Diff(oldJSON, newJSON)
-
-		cm.logger.Debugf("Generated %d JD patches", len(patches))
+		oldJSON, err := json.Marshal(cm.caddyConfig)
+		if err != nil {
+			// Handle error appropriately
+			cm.logger.Errorf("Failed to marshal old Caddy config: %v", err)
+			// Decide if you want to proceed without a patch or return the error
+		} else {
+			newCfgJSON, err := json.Marshal(newConfig) // Renamed to newCfgJSON to avoid conflict with newJSON var later
+			if err != nil {
+				// Handle error appropriately
+				cm.logger.Errorf("Failed to marshal new Caddy config: %v", err)
+			} else {
+				patch, err := jsondiff.CompareJSON(oldJSON, newCfgJSON)
+				if err != nil {
+					// Handle error
+					cm.logger.Errorf("Failed to compare JSON for Caddy config: %v", err)
+				} else {
+					patchesJSON, err = json.Marshal(patch) // Convert jsondiff.Patch to JSON bytes
+					if err != nil {
+						cm.logger.Errorf("Failed to marshal jsondiff.Patch to JSON: %v", err)
+					}
+					cm.logger.Debugf("Generated JSON patch: %s", string(patchesJSON))
+				}
+			}
+		}
 	}
 
 	// Save to database
-	newJSON, _ := json.Marshal(newConfig)
-	patchesJSON, _ := json.Marshal(patches)
+	newJSON, _ := json.Marshal(newConfig) // This is the full new configuration
+	// patchesJSON is already defined above
 
 	tx, err := cm.db.Begin()
 	if err != nil {
@@ -135,7 +154,7 @@ func (cm *ConfigManager) UpdateCaddyConfig(newConfig *caddy.Config) error {
 
 	// Update in-memory config
 	cm.caddyConfig = newConfig
-	cm.caddyPatches = patches
+	cm.caddyPatches = patchesJSON // Store the marshaled JSON patch
 
 	cm.logger.Info("Caddy config updated successfully")
 	return nil
@@ -146,25 +165,13 @@ func (cm *ConfigManager) RollbackCaddyConfig() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	if len(cm.caddyPatches) == 0 {
-		return fmt.Errorf("no rollback data available")
-	}
+	// if len(cm.caddyPatches) == 0 { // This check might need adjustment if caddyPatches can be nil/empty for valid reasons
+	// 	return fmt.Errorf("no rollback data available")
+	// }
 
-	cm.logger.Info("Rolling back Caddy configuration")
+	cm.logger.Warn("RollbackCaddyConfig is currently non-functional pending a proper historical version fetching implementation.")
+	return fmt.Errorf("rollback is temporarily disabled")
 
-	// Apply patches in reverse
-	currentJSON, _ := json.Marshal(cm.caddyConfig)
-	for i := len(cm.caddyPatches) - 1; i >= 0; i-- {
-		currentJSON, _ = cm.caddyPatches[i].Apply(currentJSON)
-	}
-
-	var rolledBackConfig caddy.Config
-	if err := json.Unmarshal(currentJSON, &rolledBackConfig); err != nil {
-		return err
-	}
-
-	// Save rolled back config
-	return cm.UpdateCaddyConfig(&rolledBackConfig)
 }
 
 // UpdateBenthosStream updates a Benthos stream configuration (no JD, just reload)

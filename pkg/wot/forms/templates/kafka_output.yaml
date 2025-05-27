@@ -1,0 +1,18 @@
+output:
+  kafka:
+    addresses:
+    {{- range .addresses }}
+    - "{{ . }}"
+    {{- end }}
+    topic: "{{ .topic }}"
+    {{- if .partition }}
+    partition: {{ .partition }}
+    {{- end }}
+    {{- if .auth }}
+    tls:
+      enabled: true
+    sasl:
+      mechanism: "{{ .auth.mechanism }}"
+      username: "{{ .auth.username }}"
+      password: "{{ .auth.password }}"
+    {{- end }}
