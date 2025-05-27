@@ -29,12 +29,6 @@ func (v *JSONSchemaValidator) getCachedOrCompile(cacheKey string, dataSchema wot
 		return compiled, nil
 	}
 
-	if dataSchema == nil { // If no schema is provided, no validation can occur.
-		// Cache nil to avoid recompilation attempts for this key if it's intentionally nil.
-		v.schemaCache[cacheKey] = nil
-		return nil, nil
-	}
-
 	schemaJSON, err := json.Marshal(dataSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal schema to JSON for key '%s': %w", cacheKey, err)
@@ -82,9 +76,10 @@ func (v *JSONSchemaValidator) ValidateProperty(propertyName string, propertySche
 }
 
 func (v *JSONSchemaValidator) ValidateActionInput(schema wot.DataSchema, input interface{}) error {
-	if schema == nil {
-		return nil // No schema to validate against
-	}
+	// If schema is a zero-value struct, json.Marshal will likely produce "{}".
+	// gojsonschema will compile "{}" into a permissive schema.
+	// This effectively skips strict validation if no specific schema is provided,
+	// which matches the original intent of "if schema == nil { return nil }".
 
 	// Generate a cache key from the schema itself by marshalling it.
 	schemaKeyBytes, err := json.Marshal(schema)
@@ -115,9 +110,9 @@ func (v *JSONSchemaValidator) ValidateActionInput(schema wot.DataSchema, input i
 }
 
 func (v *JSONSchemaValidator) ValidateEventData(schema wot.DataSchema, data interface{}) error {
-	if schema == nil {
-		return nil // No schema to validate against
-	}
+	// Similar to ValidateActionInput, a zero-value schema struct will lead to
+	// a permissive validation after being marshalled (likely to "{}") and compiled.
+	// This replaces the direct "if schema == nil" check which caused the error.
 
 	// Generate a cache key from the schema itself
 	schemaKeyBytes, err := json.Marshal(schema)

@@ -16,6 +16,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/caddy_app" // Import the new caddy_app package
 	"github.com/twinfer/twincore/internal/container"
 	"github.com/twinfer/twincore/pkg/types" // Import types package
 	"github.com/twinfer/twincore/service"   // Import the concrete service package
@@ -66,6 +67,10 @@ func main() {
 	if err != nil {
 		logger.Fatalf("Failed to initialize container: %v", err)
 	}
+
+	// Set the global container for the TwinCoreApp Caddy module
+	caddy_app.SetGlobalContainer(cnt)
+	logger.Info("Global container set for TwinCoreApp Caddy module")
 
 	// Start services
 	if err := cnt.Start(ctx); err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 	// Assuming types.LicenseManager is defined in a way that it's compatible.
 	// The previous file `license_types.go` defined a local `LicenseManager` interface.
 	// If `github.com/twinfer/twincore/pkg/types.LicenseManager` is a different interface,

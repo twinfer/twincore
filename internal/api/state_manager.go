@@ -15,8 +15,8 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/apache/arrow/go/v18/parquet"
-	"github.com/apache/arrow/go/v18/parquet/compress"
-	"github.com/apache/arrow/go/v18/parquet/file" // For managing Parquet file reader/writer if needed more granularly
+	"github.com/apache/arrow/go/v18/parquet/compress" // Keep this import
+	"github.com/apache/arrow/go/v18/parquet/file"     // For managing Parquet file reader/writer if needed more granularly
 	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 
 	"github.com/twinfer/twincore/internal/models" // Adjust if your module path is different
@@ -108,7 +108,7 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 		tableFromRecord := array.NewTableFromRecords(schema, []arrow.Record{arrowRecord})
 		defer tableFromRecord.Release()
 
-		err = pqarrow.WriteTable(tableFromRecord, f, tableFromRecord.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+		err = pqarrow.WriteTable(tableFromRecord, f, tableFromRecord.NumRows(), props, pqarrow.ArrowWriterProperties{})
 		if err != nil {
 			m.logger.WithError(err).Errorf("Failed to write new Parquet table to file: %s", filePath)
 			return err
@@ -162,16 +162,22 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 			// If the file was just opened (O_RDWR), its offset is 0.
 			// Seeking to 0,0 explicitly isn't strictly necessary but can be added for clarity if desired.
 			pf, errReader := file.NewParquetReader(f)
-			if errReader == nil { // Successfully created a Parquet reader
-				existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
-				if err != nil {
-					m.logger.WithError(err).Warnf("Could not read existing Parquet table from %s. A new table will be written.", filePath)
-					existingTable = nil // Ensure it's nil so a new table is created/written
+			if errReader == nil { // Successfully created a low-level Parquet reader
+				arrowPqReader, errArrowReader := pqarrow.NewFileReader(pf, pqarrow.ArrowReadProperties{}, memory.DefaultAllocator)
+				if errArrowReader == nil {
+					existingTable, err = arrowPqReader.ReadTable(context.Background())
+					if err != nil {
+						m.logger.WithError(err).Warnf("Could not read existing Parquet table using Arrow reader from %s. A new table will be written.", filePath)
+						existingTable = nil
+					} else {
+						defer existingTable.Release()
+					}
 				} else {
-					defer existingTable.Release()
+					m.logger.WithError(errArrowReader).Warnf("Failed to create Arrow Parquet reader for %s. A new table will be written.", filePath)
+					existingTable = nil
 				}
 			} else {
-				m.logger.WithError(errReader).Warnf("File %s is not a valid Parquet file but has size > 0. A new table will be written.", filePath)
+				m.logger.WithError(errReader).Warnf("Failed to create low-level Parquet reader for %s (file might be invalid or empty). A new table will be written if applicable.", filePath)
 				existingTable = nil
 			}
 		}
@@ -187,13 +193,32 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 				tableToWrite = newRecordAsTable
 				tableToWrite.Retain() // Retain because newRecordAsTable is deferred for release, and tableToWrite now shares its data
 			} else {
-				// Concatenate existing table with the new record (which is now also an Arrow Table)
-				mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, newRecordAsTable})
-				if concatErr != nil {
-					m.logger.WithError(concatErr).Errorf("Failed to concatenate new record to existing Parquet table data for: %s", filePath)
-					return concatErr
+				// Concatenate existing table with the new record
+				// Convert both tables to records and combine them
+				existingRecords := make([]arrow.Record, 0, existingTable.NumCols())
+				tr := array.NewTableReader(existingTable, 0)
+				defer tr.Release()
+				
+				for tr.Next() {
+					rec := tr.Record()
+					rec.Retain() // Keep reference to avoid early release
+					existingRecords = append(existingRecords, rec)
 				}
-				tableToWrite = mergedTable // mergedTable is a new table, takes ownership of data
+				
+				// Add the new record
+				arrowRecord.Retain() // Keep reference for the combined table
+				allRecords := append(existingRecords, arrowRecord)
+				
+				// Create merged table from all records
+				mergedTable := array.NewTableFromRecords(schema, allRecords)
+				
+				// Release all retained records since table now owns them
+				for _, rec := range existingRecords {
+					rec.Release()
+				}
+				arrowRecord.Release()
+				
+				tableToWrite = mergedTable
 			}
 		} else {
 			// No valid existing data, or existing table was empty. Write only the new record.
@@ -208,8 +233,7 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 		f.Seek(0, 0)
 
 		props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
-		// Corrected typo in NewFileWriterProperties
-		err = pqarrow.WriteTable(tableToWrite, f, tableToWrite.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+		err = pqarrow.WriteTable(tableToWrite, f, tableToWrite.NumRows(), props, pqarrow.ArrowWriterProperties{})
 		if err != nil {
 			m.logger.WithError(err).Errorf("Failed to write appended Parquet table to file: %s", filePath)
 			return err

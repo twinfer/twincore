@@ -12,7 +12,9 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/sirupsen/logrus"
 
+	// Import the caddy_app package
 	"github.com/twinfer/twincore/internal/models" // Added for models.Event
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -30,7 +32,7 @@ type WoTHandler struct {
 
 	// Event management
 	eventBroker *EventBroker
-	logger      caddy.Logger // Changed to caddy.Logger
+	logger      *logrus.Logger
 
 	// Metrics (Placeholder)
 	metrics MetricsCollector
@@ -189,14 +191,51 @@ func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 func (h *WoTHandler) Provision(ctx caddy.Context) error {
 	// Initialize components
 	h.propertyCache = &PropertyCache{ttl: 5 * time.Second}
-	h.eventBroker = &EventBroker{}
+	// Retrieve logger from Caddy app context
+	appLogger, err := ctx.App("twincore.logger")
+	if err != nil || appLogger == nil {
+		// Fallback to a new logger if not found, though this indicates a setup issue.
+		h.logger = logrus.New()
+		h.logger.SetLevel(logrus.WarnLevel) // Default to Warn if main logger isn't available
+		h.logger.Warn("WoTHandler: Could not retrieve 'twincore.logger' from Caddy app context. Using fallback logger.")
+	} else {
+		h.logger = appLogger.(*logrus.Logger)
+	}
 
-	h.logger = ctx.Logger(h) // Get a Caddy logger
-	h.logger.Info("CoreWoTHandler provisioned. StateManager, StreamBridge, etc. must be injected post-provisioning by the main application.")
-	// h.stateManager = ctx.App("wot.state").(StateManager) // These will be injected by main app
-	// h.streamBridge = ctx.App("wot.stream").(StreamBridge) // These will be injected by main app
-	// h.thingRegistry = ctx.App("wot.registry").(ThingRegistry) // These will be injected by main app
+	// Retrieve other dependencies from Caddy app context
+	smApp, err := ctx.App("twincore.statemanager")
+	if err == nil && smApp != nil {
+		h.stateManager = smApp.(StateManager)
+	} else {
+		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.statemanager'. StateManager will be nil.")
+		return fmt.Errorf("WoTHandler: missing StateManager dependency")
+	}
 
+	sbApp, err := ctx.App("twincore.streambridge")
+	if err == nil && sbApp != nil {
+		h.streamBridge = sbApp.(StreamBridge)
+	} else {
+		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.streambridge'. StreamBridge will be nil.")
+		return fmt.Errorf("WoTHandler: missing StreamBridge dependency")
+	}
+
+	trApp, err := ctx.App("twincore.thingregistry")
+	if err == nil && trApp != nil {
+		h.thingRegistry = trApp.(ThingRegistry)
+	} else {
+		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.thingregistry'. ThingRegistry will be nil.")
+		return fmt.Errorf("WoTHandler: missing ThingRegistry dependency")
+	}
+
+	// EventBroker is initialized and managed by the container, then registered.
+	ebApp, err := ctx.App("twincore.eventbroker")
+	if err == nil && ebApp != nil {
+		h.eventBroker = ebApp.(*EventBroker)
+	} else {
+		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.eventbroker'. EventBroker will be nil.")
+		return fmt.Errorf("WoTHandler: missing EventBroker dependency")
+	}
+	h.logger.Info("CoreWoTHandler provisioned with dependencies from Caddy app context.")
 	return nil
 }
 
@@ -301,7 +340,7 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Validate against schema
-	if err := h.validator.ValidateProperty(propertyName, property, value); err != nil {
+	if err := h.validator.ValidateProperty(propertyName, property.DataSchema, value); err != nil {
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
 	}
 
@@ -531,7 +570,7 @@ func (h *WoTHandler) encodeSSEData(data interface{}) string {
 
 func (h *WoTHandler) logError(msg string, err error) {
 	if h.logger != nil {
-		h.logger.Error(msg, "error", err)
+		h.logger.WithError(err).Error(msg)
 	} else {
 		fmt.Printf("WoT Handler Error (logger not initialized): %s: %v\n", msg, err)
 	}

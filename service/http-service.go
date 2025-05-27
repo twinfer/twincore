@@ -17,7 +17,7 @@ import (
 	"strings"      // Added for strings.Split
 
 	authcrunch "github.com/greenpau/go-authcrunch" // Main config
-	"github.com/greenpau/go-authcrunch/pkg/user"   // Added for user.UserConfig
+	"github.com/greenpau/go-authcrunch/pkg/authn"  // For authn.UserConfig
 	"github.com/sirupsen/logrus"                   // Added for logger field
 	// For specific IDP/Store configs, we might need:
 	// localauth "github.com/greenpau/go-authcrunch/pkg/authn/backends/local" // if specific types are needed beyond general config
@@ -26,11 +26,10 @@ import (
 )
 
 type HTTPService struct {
-	instance *caddy.Caddy
-	config   *caddy.Config
-	running  bool
-	db       *sql.DB        // Added DB field
-	logger   *logrus.Logger // Added logger field
+	config  *caddy.Config
+	running bool
+	db      *sql.DB        // Added DB field
+	logger  *logrus.Logger // Added logger field
 	// configManager *config.ConfigManager // Assuming this was meant to be a field if passed in New
 }
 
@@ -72,9 +71,8 @@ func (h *HTTPService) Start(ctx context.Context, config types.ServiceConfig) err
 		return fmt.Errorf("invalid Caddy configuration: %w", err)
 	}
 
-	// Create and start Caddy instance
-	h.instance = caddy.New()
-	if err := h.instance.Load(caddyConfig, false); err != nil {
+	// Load and start Caddy with configuration
+	if err := caddy.Load(caddyconfig.JSON(caddyConfig, nil), false); err != nil {
 		return fmt.Errorf("failed to load Caddy config: %w", err)
 	}
 
@@ -88,10 +86,8 @@ func (h *HTTPService) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	if h.instance != nil {
-		if err := h.instance.Stop(); err != nil {
-			return fmt.Errorf("failed to stop Caddy: %w", err)
-		}
+	if err := caddy.Stop(); err != nil {
+		return fmt.Errorf("failed to stop Caddy: %w", err)
 	}
 
 	h.running = false
@@ -114,7 +110,7 @@ func (h *HTTPService) UpdateConfig(config types.ServiceConfig) error {
 	}
 
 	// Apply new configuration (graceful reload)
-	if err := h.instance.Load(newConfig, false); err != nil {
+	if err := caddy.Load(caddyconfig.JSON(newConfig, nil), false); err != nil {
 		return fmt.Errorf("failed to reload config: %w", err)
 	}
 
@@ -216,10 +212,17 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 
 	// Directly assign configurations from types.SecurityConfig to authcrunch.Config
 	// The types.SecurityConfig is now designed to hold slices of *authn.PortalConfig, etc.
-	crunchConfig.AuthenticationPortals = cfg.AuthenticationPortals
-	// crunchConfig.IdentityStores = cfg.IdentityStores // This will be populated from DB if kind is 'local'
-	crunchConfig.TokenValidators = cfg.TokenValidators
-	crunchConfig.AuthorizationGatekeepers = cfg.AuthorizationGatekeepers
+	if cfg.AuthenticationPortals != nil {
+		crunchConfig.AuthenticationPortals = cfg.AuthenticationPortals
+	}
+
+	// Assign TokenValidators to each portal
+	if cfg.TokenValidators != nil {
+		for _, portalCfg := range crunchConfig.AuthenticationPortals {
+			portalCfg.TokenValidators = append(portalCfg.TokenValidators, cfg.TokenValidators...)
+		}
+	}
+	crunchConfig.Gatekeepers = cfg.AuthorizationGatekeepers // Correct field is Gatekeepers
 
 	// Populate IdentityStores, especially local ones from DB
 	if crunchConfig.IdentityStores == nil && len(cfg.IdentityStores) > 0 {
@@ -234,7 +237,7 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 		// We are effectively creating a custom "localdb" store behavior here.
 		if storeConfig.Kind == "localdb" { // Using "localdb" to distinguish from in-memory "local"
 			h.logger.Debugf("Configuring DB-backed local identity store: %s", storeConfig.Name)
-			var loadedUserConfigs []*user.UserConfig
+			var loadedUserConfigs []*authn.UserConfig // Changed to authn.UserConfig
 			rows, err := h.db.Query("SELECT username, password_hash, roles, email, name, disabled FROM local_users WHERE disabled = FALSE")
 			if err != nil {
 				h.logger.Errorf("Failed to query local_users table for store %s: %v", storeConfig.Name, err)
@@ -251,7 +254,7 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 					continue
 				}
 
-				userCfg := &user.UserConfig{
+				userCfg := &authn.UserConfig{ // Changed to authn.UserConfig
 					Username: username.String,
 					Password: passwordHash.String, // go-authcrunch expects the hash directly for local kind
 					Name:     name.String,
@@ -274,9 +277,12 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 
 			// Assign the loaded users to the storeConfig.
 			// For go-authcrunch, a local identity store is typically configured with UserConfigs.
-			// We are populating this field from the database.
-			storeConfig.UserConfigs = loadedUserConfigs
-			// Change Kind to "local" as go-authcrunch understands this for UserConfigs.
+			// We are populating this by setting the "users" key in the Params map.
+			if storeConfig.Params == nil {
+				storeConfig.Params = make(map[string]interface{})
+			}
+			storeConfig.Params["users"] = loadedUserConfigs
+			// Ensure Kind is "local" as go-authcrunch understands this for user configurations in Params.
 			storeConfig.Kind = "local"
 			h.logger.Infof("Loaded %d users from database for local identity store: %s", len(loadedUserConfigs), storeConfig.Name)
 		}
@@ -337,8 +343,10 @@ func (h *HTTPService) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route {
 	return caddyhttp.Route{
 		MatcherSetsRaw: caddyhttp.RawMatcherSets{
 			caddy.ModuleMap{
-				"path":   caddyconfig.JSON([]string{route.Path}),
-				"method": caddyconfig.JSON(route.Methods),
+				"path":   caddyconfig.JSON([]string{route.Path}, nil),                                                       // Added nil for the warnings argument
+				"header": caddyconfig.JSON(map[string][]string{"Accept": {"application/ld+json", "application/json"}}, nil), // Added nil for the warnings argument
+				// "query":  caddyconfig.JSON(map[string][]string{"wot": {"true"}}, nil), // Optional query matcher, if needed
+				"method": caddyconfig.JSON(route.Methods, nil),
 			},
 		},
 		HandlersRaw: handlers,
