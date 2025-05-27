@@ -21,9 +21,10 @@ import (
 var (
 	licensePath = flag.String("license", "/etc/twincore/license.jwt", "Path to license file")
 	publicKey   = flag.String("pubkey", "/etc/twincore/public.key", "Path to public key")
-	dbPath      = flag.String("db", "/var/lib/twincore/config.db", "Path to DuckDB database")
-	logLevel    = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
-	apiPort     = flag.String("api-port", "8090", "API management port")
+	dbPath         = flag.String("db", "/var/lib/twincore/config.db", "Path to DuckDB database")
+	logLevel       = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	apiPort        = flag.String("api-port", "8090", "API management port")
+	parquetLogPath = flag.String("parquet-log-path", "./twincore_data", "Base path for Parquet log files")
 )
 
 func main() {
@@ -50,9 +51,10 @@ func main() {
 
 	// Create container config
 	config := &container.Config{
-		DBPath:      *dbPath,
-		LicensePath: *licensePath,
-		PublicKey:   pubKeyData,
+		DBPath:         *dbPath,
+		LicensePath:    *licensePath,
+		PublicKey:      pubKeyData,
+		ParquetLogPath: *parquetLogPath, // Populate from the new flag
 	}
 
 	// Initialize container

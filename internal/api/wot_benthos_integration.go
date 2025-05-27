@@ -6,19 +6,30 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"context" // Added for pqarrow.ReadTable
 	"database/sql"
+	"encoding/json" // Added for marshalling input in PublishActionInvocation
+	"fmt"           // Added for error wrapping
+	"os"            // Added for Parquet logging file operations
+	"path/filepath" // Added for Parquet logging file path manipulation
 	"sync"
 	"time"
+
+	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/apache/arrow/go/v18/parquet"
+	"github.com/apache/arrow/go/v18/parquet/compress"
+	"github.com/apache/arrow/go/v18/parquet/pqarrow"
+	"github.com/apache/arrow/go/v18/parquet/file" // Added for Parquet file reader
 
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
-	// Placeholder for actual Kafka client. In a real scenario, you'd use a library like
-	// "github.com/segmentio/kafka-go" or "github.com/confluentinc/confluent-kafka-go/kafka"
-	// "github.com/twincore/commons/pkg/kafka" // Example placeholder
+	// Placeholder for actual Kafka client
 )
 
-// Local type definitions, assuming these would ideally come from wot_handler.go or a shared model package.
+// Local type definitions
 // These are needed because the methods in StreamIntegration struct and processors use them.
 // If wot_handler.go exported these types, they could be used directly.
 
@@ -41,20 +52,129 @@ type Event struct {
 // StreamIntegration provides methods for Benthos processors to interact with core WoT logic.
 // This is a struct that holds references to core components.
 type StreamIntegration struct {
-	stateManager StateManager // Interface defined in wot_handler.go
-	eventBroker  *EventBroker // Defined in wot_handler.go
-	streamBridge StreamBridge // Interface defined in wot_handler.go, implemented by BenthosStreamBridge
-	logger       *logrus.Logger
+	stateManager   StateManager // Interface defined in wot_handler.go
+	eventBroker    *EventBroker // Defined in wot_handler.go
+	streamBridge   StreamBridge // Interface defined in wot_handler.go, implemented by BenthosStreamBridge
+	logger         *logrus.Logger
+	parquetLogPath string       // Path for Parquet logs for events
 }
 
+// EventParquetRecord defines the schema for Parquet logging of WoT events.
+type EventParquetRecord struct {
+	ThingID   string `parquet:"name=thing_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
+	EventName string `parquet:"name=event_name,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
+	Data      string `parquet:"name=data,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"` // JSON string of the event data
+	Timestamp int64  `parquet:"name=timestamp,type=INT64"`                                      // Unix nanoseconds
+}
+
+
 // NewStreamIntegration creates a new StreamIntegration handler.
-func NewStreamIntegration(sm StateManager, eb *EventBroker, sb StreamBridge, logger *logrus.Logger) *StreamIntegration {
-	return &StreamIntegration{
-		stateManager: sm,
-		eventBroker:  eb,
-		streamBridge: sb,
-		logger:       logger,
+func NewStreamIntegration(sm StateManager, eb *EventBroker, sb StreamBridge, logger *logrus.Logger, parquetLogPath string) *StreamIntegration {
+	si := &StreamIntegration{
+		stateManager:   sm,
+		eventBroker:    eb,
+		streamBridge:   sb,
+		logger:         logger,
+		parquetLogPath: parquetLogPath,
 	}
+	if parquetLogPath == "" {
+		logger.Warn("StreamIntegration: Parquet logging path for events is empty, Parquet logging will be disabled.")
+	} else {
+		logger.Infof("StreamIntegration: Parquet logging for events enabled at: %s", parquetLogPath)
+	}
+	return si
+}
+
+// logEventToParquet writes an event record to a daily Parquet file.
+func (si *StreamIntegration) logEventToParquet(record EventParquetRecord) error {
+	if si.parquetLogPath == "" {
+		return nil // Parquet logging is disabled
+	}
+
+	today := time.Now().Format("2006-01-02")
+	dirPath := filepath.Join(si.parquetLogPath, "events")
+	filePath := filepath.Join(dirPath, fmt.Sprintf("events_%s.parquet", today))
+
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		si.logger.WithError(err).Errorf("Failed to create Parquet log directory for events: %s", dirPath)
+		return err
+	}
+
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "thing_id", Type: arrow.BinaryTypes.String},
+			{Name: "event_name", Type: arrow.BinaryTypes.String},
+			{Name: "data", Type: arrow.BinaryTypes.String},
+			{Name: "timestamp", Type: arrow.PrimitiveTypes.Int64},
+		},
+		nil,
+	)
+
+	mem := memory.DefaultAllocator
+	recordBuilder := array.NewRecordBuilder(mem, schema)
+	defer recordBuilder.Release()
+
+	recordBuilder.Field(0).(*array.StringBuilder).Append(record.ThingID)
+	recordBuilder.Field(1).(*array.StringBuilder).Append(record.EventName)
+	recordBuilder.Field(2).(*array.StringBuilder).Append(record.Data)
+	recordBuilder.Field(3).(*array.Int64Builder).Append(record.Timestamp)
+
+	arrowRecord := recordBuilder.NewRecord()
+	defer arrowRecord.Release()
+
+	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		si.logger.WithError(err).Errorf("Failed to open Parquet file for events: %s", filePath)
+		return err
+	}
+	defer f.Close()
+
+	var existingTable arrow.Table
+	pf, err := file.NewParquetReader(f)
+    fi, statErr := f.Stat()
+    if statErr == nil && fi.Size() > 0 && err == nil {
+        existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
+        if err != nil {
+            si.logger.WithError(err).Warnf("Could not read existing Parquet table from %s for events, will overwrite.", filePath)
+            existingTable = nil 
+        } else {
+            defer existingTable.Release()
+        }
+    } else if err != nil && statErr == nil && fi.Size() > 0 {
+        si.logger.WithError(err).Warnf("File %s for events is not a valid parquet file but has size > 0. A new one will be created (overwrite).", filePath)
+    }
+
+	var finalTable arrow.Table
+	if existingTable != nil && existingTable.NumRows() > 0 {
+		mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, arrowRecord})
+		if concatErr != nil {
+			si.logger.WithError(concatErr).Errorf("Failed to concatenate new event record to existing Parquet table data for: %s", filePath)
+			return concatErr
+		}
+		finalTable = mergedTable
+		defer finalTable.Release()
+	} else {
+		finalTable = arrowRecord
+		finalTable.Retain()
+	}
+
+	if err := f.Truncate(0); err != nil {
+		si.logger.WithError(err).Errorf("Failed to truncate Parquet file for events: %s", filePath)
+		return err
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		si.logger.WithError(err).Errorf("Failed to seek Parquet file for events: %s", filePath)
+		return err
+	}
+	
+	props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
+	err = pqarrow.WriteTable(finalTable, f, finalTable.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+	if err != nil {
+		si.logger.WithError(err).Errorf("Failed to write event Parquet table to file: %s", filePath)
+		return err
+	}
+	si.logger.Debugf("Successfully wrote/appended event record to Parquet file: %s", filePath)
+	return nil
 }
 
 // ProcessStreamUpdate handles property updates received from a Benthos stream.
@@ -82,12 +202,40 @@ func (si *StreamIntegration) ProcessStreamUpdate(update PropertyUpdate) error {
 // ProcessStreamEvent handles events received from a Benthos stream and publishes them via the EventBroker.
 func (si *StreamIntegration) ProcessStreamEvent(event Event) error {
 	si.logger.Debugf("StreamIntegration: Processing stream event %s for %s", event.EventName, event.ThingID)
+
+	// Log to Parquet
+	if si.parquetLogPath != "" {
+		var dataJSON string
+		if event.Data != nil {
+			dataBytes, marshalErr := json.Marshal(event.Data)
+			if marshalErr != nil {
+				si.logger.WithError(marshalErr).Error("StreamIntegration: Failed to marshal event data for Parquet logging")
+				dataJSON = `{"error": "failed to marshal data"}`
+			} else {
+				dataJSON = string(dataBytes)
+			}
+		} else {
+			dataJSON = "{}" // Or "null"
+		}
+
+		parquetRecord := EventParquetRecord{
+			ThingID:   event.ThingID,
+			EventName: event.EventName,
+			Data:      dataJSON,
+			Timestamp: event.Timestamp.UnixNano(),
+		}
+		if err := si.logEventToParquet(parquetRecord); err != nil {
+			si.logger.WithError(err).Error("StreamIntegration: Failed to log event to Parquet")
+			// Do not fail the main operation
+		}
+	}
+
 	if si.eventBroker == nil {
-		si.logger.Error("StreamIntegration: EventBroker is nil in ProcessStreamEvent")
+		si.logger.Error("StreamIntegration: EventBroker is nil in ProcessStreamEvent, cannot publish event to subscribers")
 		return fmt.Errorf("StreamIntegration: EventBroker not initialized")
 	}
-	// Assuming event structure from stream is compatible with EventBroker's Event type
-	si.eventBroker.Publish(event) // Event struct is defined in wot_handler.go
+	
+	si.eventBroker.Publish(event)
 	return nil
 }
 
@@ -95,29 +243,135 @@ func (si *StreamIntegration) ProcessStreamEvent(event Event) error {
 type BenthosStreamBridge struct {
 	env            *service.Environment
 	logger         *logrus.Logger
-	kafkaProducer  interface{} // Placeholder for an actual Kafka producer instance
+	kafkaProducer  interface{} // Placeholder
 	pendingActions *sync.Map   // Stores actionID (string) -> chan interface{}
-	// stateManager StateManager // Removed as per simplified constructor for now
-	// db *sql.DB // Removed as per simplified constructor for now
+	parquetLogPath string      // Path for Parquet logs
 }
 
+// ActionInvocationParquetRecord defines the schema for Parquet logging of action invocations.
+type ActionInvocationParquetRecord struct {
+	ThingID    string `parquet:"name=thing_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
+	ActionName string `parquet:"name=action_name,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
+	ActionID   string `parquet:"name=action_id,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"`
+	Input      string `parquet:"name=input,type=BYTE_ARRAY,convertedtype=UTF8,logicaltype=STRING"` // JSON string of the input
+	Timestamp  int64  `parquet:"name=timestamp,type=INT64"`                                      // Unix nanoseconds
+}
+
+
 // NewBenthosStreamBridge creates a new BenthosStreamBridge.
-// The stateMgr and db parameters are included to match a potential original signature from container.go,
-// but they are not used in this simplified bridge which focuses on Kafka interaction.
-// They can be removed if not needed by the bridge's direct responsibilities.
-func NewBenthosStreamBridge(env *service.Environment, stateMgr StateManager, db *sql.DB, logger *logrus.Logger) StreamBridge {
+func NewBenthosStreamBridge(env *service.Environment, stateMgr StateManager, db *sql.DB, logger *logrus.Logger, parquetLogPath string) StreamBridge {
 	bridge := &BenthosStreamBridge{
 		env:            env,
 		logger:         logger,
 		pendingActions: &sync.Map{},
-		// kafkaProducer: kafka.NewProducer(...), // Actual Kafka producer initialization would go here
+		parquetLogPath: parquetLogPath,
+		// kafkaProducer: kafka.NewProducer(...),
 	}
-	// If the bridge itself needs to consume (e.g. action results not via ProcessActionResult),
-	// a Kafka consumer would be started here in a goroutine.
-	// For now, we assume ProcessActionResult is called by the Benthos processor.
-	logger.Info("BenthosStreamBridge created. Kafka producer would be initialized here.")
+	if parquetLogPath == "" {
+		logger.Warn("BenthosStreamBridge: Parquet logging path for actions is empty, Parquet logging will be disabled.")
+	} else {
+		logger.Infof("BenthosStreamBridge: Parquet logging for action invocations enabled at: %s", parquetLogPath)
+	}
+	logger.Info("BenthosStreamBridge created.")
 	return bridge
 }
+
+// logActionInvocationToParquet writes an action invocation record to a daily Parquet file.
+func (b *BenthosStreamBridge) logActionInvocationToParquet(record ActionInvocationParquetRecord) error {
+	if b.parquetLogPath == "" {
+		return nil // Parquet logging is disabled
+	}
+
+	today := time.Now().Format("2006-01-02")
+	dirPath := filepath.Join(b.parquetLogPath, "actions")
+	filePath := filepath.Join(dirPath, fmt.Sprintf("actions_%s.parquet", today))
+
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		b.logger.WithError(err).Errorf("Failed to create Parquet log directory for actions: %s", dirPath)
+		return err
+	}
+
+	schema := arrow.NewSchema(
+		[]arrow.Field{
+			{Name: "thing_id", Type: arrow.BinaryTypes.String},
+			{Name: "action_name", Type: arrow.BinaryTypes.String},
+			{Name: "action_id", Type: arrow.BinaryTypes.String},
+			{Name: "input", Type: arrow.BinaryTypes.String},
+			{Name: "timestamp", Type: arrow.PrimitiveTypes.Int64},
+		},
+		nil,
+	)
+
+	mem := memory.DefaultAllocator
+	recordBuilder := array.NewRecordBuilder(mem, schema)
+	defer recordBuilder.Release()
+
+	recordBuilder.Field(0).(*array.StringBuilder).Append(record.ThingID)
+	recordBuilder.Field(1).(*array.StringBuilder).Append(record.ActionName)
+	recordBuilder.Field(2).(*array.StringBuilder).Append(record.ActionID)
+	recordBuilder.Field(3).(*array.StringBuilder).Append(record.Input)
+	recordBuilder.Field(4).(*array.Int64Builder).Append(record.Timestamp)
+
+	arrowRecord := recordBuilder.NewRecord()
+	defer arrowRecord.Release()
+
+	f, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		b.logger.WithError(err).Errorf("Failed to open Parquet file for actions: %s", filePath)
+		return err
+	}
+	defer f.Close()
+
+	var existingTable arrow.Table
+	pf, err := file.NewParquetReader(f)
+    // Check if the file is empty or not a valid Parquet file yet
+    fi, statErr := f.Stat()
+    if statErr == nil && fi.Size() > 0 && err == nil {
+        existingTable, err = pqarrow.ReadTable(context.Background(), pf, pqarrow.ArrowReadProperties{})
+        if err != nil {
+            b.logger.WithError(err).Warnf("Could not read existing Parquet table from %s for actions, will overwrite.", filePath)
+            existingTable = nil 
+        } else {
+            defer existingTable.Release()
+        }
+    } else if err != nil && statErr == nil && fi.Size() > 0 {
+         b.logger.WithError(err).Warnf("File %s for actions is not a valid parquet file but has size > 0. A new one will be created (overwrite).", filePath)
+    } // If size is 0 or statErr, it's effectively a new file situation
+
+
+	var finalTable arrow.Table
+	if existingTable != nil && existingTable.NumRows() > 0 {
+		mergedTable, concatErr := array.ConcatenateTables(mem, []arrow.Table{existingTable, arrowRecord})
+		if concatErr != nil {
+			b.logger.WithError(concatErr).Errorf("Failed to concatenate new action record to existing Parquet table data for: %s", filePath)
+			return concatErr
+		}
+		finalTable = mergedTable
+		defer finalTable.Release()
+	} else {
+		finalTable = arrowRecord
+		finalTable.Retain()
+	}
+
+	if err := f.Truncate(0); err != nil {
+		b.logger.WithError(err).Errorf("Failed to truncate Parquet file for actions: %s", filePath)
+		return err
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		b.logger.WithError(err).Errorf("Failed to seek Parquet file for actions: %s", filePath)
+		return err
+	}
+	
+	props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
+	err = pqarrow.WriteTable(finalTable, f, finalTable.NumRows(), props, pqarrow.NewFileWriterProperties(props))
+	if err != nil {
+		b.logger.WithError(err).Errorf("Failed to write action invocation Parquet table to file: %s", filePath)
+		return err
+	}
+	b.logger.Debugf("Successfully wrote/appended action invocation record to Parquet file: %s", filePath)
+	return nil
+}
+
 
 // PublishPropertyUpdate sends a property update to the appropriate Benthos/Kafka topic.
 func (b *BenthosStreamBridge) PublishPropertyUpdate(thingID, propertyName string, value interface{}) error {
@@ -145,17 +399,49 @@ func (b *BenthosStreamBridge) PublishPropertyUpdate(thingID, propertyName string
 // PublishActionInvocation sends an action invocation to the Benthos/Kafka topic.
 func (b *BenthosStreamBridge) PublishActionInvocation(thingID, actionName string, input interface{}) (string, error) {
 	actionID := uuid.New().String()
+	now := time.Now()
+
+	// Log to Parquet first
+	if b.parquetLogPath != "" {
+		var inputJSON string
+		if input != nil {
+			inputBytes, marshalErr := json.Marshal(input)
+			if marshalErr != nil {
+				b.logger.WithError(marshalErr).Error("BenthosStreamBridge: Failed to marshal action input for Parquet logging")
+				// Continue without input in Parquet log, or handle as critical error? For now, log and continue.
+				inputJSON = `{"error": "failed to marshal input"}`
+			} else {
+				inputJSON = string(inputBytes)
+			}
+		} else {
+			inputJSON = "{}" // Or "null" if preferred for nil input
+		}
+
+		parquetRecord := ActionInvocationParquetRecord{
+			ThingID:    thingID,
+			ActionName: actionName,
+			ActionID:   actionID,
+			Input:      inputJSON,
+			Timestamp:  now.UnixNano(),
+		}
+		if err := b.logActionInvocationToParquet(parquetRecord); err != nil {
+			b.logger.WithError(err).Error("BenthosStreamBridge: Failed to log action invocation to Parquet")
+			// Do not fail the main operation
+		}
+	}
+
+	// Prepare message for Kafka/Benthos stream
 	msg := map[string]interface{}{
-		"thingId":    thingID,    // Matching 'action-invocations' stream's Bloblang
+		"thingId":    thingID,
 		"actionName": actionName,
 		"actionId":   actionID,
 		"input":      input,
-		"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		"timestamp":  now.UTC().Format(time.RFC3339Nano),
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		b.logger.WithError(err).Error("BenthosStreamBridge: Failed to marshal action invocation")
-		return "", fmt.Errorf("failed to marshal action invocation: %w", err)
+		b.logger.WithError(err).Error("BenthosStreamBridge: Failed to marshal action invocation for Kafka")
+		return "", fmt.Errorf("failed to marshal action invocation for Kafka: %w", err)
 	}
 
 	// Create a channel to receive the result for this actionID
@@ -164,7 +450,6 @@ func (b *BenthosStreamBridge) PublishActionInvocation(thingID, actionName string
 
 	b.logger.Infof("BenthosStreamBridge: Publishing action invocation for %s/%s (actionID: %s). Payload: %s", thingID, actionName, actionID, string(payload))
 	// In a real implementation, this would publish to Kafka topic "wot.action.invocations"
-	// e.g., b.kafkaProducer.Publish("wot.action.invocations", thingID, payload)
 	// The Benthos stream 'action-invocations' consumes this.
 	return actionID, nil
 }
