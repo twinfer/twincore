@@ -12,18 +12,22 @@ import (
 )
 
 type StreamService struct {
-	builder *service.StreamBuilder
+	env     *service.Environment
 	streams map[string]*service.Stream
 	configs map[string]string // Store YAML configs
 	mu      sync.RWMutex
 	running bool
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
-func NewStreamService() types.Service {
+// NewStreamService creates a new StreamService.
+// It requires a Benthos service environment to build streams.
+func NewStreamService(env *service.Environment) types.Service {
 	return &StreamService{
-		builder: service.NewStreamBuilder(),
+		env:     env,
 		streams: make(map[string]*service.Stream),
-		configs: make(map[string]string),
+		configs: make(map[string]string), // To store YAML for potential debugging or re-config
 	}
 }
 
@@ -47,24 +51,31 @@ func (s *StreamService) Start(ctx context.Context, config types.ServiceConfig) e
 		return fmt.Errorf("stream service already running")
 	}
 
+	// Initialize context for managing stream lifecycles
+	s.ctx, s.cancel = context.WithCancel(ctx) // Use the provided context for cancellation
+
 	// Extract stream configurations
 	streamConfig, ok := config.Config["stream"].(types.StreamConfig)
 	if !ok {
-		return fmt.Errorf("missing stream configuration")
+		// If no stream config, there's nothing to do, but service can still be "running"
+		s.running = true
+		return nil // Or return an error if stream config is mandatory
 	}
 
 	// Process all topics
 	for _, topic := range streamConfig.Topics {
-		if err := s.createStreamFromTopic(ctx, topic); err != nil {
-			s.stopAllStreams(ctx)
+		if err := s.createStreamFromTopic(topic); err != nil {
+			s.stopAllStreams(context.Background()) // Use background context for cleanup
+			s.cancel()                             // Cancel the main context
 			return fmt.Errorf("failed to create stream for topic %s: %w", topic.Name, err)
 		}
 	}
 
 	// Process all commands
 	for _, command := range streamConfig.Commands {
-		if err := s.createStreamFromCommand(ctx, command); err != nil {
-			s.stopAllStreams(ctx)
+		if err := s.createStreamFromCommand(command); err != nil {
+			s.stopAllStreams(context.Background()) // Use background context for cleanup
+			s.cancel()                             // Cancel the main context
 			return fmt.Errorf("failed to create stream for command %s: %w", command.Name, err)
 		}
 	}
@@ -81,8 +92,20 @@ func (s *StreamService) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	// Signal all running streams to stop
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	// Stop all streams, using the provided context for the stop operation itself
 	s.stopAllStreams(ctx)
+
 	s.running = false
+	// Reset fields
+	s.streams = make(map[string]*service.Stream)
+	s.configs = make(map[string]string)
+	s.ctx = nil
+	s.cancel = nil
 	return nil
 }
 
@@ -91,28 +114,78 @@ func (s *StreamService) UpdateConfig(config types.ServiceConfig) error {
 	defer s.mu.Unlock()
 
 	if !s.running {
-		return fmt.Errorf("service not running")
+		return fmt.Errorf("service not running, cannot update config")
 	}
 
-	// For updates, we'll stop affected streams and recreate them
-	ctx := context.Background()
-
-	streamConfig, ok := config.Config["stream"].(types.StreamConfig)
+	newStreamConfig, ok := config.Config["stream"].(types.StreamConfig)
 	if !ok {
-		return fmt.Errorf("missing stream configuration")
+		// If new config has no stream section, stop all existing streams
+		s.stopAllStreams(context.Background())
+		s.configs = make(map[string]string) // Clear stored configs
+		return nil
 	}
 
-	// Update topics
-	for _, topic := range streamConfig.Topics {
-		// Stop existing stream if any
-		if stream, exists := s.streams[topic.Name]; exists {
-			stream.Stop(ctx)
-			delete(s.streams, topic.Name)
-		}
+	// Create maps for easy lookup of new and existing streams
+	newTopics := make(map[string]types.StreamTopic)
+	for _, t := range newStreamConfig.Topics {
+		newTopics[t.Name] = t
+	}
+	newCommands := make(map[string]types.CommandStream)
+	for _, c := range newStreamConfig.Commands {
+		newCommands[c.Name] = c
+	}
 
-		// Create new stream
-		if err := s.createStreamFromTopic(ctx, topic); err != nil {
-			return fmt.Errorf("failed to update stream for topic %s: %w", topic.Name, err)
+	existingStreamNames := make(map[string]struct{})
+	for name := range s.streams {
+		existingStreamNames[name] = struct{}{}
+	}
+
+	// Stop and remove streams that are not in the new config
+	for name, stream := range s.streams {
+		_, isTopic := newTopics[name]
+		_, isCommand := newCommands[name]
+		if !isTopic && !isCommand {
+			// Stream is not in the new config, stop and remove it
+			// Use a background context for stopping individual streams during an update
+			if err := stream.Stop(context.Background()); err != nil {
+				// Log error but continue, attempt to update other streams
+				fmt.Printf("Error stopping stream %s during config update: %v\n", name, err)
+			}
+			delete(s.streams, name)
+			delete(s.configs, name)
+		}
+	}
+
+	// Update existing or create new topic streams
+	for _, topic := range newStreamConfig.Topics {
+		if oldStream, exists := s.streams[topic.Name]; exists {
+			// Check if config has changed (simplified check: assume any mention means re-create)
+			// A more sophisticated check would compare old and new YAML/config structures.
+			// For now, always stop and re-create if it exists in the new config.
+			if err := oldStream.Stop(context.Background()); err != nil {
+				fmt.Printf("Error stopping existing stream %s for update: %v\n", topic.Name, err)
+				// Continue to try and create the new one
+			}
+			delete(s.streams, topic.Name) // Remove before re-creating
+		}
+		if err := s.createStreamFromTopic(topic); err != nil {
+			// Log or handle error: failed to create/update stream
+			// Depending on desired behavior, might want to collect errors and return
+			fmt.Printf("Failed to update/create stream for topic %s: %v\n", topic.Name, err)
+			// Consider if partial update is acceptable or if we should roll back/stop service
+		}
+	}
+
+	// Update existing or create new command streams
+	for _, command := range newStreamConfig.Commands {
+		if oldStream, exists := s.streams[command.Name]; exists {
+			if err := oldStream.Stop(context.Background()); err != nil {
+				fmt.Printf("Error stopping existing stream %s for update: %v\n", command.Name, err)
+			}
+			delete(s.streams, command.Name) // Remove before re-creating
+		}
+		if err := s.createStreamFromCommand(command); err != nil {
+			fmt.Printf("Failed to update/create stream for command %s: %v\n", command.Name, err)
 		}
 	}
 
@@ -131,7 +204,8 @@ func (s *StreamService) HealthCheck() error {
 }
 
 // createStreamFromTopic creates a Benthos stream from a WoT topic configuration
-func (s *StreamService) createStreamFromTopic(ctx context.Context, topic types.StreamTopic) error {
+// This function no longer takes context as an argument; it uses s.ctx.
+func (s *StreamService) createStreamFromTopic(topic types.StreamTopic) error {
 	// Get form configurations from topic
 	forms, ok := topic.Config["forms"].([]wot.Form)
 	if !ok || len(forms) == 0 {
@@ -147,23 +221,33 @@ func (s *StreamService) createStreamFromTopic(ctx context.Context, topic types.S
 		return fmt.Errorf("failed to generate config: %w", err)
 	}
 
-	// Build and run stream using StreamBuilder
-	stream, err := s.builder.AddStreamFromConfig(topic.Name, yamlConfig)
-	if err != nil {
-		return fmt.Errorf("failed to build stream: %w", err)
+	// Build and run stream
+	builder := service.NewStreamBuilderFromEnvironment(s.env)
+	if err := builder.SetYAML(yamlConfig); err != nil {
+		return fmt.Errorf("failed to set YAML for stream %s: %w", topic.Name, err)
 	}
 
-	if err := s.builder.RunStream(topic.Name); err != nil {
-		return fmt.Errorf("failed to run stream: %w", err)
+	stream, err := builder.Build()
+	if err != nil {
+		return fmt.Errorf("failed to build stream %s: %w", topic.Name, err)
 	}
+
+	go func() {
+		// TODO: Add logging for when a stream exits, e.g. s.logger.Infof("stream %s exited", topic.Name)
+		// Consider more robust error handling/reporting for stream failures.
+		if runErr := stream.Run(s.ctx); runErr != nil {
+			fmt.Printf("Stream %s exited with error: %v\n", topic.Name, runErr)
+		}
+	}()
 
 	s.streams[topic.Name] = stream
-	s.configs[topic.Name] = yamlConfig
+	s.configs[topic.Name] = yamlConfig // Keep storing YAML for reference
 	return nil
 }
 
 // createStreamFromCommand creates a Benthos stream from a WoT command configuration
-func (s *StreamService) createStreamFromCommand(ctx context.Context, command types.CommandStream) error {
+// This function no longer takes context as an argument; it uses s.ctx.
+func (s *StreamService) createStreamFromCommand(command types.CommandStream) error {
 	forms, ok := command.Config["forms"].([]wot.Form)
 	if !ok || len(forms) == 0 {
 		return fmt.Errorf("no forms defined for command %s", command.Name)
@@ -173,17 +257,26 @@ func (s *StreamService) createStreamFromCommand(ctx context.Context, command typ
 
 	yamlConfig, err := s.generateConfigFromForms(forms, securityDefs, "command")
 	if err != nil {
-		return fmt.Errorf("failed to generate config: %w", err)
+		return fmt.Errorf("failed to generate config for command %s: %w", command.Name, err)
 	}
 
-	stream, err := s.builder.AddStreamFromConfig(command.Name, yamlConfig)
+	// Build and run stream
+	builder := service.NewStreamBuilderFromEnvironment(s.env)
+	if err := builder.SetYAML(yamlConfig); err != nil {
+		return fmt.Errorf("failed to set YAML for stream %s: %w", command.Name, err)
+	}
+
+	stream, err := builder.Build()
 	if err != nil {
-		return fmt.Errorf("failed to build stream: %w", err)
+		return fmt.Errorf("failed to build stream %s: %w", command.Name, err)
 	}
 
-	if err := s.builder.RunStream(command.Name); err != nil {
-		return fmt.Errorf("failed to run stream: %w", err)
-	}
+	go func() {
+		// TODO: Add logging for when a stream exits
+		if runErr := stream.Run(s.ctx); runErr != nil {
+			fmt.Printf("Stream %s exited with error: %v\n", command.Name, runErr)
+		}
+	}()
 
 	s.streams[command.Name] = stream
 	s.configs[command.Name] = yamlConfig
@@ -262,13 +355,25 @@ pipeline:
 	return config, nil
 }
 
-// stopAllStreams stops all running streams
+// stopAllStreams stops all running streams.
+// The context passed here is for the stop operation itself.
 func (s *StreamService) stopAllStreams(ctx context.Context) {
-	for name := range s.streams {
-		if err := s.builder.StopStream(name, ctx); err != nil {
-			fmt.Printf("Error stopping stream %s: %v\n", name, err)
-		}
+	var wg sync.WaitGroup
+	for name, stream := range s.streams {
+		wg.Add(1)
+		go func(sName string, st *service.Stream) {
+			defer wg.Done()
+			// Use the provided context for the stop operation
+			if err := st.Stop(ctx); err != nil {
+				fmt.Printf("Error stopping stream %s: %v\n", sName, err)
+			} else {
+				fmt.Printf("Stream %s stopped successfully\n", sName)
+			}
+		}(name, stream)
 	}
+	wg.Wait() // Wait for all stop operations to complete
+
+	// Clear the maps after all streams are stopped
 	s.streams = make(map[string]*service.Stream)
 	s.configs = make(map[string]string)
 }

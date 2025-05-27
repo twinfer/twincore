@@ -5,12 +5,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os" // Added for OPA policy file reading
+	"time" // Added for OPA input
 
+	"github.com/open-policy-agent/opa/rego" // Added for OPA
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/api"
 	"github.com/twinfer/twincore/internal/config"
-
+	"github.com/twinfer/twincore/internal/security" // Added for new security types
 	"github.com/twinfer/twincore/pkg/types"
 	svc "github.com/twinfer/twincore/service"
 )
@@ -42,7 +45,8 @@ type Container struct {
 	WoTHandler   *api.WoTHandler
 
 	// Benthos
-	StreamBuilder *service.StreamBuilder
+	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
+	BenthosEnvironment *service.Environment // Benthos v4 environment
 }
 
 // New creates a new dependency container
@@ -70,17 +74,17 @@ func New(ctx context.Context, cfg *Config) (*Container, error) {
 	}
 
 	// Initialize WoT components
-	if err := c.initWoTComponents(); err != nil {
+	if err := c.initWoTComponents(cfg); err != nil { // Pass cfg for ParquetLogPath
 		return nil, fmt.Errorf("failed to init WoT components: %w", err)
 	}
 
 	// Initialize services
-	if err := c.initServices(); err != nil {
+	if err := c.initServices(cfg); err != nil { // Pass cfg for consistency
 		return nil, fmt.Errorf("failed to init services: %w", err)
 	}
 
 	// Wire up dependencies
-	if err := c.wireDependencies(); err != nil {
+	if err := c.wireDependencies(cfg); err != nil { // Pass cfg for ParquetLogPath
 		return nil, fmt.Errorf("failed to wire dependencies: %w", err)
 	}
 
@@ -109,74 +113,69 @@ func (c *Container) initDatabase(dbPath string) error {
 func (c *Container) initSecurity(cfg *Config) error {
 	c.Logger.Debug("Initializing security components")
 
-	// Initialize license manager
-	lm, err := security.NewLicenseManager(cfg.PublicKey)
+	// Initialize license manager using the new constructor from internal/security
+	// The types.LicenseManager in Container struct should be compatible with security.LicenseManager interface
+	var lm types.LicenseManager // Ensure this type matches what NewLicenseManager returns or is compatible
+	var specificLm security.LicenseManager
+	specificLm, err := security.NewLicenseManager(cfg.PublicKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create license manager: %w", err)
 	}
+	lm = specificLm // Assign if compatible, or adjust types.LicenseManager
 	c.LicenseManager = lm
 
-	// Initialize device manager
+
+	// Initialize device manager using the new constructor from internal/security
 	dm, err := security.NewDeviceManager(cfg.LicensePath, cfg.PublicKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create device manager: %w", err)
 	}
 	c.DeviceManager = dm
 
-	// Validate license
-	if err := dm.InitializeLicense(context.Background()); err != nil {
+	// Validate license by reading from file and using LicenseManager
+	if err := c.DeviceManager.InitializeLicense(context.Background()); err != nil {
 		return fmt.Errorf("license validation failed: %w", err)
 	}
+	c.Logger.Info("License file processed and basic validation complete.")
 
-	// TODO: Implement OPA-based license validation here.
-	// This is a placeholder for querying an OPA engine with the license claims.
-	//
-	// Assumed steps:
-	// 1. Define a method on DeviceManager, e.g., `GetLicenseClaims() (map[string]interface{}, error)`,
-	//    to expose the parsed license claims.
-	//
-	//    Example claims structure (input to OPA):
-	//    {
-	//      "iss": "twinedge.io",
-	//      "sub": "device-123",
-	//      "exp": 1700000000,
-	//      "features": ["core", "http", "streaming"],
-	//      "active": true,
-	//      "tier": "premium"
-	//    }
-	//
-	// 2. Prepare OPA input, including the license claims and any other necessary data like current time:
-	//    /*
-	//    licenseClaims, err := c.DeviceManager.GetLicenseClaims()
-	//    if err != nil {
-	//        return fmt.Errorf("failed to get license claims for OPA validation: %w", err)
-	//    }
-	//    opaInput := map[string]interface{}{
-	//        "license": licenseClaims,
-	//        "current_time_unix": time.Now().Unix(), // Ensure 'time' package is imported
-	//    }
-	//    */
-	//
-	// 3. Initialize OPA engine (load policy from "internal/container/license.rego").
-	//    (e.g., using github.com/open-policy-agent/opa/rego package)
-	//    /*
-	//    ctxOpa := context.Background()
-	//    r := rego.New(
-	//        rego.Query("data.twinedge.authz.allow"),
-	//        rego.Load([]string{"internal/container/license.rego"}, nil), // Or load policy string directly
-	//        rego.Input(opaInput),
-	//    )
-	//    rs, err := r.Eval(ctxOpa)
-	//    if err != nil {
-	//        return fmt.Errorf("OPA policy evaluation error: %w", err)
-	//    }
-	//    if len(rs) == 0 || !rs[0].Expressions[0].Value.(bool) {
-	//        return fmt.Errorf("license is not valid based on OPA policy evaluation")
-	//    }
-	//    c.Logger.Info("License successfully validated with OPA policy.")
-	//    */
+	// OPA-based license validation
+	licenseClaims, err := c.DeviceManager.GetLicenseClaims()
+	if err != nil {
+		return fmt.Errorf("failed to get license claims for OPA validation: %w", err)
+	}
 
-	c.Logger.Info("Security components initialized (OPA validation placeholder added)")
+	opaInput := map[string]interface{}{
+		"license":           licenseClaims,
+		"current_time_unix": time.Now().Unix(),
+	}
+
+	policyBytes, err := os.ReadFile("internal/container/license.rego")
+	if err != nil {
+		return fmt.Errorf("failed to read OPA policy file internal/container/license.rego: %w", err)
+	}
+
+	ctxOpa := context.Background()
+	query, err := rego.New(
+		rego.Query("data.twinedge.authz.allow"),
+		rego.Module("license.rego", string(policyBytes)),
+		rego.Input(opaInput),
+	).PrepareForEval(ctxOpa)
+	if err != nil {
+		return fmt.Errorf("failed to prepare OPA query: %w", err)
+	}
+
+	rs, err := query.Eval(ctxOpa)
+	if err != nil {
+		return fmt.Errorf("OPA policy evaluation error: %w", err)
+	}
+
+	if len(rs) == 0 || !rs[0].Expressions[0].Value.(bool) {
+		c.Logger.Error("License is not valid per OPA policy.")
+		return fmt.Errorf("license is not valid per OPA policy")
+	}
+
+	c.Logger.Info("License successfully validated with OPA policy.")
+	c.Logger.Info("Security components initialized.")
 	return nil
 }
 
@@ -200,24 +199,27 @@ func (c *Container) initConfiguration() error {
 	return nil
 }
 
-func (c *Container) initWoTComponents() error {
+func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg parameter
 	c.Logger.Debug("Initializing WoT components")
 
+	// Initialize Benthos Environment
+	c.BenthosEnvironment = service.NewEnvironment()
+
 	// Initialize state manager
-	sm, err := api.NewDuckDBStateManager(c.DB, c.Logger)
+	// Pass ParquetLogPath to NewDuckDBStateManager (signature: db, logger, parquetLogPath)
+	sm, err := api.NewDuckDBStateManager(c.DB, c.Logger, cfg.ParquetLogPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize DuckDB state manager: %w", err)
 	}
 	c.StateManager = sm
 
 	// Initialize event broker
 	c.EventBroker = api.NewEventBroker()
 
-	// Initialize Benthos stream builder
-	c.StreamBuilder = service.NewStreamBuilder()
-
 	// Initialize stream bridge
-	sb := api.NewBenthosStreamBridge(c.StreamBuilder, c.StateManager, c.DB, c.Logger)
+	// Pass BenthosEnvironment and ParquetLogPath to NewBenthosStreamBridge
+	// Signature: (env, stateMgr, db, logger, parquetLogPath)
+	sb := api.NewBenthosStreamBridge(c.BenthosEnvironment, c.StateManager, c.DB, c.Logger, cfg.ParquetLogPath)
 	c.StreamBridge = sb
 
 	// Initialize WoT handler
@@ -233,7 +235,7 @@ func (c *Container) initWoTComponents() error {
 	return nil
 }
 
-func (c *Container) initServices() error {
+func (c *Container) initServices(cfg *Config) error { // Added cfg for consistency
 	c.Logger.Debug("Initializing services")
 
 	// Create service registry
@@ -241,7 +243,9 @@ func (c *Container) initServices() error {
 
 	// Create services
 	c.HTTPService = svc.NewHTTPService(c.ConfigManager, c.Logger)
-	c.StreamService = svc.NewStreamService(c.StreamBuilder, c.Logger)
+	// NewStreamService was refactored to take *service.Environment.
+	// Assuming constructor: NewStreamService(env *service.Environment)
+	c.StreamService = svc.NewStreamService(c.BenthosEnvironment)
 	c.WoTService = svc.NewWoTService(c.ThingRegistry, c.ConfigManager, c.Logger)
 
 	// Register services
@@ -259,7 +263,7 @@ func (c *Container) initServices() error {
 	return nil
 }
 
-func (c *Container) wireDependencies() error {
+func (c *Container) wireDependencies(cfg *Config) error { // Added cfg parameter
 	c.Logger.Debug("Wiring dependencies")
 
 	// Wire WoT handler to HTTP service
@@ -268,17 +272,20 @@ func (c *Container) wireDependencies() error {
 	}
 
 	// Wire stream integration
-	integration := api.NewStreamIntegration(c.StateManager, c.StreamBridge, c.EventBroker)
+	// Pass ParquetLogPath to NewStreamIntegration
+	// Signature: (stateMgr, eventBroker, streamBridge, logger, parquetLogPath)
+	integration := api.NewStreamIntegration(c.StateManager, c.EventBroker, c.StreamBridge, c.Logger, cfg.ParquetLogPath)
 
-	// Register Benthos processors
-	env := service.NewEnvironment()
-	if err := api.RegisterWoTProcessors(env, integration); err != nil {
-		return err
+	// Register Benthos processors using the container's BenthosEnvironment and Logger
+	// Signature: (env, integration, logger)
+	if err := api.RegisterWoTProcessors(c.BenthosEnvironment, integration, c.Logger); err != nil {
+		return fmt.Errorf("failed to register WoT Benthos processors: %w", err)
 	}
 
-	// Create WoT streams
-	if err := api.CreateWoTStreams(c.StreamBuilder, integration); err != nil {
-		return err
+	// Create WoT streams using the container's BenthosEnvironment
+	// Signature: (env)
+	if err := api.CreateWoTStreams(c.BenthosEnvironment); err != nil { 
+		return fmt.Errorf("failed to create WoT Benthos streams: %w", err)
 	}
 
 	c.Logger.Info("Dependencies wired")
@@ -321,9 +328,10 @@ func (c *Container) Stop(ctx context.Context) error {
 
 // Config holds container configuration
 type Config struct {
-	DBPath      string
-	LicensePath string
-	PublicKey   []byte
+	DBPath         string
+	LicensePath    string
+	PublicKey      []byte
+	ParquetLogPath string // Base path for Parquet log files
 }
 
 // runMigrations runs database migrations
