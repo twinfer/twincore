@@ -91,52 +91,48 @@ func (f *KafkaForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (
 }
 
 func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme) map[string]interface{} {
-	for _, schemeInterface := range securityDefs {
-		// Attempt to treat schemeInterface as map[string]interface{}
-		schemeData, ok := schemeInterface.(map[string]interface{})
-		if !ok {
-			// Potentially log or handle cases where schemeInterface is not a map
-			// For this subtask, we'll skip if it's not in the expected map format
+	for _, schemeDef := range securityDefs { // schemeDef is of type wot.SecurityScheme
+		// schemeDef.Properties is map[string]interface{}
+		// schemeDef.Scheme is a string
+
+		if schemeDef.Scheme == "" {
 			continue
 		}
 
-		schemeTypeStr, ok := schemeData["scheme"].(string)
-		if !ok {
-			continue // Scheme type is mandatory
-		}
-
-		switch strings.ToLower(schemeTypeStr) {
+		switch strings.ToLower(schemeDef.Scheme) {
 		case "basic", "plain": // SASL PLAIN
 			username := "${TWINEDGE_KAFKA_USER}" // Default placeholder
 			password := "${TWINEDGE_KAFKA_PASS}" // Default placeholder
 
-			if userVal, ok := schemeData["user"].(string); ok && userVal != "" {
-				username = userVal
-			} else if userVal, ok := schemeData["username"].(string); ok && userVal != "" {
-				username = userVal
-			}
-
-			if passVal, ok := schemeData["password"].(string); ok && passVal != "" {
-				password = passVal
+			if schemeDef.Properties != nil {
+				if userVal, ok := schemeDef.Properties["user"].(string); ok && userVal != "" {
+					username = userVal
+				} else if userVal, ok := schemeDef.Properties["username"].(string); ok && userVal != "" {
+					username = userVal
+				}
+				if passVal, ok := schemeDef.Properties["password"].(string); ok && passVal != "" {
+					password = passVal
+				}
 			}
 			return map[string]interface{}{
 				"mechanism": "PLAIN",
 				"username":  username,
 				"password":  password,
 			}
-
 		case "scram-sha-256", "scram-sha-512":
 			username := "${TWINEDGE_KAFKA_USER}"
 			password := "${TWINEDGE_KAFKA_PASS}"
-			mechanism := strings.ToUpper(schemeTypeStr) // SCRAM-SHA-256 or SCRAM-SHA-512
+			mechanism := strings.ToUpper(schemeDef.Scheme) // SCRAM-SHA-256 or SCRAM-SHA-512
 
-			if userVal, ok := schemeData["user"].(string); ok && userVal != "" {
-				username = userVal
-			} else if userVal, ok := schemeData["username"].(string); ok && userVal != "" {
-				username = userVal
-			}
-			if passVal, ok := schemeData["password"].(string); ok && passVal != "" {
-				password = passVal
+			if schemeDef.Properties != nil {
+				if userVal, ok := schemeDef.Properties["user"].(string); ok && userVal != "" {
+					username = userVal
+				} else if userVal, ok := schemeDef.Properties["username"].(string); ok && userVal != "" {
+					username = userVal
+				}
+				if passVal, ok := schemeDef.Properties["password"].(string); ok && passVal != "" {
+					password = passVal
+				}
 			}
 			return map[string]interface{}{
 				"mechanism": mechanism,
@@ -148,8 +144,10 @@ func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme
 			// SASL OAUTHBEARER. Benthos expects the token to be provided.
 			// The actual token must be sourced externally (e.g., env var).
 			tokenPlaceholder := "${TWINEDGE_KAFKA_OAUTH_TOKEN}"
-			if tokenVal, ok := schemeData["token"].(string); ok && tokenVal != "" { // If TD provides a direct token string
-				tokenPlaceholder = tokenVal
+			if schemeDef.Properties != nil {
+				if tokenVal, ok := schemeDef.Properties["token"].(string); ok && tokenVal != "" { // If TD provides a direct token string
+					tokenPlaceholder = tokenVal
+				}
 			}
 			// The current Kafka template (kafka_input.yaml/kafka_output.yaml) needs to be updated
 			// to actually use this token. It currently only has username/password fields for SASL.

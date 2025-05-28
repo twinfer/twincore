@@ -103,69 +103,37 @@ func (f *HTTPForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 func (f *HTTPForm) extractAuthHeaders(securityDefs map[string]wot.SecurityScheme) map[string]string {
 	headers := make(map[string]string)
 
-	for _, schemeInterface := range securityDefs {
-		// Treat schemeInterface as map[string]interface{} to access fields
-		// The input is map[string]wot.SecurityScheme.
-		// So `schemeInterface` inside the loop IS of type wot.SecurityScheme.
-		// We will use type assertion to map[string]interface{} on `schemeInterface`.
-
-		tempSchemeMap, ok := schemeInterface.(map[string]interface{})
-		if !ok {
-			// If it's not a map, we cannot proceed with dynamic key access.
-			// Log or skip. For this task, we skip.
-			// fmt.Printf("Warning: SecurityScheme is not a map[string]interface{}, skipping: %T\n", schemeInterface)
-			continue
-		}
-
-		schemeTypeStr := ""
-		if st, okSt := tempSchemeMap["scheme"].(string); okSt {
-			schemeTypeStr = st
-		} else {
-			// If "scheme" key is not present or not a string, we can't determine the type.
-			// fmt.Printf("Warning: SecurityScheme does not have a valid 'scheme' field, skipping.\n")
-			continue
-		}
-
-		switch schemeTypeStr {
+	for _, schemeDef := range securityDefs { // schemeDef is of type wot.SecurityScheme
+		switch schemeDef.Scheme {
 		case "basic":
 			// W3C: name (optional), user (optional), password (optional)
 			// Benthos http_client basic_auth needs: username, password.
 			// We'll construct a placeholder if specific user/pass not in TD.
+			// Actual credentials are not typically part of the TD.
 			authUsername := "${TWINEDGE_BASIC_USER}" // Default placeholder
 			authPassword := "${TWINEDGE_BASIC_PASS}" // Default placeholder
-
-			if userVal, okUser := tempSchemeMap["user"].(string); okUser && userVal != "" {
-				authUsername = userVal
-			}
-			if passVal, okPass := tempSchemeMap["password"].(string); okPass && passVal != "" {
-				authPassword = passVal
-			}
+			// If wot.SecurityScheme had User/Password fields for hints (non-standard):
+			// if schemeDef.User != "" { authUsername = schemeDef.User }
+			// if schemeDef.Password != "" { authPassword = schemeDef.Password }
 			authVal := base64.StdEncoding.EncodeToString([]byte(authUsername + ":" + authPassword))
 			headers["Authorization"] = "Basic " + authVal
 		case "bearer":
 			// W3C: token (optional string for direct token - not common), format (e.g. "jwt"), alg, authorization (URL)
 			// Benthos http_client oauth2.token or a direct bearer token.
 			// For now, we'll assume a placeholder that should be externally resolved.
+			// If wot.SecurityScheme had a specific field for a direct token (it currently doesn't, per the error), it would be checked here.
 			bearerToken := "${TWINEDGE_BEARER_TOKEN}"
-			if tokenVal, okToken := tempSchemeMap["token"].(string); okToken && tokenVal != "" { // If TD provides a direct token string
-				bearerToken = tokenVal
-			}
+			// The 'Token' field is reported as undefined for wot.SecurityScheme.
+			// If a direct token was intended, it would need to be in a different field or a generic map.
 			headers["Authorization"] = "Bearer " + bearerToken
 		case "apikey":
 			// W3C: in ("header", "query", "cookie"), name (header/query/cookie name)
 			// We only handle "header" for Benthos http_client headers.
-			// A field for the actual key value is needed, e.g. "keyValue" or "token"
-			inVal, _ := tempSchemeMap["in"].(string)
-			nameVal, _ := tempSchemeMap["name"].(string)
-
-			if inVal == "header" && nameVal != "" {
-				apiKey := fmt.Sprintf("${TWINEDGE_APIKEY_%s}", nameVal)                      // Placeholder by default
-				if keyVal, okKey := tempSchemeMap["token"].(string); okKey && keyVal != "" { // Assuming "token" field holds the key
-					apiKey = keyVal
-				} else if keyValAlt, okKeyAlt := tempSchemeMap["keyValue"].(string); okKeyAlt && keyValAlt != "" {
-					apiKey = keyValAlt
-				}
-				headers[nameVal] = apiKey
+			if schemeDef.In == "header" && schemeDef.Name != "" {
+				apiKey := fmt.Sprintf("${TWINEDGE_APIKEY_%s}", schemeDef.Name) // Placeholder by default
+				// The 'Token' field is reported as undefined.
+				// If a direct API key value was intended, it would need to be in a different field or a generic map.
+				headers[schemeDef.Name] = apiKey
 			}
 		case "oauth2":
 			// W3C: authorization (URL), token (URL), refresh (URL), scopes, flow

@@ -8,7 +8,7 @@ import (
 	"os"   // Added for OPA policy file reading
 	"time" // Added for OPA input
 
-	"github.com/open-policy-agent/opa/rego" // Added for OPA
+	"github.com/open-policy-agent/opa/rego"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/api"

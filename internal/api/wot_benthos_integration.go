@@ -16,14 +16,14 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/apache/arrow/go/v18/parquet"
-	"github.com/apache/arrow/go/v18/parquet/compress" // Keep this import
-	"github.com/apache/arrow/go/v18/parquet/file"     // Added for Parquet file reader
+	"github.com/apache/arrow/go/v18/parquet/compress"
+	"github.com/apache/arrow/go/v18/parquet/file"
 	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
-	model "github.com/twinfer/twincore/internal/models" // Assuming models package contains PropertyUpdate, Event, etc.
+	model "github.com/twinfer/twincore/internal/models" //  models package contains PropertyUpdate, Event, etc.
 	// Placeholder for actual Kafka client
 )
 
@@ -152,26 +152,26 @@ func (si *StreamIntegration) logEventToParquet(record model.EventParquetRecord) 
 			existingRecords := make([]arrow.Record, 0, existingTable.NumCols())
 			tr := array.NewTableReader(existingTable, 0)
 			defer tr.Release()
-			
+
 			for tr.Next() {
 				rec := tr.Record()
 				rec.Retain() // Keep reference to avoid early release
 				existingRecords = append(existingRecords, rec)
 			}
-			
+
 			// Add the new record
 			arrowRecord.Retain() // Keep reference for the combined table
 			allRecords := append(existingRecords, arrowRecord)
-			
+
 			// Create merged table from all records
 			mergedTable := array.NewTableFromRecords(schema, allRecords)
-			
+
 			// Release all retained records since table now owns them
 			for _, rec := range existingRecords {
 				rec.Release()
 			}
 			arrowRecord.Release()
-			
+
 			tableToWrite = mergedTable
 		}
 	} else {
@@ -376,26 +376,26 @@ func (b *BenthosStreamBridge) logActionInvocationToParquet(record model.ActionIn
 		existingRecords := make([]arrow.Record, 0, existingTable.NumCols())
 		tr := array.NewTableReader(existingTable, 0)
 		defer tr.Release()
-		
+
 		for tr.Next() {
 			rec := tr.Record()
 			rec.Retain() // Keep reference to avoid early release
 			existingRecords = append(existingRecords, rec)
 		}
-		
+
 		// Add the new record
 		arrowRecord.Retain() // Keep reference for the combined table
 		allRecords := append(existingRecords, arrowRecord)
-		
+
 		// Create merged table from all records
 		mergedTable := array.NewTableFromRecords(schema, allRecords)
-		
+
 		// Release all retained records since table now owns them
 		for _, rec := range existingRecords {
 			rec.Release()
 		}
 		arrowRecord.Release()
-		
+
 		tableToWrite = mergedTable
 	} else {
 		tableToWrite = newRecordAsTable
@@ -442,6 +442,21 @@ func (b *BenthosStreamBridge) PublishPropertyUpdate(thingID, propertyName string
 	// For now, this is a placeholder. The Benthos stream 'property-updates' consumes this.
 	// This method is called by WoTHandler when a property is written via HTTP PUT.
 	// The Benthos stream then uses 'wot_property_update' processor which calls integration.ProcessStreamUpdate().
+	/*
+		HTTP PUT -> WoTHandler -> StateManager.SetProperty (DB update) -> BenthosStreamBridge.PublishPropertyUpdate ->
+		(intended Kafka publish) -> Benthos stream 'property-updates' consumes from Kafka ->
+		WoTPropertyUpdateProcessor -> StreamIntegration.ProcessStreamUpdate -> StateManager.SetProperty (again).
+
+		the current execution path for an HTTP PUT:
+
+		WoTHandler calls StateManager.SetProperty() (first DB update).
+		WoTHandler calls BenthosStreamBridge.PublishPropertyUpdate(), which does nothing externally.
+		The Benthos stream 'property-updates' (which is listening to Kafka) will not receive this specific update because it wasn't actually published to Kafka by PublishPropertyUpdate.
+		If property updates are coming from another source that does publish to the "device.property.updates" Kafka topic, then the Benthos stream 'property-updates' would process those, and StreamIntegration.ProcessStreamUpdate() would indeed call StateManager.SetProperty() for those updates.
+
+
+
+	*/
 	return nil
 }
 

@@ -216,13 +216,11 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 		crunchConfig.AuthenticationPortals = cfg.AuthenticationPortals
 	}
 
-	// Assign TokenValidators to each portal
+	// Token Validators are configured at the top level of authcrunch.Config
 	if cfg.TokenValidators != nil {
-		for _, portalCfg := range crunchConfig.AuthenticationPortals {
-			portalCfg.TokenValidators = append(portalCfg.TokenValidators, cfg.TokenValidators...)
-		}
+		crunchConfig.TokenValidators = cfg.TokenValidators // Correct field name
 	}
-	crunchConfig.Gatekeepers = cfg.AuthorizationGatekeepers // Correct field is Gatekeepers
+	crunchConfig.Authorizers = cfg.AuthorizationGatekeepers // Correct field name
 
 	// Populate IdentityStores, especially local ones from DB
 	if crunchConfig.IdentityStores == nil && len(cfg.IdentityStores) > 0 {
@@ -241,7 +239,6 @@ func (h *HTTPService) buildSecurityApp(cfg types.SecurityConfig) json.RawMessage
 			rows, err := h.db.Query("SELECT username, password_hash, roles, email, name, disabled FROM local_users WHERE disabled = FALSE")
 			if err != nil {
 				h.logger.Errorf("Failed to query local_users table for store %s: %v", storeConfig.Name, err)
-				storeConfig.UserConfigs = []*user.UserConfig{} // Ensure it's empty on error
 				continue
 			}
 			defer rows.Close()

@@ -19,6 +19,34 @@ import (
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
+// Constants for interaction types, HTTP headers, content types, and SSE elements
+const (
+	interactionTypeProperties = "properties"
+	interactionTypeActions    = "actions"
+	interactionTypeEvents     = "events"
+
+	headerAccept         = "Accept"
+	headerContentType    = "Content-Type"
+	headerCacheControl   = "Cache-Control"
+	headerConnection     = "Connection"
+	headerPrefer         = "Prefer"
+	headerLocation       = "Location"
+	headerXActionTimeout = "X-Action-Timeout"
+
+	contentTypeJSON        = "application/json"
+	contentTypeTextPlain   = "text/plain"
+	contentTypeEventStream = "text/event-stream"
+
+	sseEventPrefix   = "event: "
+	sseDataPrefix    = "data: "
+	sseNewline       = "\n"
+	sseDoubleNewline = "\n\n"
+
+	cacheControlNoCache = "no-cache"
+	connectionKeepAlive = "keep-alive"
+	preferRespondAsync  = "respond-async"
+)
+
 // WoTHandler manages all WoT interactions
 type WoTHandler struct {
 	// Core components
@@ -213,51 +241,57 @@ func (WoTHandler) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the handler
 func (h *WoTHandler) Provision(ctx caddy.Context) error {
 	// Initialize components
-	h.validator = NewJSONSchemaValidator() // Ensure validator is initialized
-	h.propertyCache = &PropertyCache{ttl: 5 * time.Second}
-	// Retrieve logger from Caddy app context
-	appLogger, err := ctx.App("twincore.logger")
-	if err != nil || appLogger == nil {
-		// Fallback to a new logger if not found, though this indicates a setup issue.
+	h.validator = NewJSONSchemaValidator()                 // Ensure validator is initialized
+	h.propertyCache = &PropertyCache{ttl: 5 * time.Second} // Default TTL
+
+	// Attempt to get the main "twincore" Caddy app module
+	appModule, err := ctx.App("twincore")
+	if err != nil {
+		// If the app module itself isn't found, it's a fundamental setup error.
+		// A basic logger can be used for this specific error.
+		localLogger := logrus.New()
+		localLogger.SetLevel(logrus.ErrorLevel)
+		localLogger.Errorf("WoTHandler: 'twincore' Caddy app module not found: %v. This is a critical configuration error.", err)
+		return fmt.Errorf("WoTHandler: 'twincore' Caddy app module not found: %w", err)
+	}
+
+	coreProvider, ok := appModule.(CoreProvider) // Type assert to the interface defined in `api` package
+	if !ok {
+		localLogger := logrus.New()
+		localLogger.SetLevel(logrus.ErrorLevel)
+		localLogger.Errorf("WoTHandler: 'twincore' Caddy app module does not implement api.CoreProvider. Type is %T", appModule)
+		return fmt.Errorf("WoTHandler: 'twincore' Caddy app module does not implement api.CoreProvider")
+	}
+
+	// Now, assign dependencies from the twinCoreApp
+	h.logger = coreProvider.GetLogger()
+	h.stateManager = coreProvider.GetStateManager()
+	h.streamBridge = coreProvider.GetStreamBridge()
+	h.thingRegistry = coreProvider.GetThingRegistry()
+	h.eventBroker = coreProvider.GetEventBroker()
+
+	// Validate that all dependencies were successfully assigned
+	if h.logger == nil {
+		// This case should ideally not happen if TwinCoreApp.Provision ensures Logger is set
 		h.logger = logrus.New()
 		h.logger.SetLevel(logrus.WarnLevel) // Default to Warn if main logger isn't available
-		h.logger.Warn("WoTHandler: Could not retrieve 'twincore.logger' from Caddy app context. Using fallback logger.")
-	} else {
-		h.logger = appLogger.(*logrus.Logger)
+		h.logger.Warn("WoTHandler: Logger was nil after retrieving from CoreProvider, using fallback.")
 	}
-
-	// Retrieve other dependencies from Caddy app context
-	smApp, err := ctx.App("twincore.statemanager")
-	if err == nil && smApp != nil {
-		h.stateManager = smApp.(StateManager)
-	} else {
-		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.statemanager'. StateManager will be nil.")
-		return fmt.Errorf("WoTHandler: missing StateManager dependency")
+	if h.stateManager == nil {
+		h.logger.Error("WoTHandler: StateManager is nil after retrieving from TwinCoreApp.")
+		return fmt.Errorf("WoTHandler: missing StateManager dependency from TwinCoreApp")
 	}
-
-	sbApp, err := ctx.App("twincore.streambridge")
-	if err == nil && sbApp != nil {
-		h.streamBridge = sbApp.(StreamBridge)
-	} else {
-		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.streambridge'. StreamBridge will be nil.")
-		return fmt.Errorf("WoTHandler: missing StreamBridge dependency")
+	if h.streamBridge == nil {
+		h.logger.Error("WoTHandler: StreamBridge is nil after retrieving from TwinCoreApp.")
+		return fmt.Errorf("WoTHandler: missing StreamBridge dependency from TwinCoreApp")
 	}
-
-	trApp, err := ctx.App("twincore.thingregistry")
-	if err == nil && trApp != nil {
-		h.thingRegistry = trApp.(ThingRegistry)
-	} else {
-		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.thingregistry'. ThingRegistry will be nil.")
-		return fmt.Errorf("WoTHandler: missing ThingRegistry dependency")
+	if h.thingRegistry == nil {
+		h.logger.Error("WoTHandler: ThingRegistry is nil after retrieving from TwinCoreApp.")
+		return fmt.Errorf("WoTHandler: missing ThingRegistry dependency from TwinCoreApp")
 	}
-
-	// EventBroker is initialized and managed by the container, then registered.
-	ebApp, err := ctx.App("twincore.eventbroker")
-	if err == nil && ebApp != nil {
-		h.eventBroker = ebApp.(*EventBroker)
-	} else {
-		h.logger.Error("WoTHandler: Failed to retrieve 'twincore.eventbroker'. EventBroker will be nil.")
-		return fmt.Errorf("WoTHandler: missing EventBroker dependency")
+	if h.eventBroker == nil {
+		h.logger.Error("WoTHandler: EventBroker is nil after retrieving from TwinCoreApp.")
+		return fmt.Errorf("WoTHandler: missing EventBroker dependency from TwinCoreApp")
 	}
 	h.logger.Info("CoreWoTHandler provisioned with dependencies from Caddy app context.")
 	return nil
@@ -276,11 +310,11 @@ func (h *WoTHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 
 	// Route based on interaction type
 	switch interactionType {
-	case "properties":
+	case interactionTypeProperties:
 		return h.handleProperty(w, r, thingID, name)
-	case "actions":
+	case interactionTypeActions:
 		return h.handleAction(w, r, thingID, name)
-	case "events":
+	case interactionTypeEvents:
 		return h.handleEvent(w, r, thingID, name)
 	default:
 		return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("unknown interaction type: %s", interactionType))
@@ -308,7 +342,7 @@ func (h *WoTHandler) handleProperty(w http.ResponseWriter, r *http.Request, thin
 // handlePropertyRead handles GET requests for properties
 func (h *WoTHandler) handlePropertyRead(w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
 	// Check if observable and client wants SSE
-	if property.IsObservable() && r.Header.Get("Accept") == "text/event-stream" {
+	if property.IsObservable() && r.Header.Get(headerAccept) == contentTypeEventStream {
 		return h.handlePropertyObserve(w, r, thingID, propertyName)
 	}
 
@@ -320,16 +354,16 @@ func (h *WoTHandler) handlePropertyRead(w http.ResponseWriter, r *http.Request, 
 
 	// Content negotiation
 	contentType := h.negotiateContentType(r, property)
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set(headerContentType, contentType)
 
 	// Serialize based on content type
 	switch contentType {
-	case "application/json":
+	case contentTypeJSON:
 		return json.NewEncoder(w).Encode(map[string]interface{}{
 			"value":     value,
 			"timestamp": time.Now().UTC(),
 		})
-	case "text/plain":
+	case contentTypeTextPlain:
 		_, err = fmt.Fprintf(w, "%v", value)
 		return err
 	default:
@@ -364,7 +398,17 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Validate against schema
-	if err := h.validator.ValidateProperty(propertyName, property.DataSchema, value); err != nil {
+	// Construct a wot.DataSchema from the PropertyAffordance
+	propertySchemaForValidation := wot.DataSchema{
+		DataSchemaCore: property.DataSchemaCore,
+		Title:          property.InteractionAffordance.Title,
+		Titles:         property.InteractionAffordance.Titles,
+		Description:    property.InteractionAffordance.Description,
+		Descriptions:   property.InteractionAffordance.Descriptions,
+		Comment:        property.InteractionAffordance.Comment,
+	}
+
+	if err := h.validator.ValidateProperty(propertyName, propertySchemaForValidation, value); err != nil {
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
 	}
 
@@ -389,9 +433,9 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 // handlePropertyObserve handles SSE subscriptions for observable properties
 func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Request, thingID, propertyName string) error {
 	// Set SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set(headerContentType, contentTypeEventStream)
+	w.Header().Set(headerCacheControl, cacheControlNoCache)
+	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	// Subscribe to property updates
 	updates, err := h.stateManager.SubscribeProperty(thingID, propertyName)
@@ -408,7 +452,7 @@ func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Reques
 
 	// Send initial value
 	if value, err := h.getPropertyValue(thingID, propertyName); err == nil {
-		fmt.Fprintf(w, "data: %s\n\n", h.encodeSSEData(map[string]interface{}{
+		fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
 			"value":     value,
 			"timestamp": time.Now().UTC(),
 		}))
@@ -419,7 +463,7 @@ func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Reques
 	for {
 		select {
 		case update := <-updates:
-			fmt.Fprintf(w, "data: %s\n\n", h.encodeSSEData(map[string]interface{}{
+			fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
 				"value":     update.Value,
 				"timestamp": update.Timestamp,
 			}))
@@ -476,7 +520,8 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 	}
 
 	// Check if client wants async response
-	if r.Header.Get("Prefer") == "respond-async" {
+	if r.Header.Get(headerPrefer) == preferRespondAsync {
+
 		w.Header().Set("Location", fmt.Sprintf("/things/%s/actions/%s/status/%s", thingID, actionName, actionID))
 		w.WriteHeader(http.StatusAccepted)
 		return json.NewEncoder(w).Encode(map[string]interface{}{
@@ -487,7 +532,7 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 
 	// Wait for result (with timeout)
 	timeout := 30 * time.Second
-	if t := r.Header.Get("X-Action-Timeout"); t != "" {
+	if t := r.Header.Get(headerXActionTimeout); t != "" {
 		if parsed, err := time.ParseDuration(t); err == nil {
 			timeout = parsed
 		}
@@ -499,8 +544,9 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 	}
 
 	// Return result
-	if action.GetOutput() != nil {
-		w.Header().Set("Content-Type", "application/json")
+	if action.Output != nil { // Check the pointer field directly
+		w.Header().Set(headerContentType, contentTypeJSON)
+
 		return json.NewEncoder(w).Encode(result)
 	}
 
@@ -521,9 +567,9 @@ func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID
 	}
 
 	// Set SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set(headerContentType, contentTypeEventStream)
+	w.Header().Set(headerCacheControl, cacheControlNoCache)
+	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	// Subscribe to events
 	eventChan := h.eventBroker.Subscribe(thingID, eventName)
@@ -538,8 +584,9 @@ func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID
 	for {
 		select {
 		case evt := <-eventChan:
-			fmt.Fprintf(w, "event: %s\n", eventName)
-			fmt.Fprintf(w, "data: %s\n\n", h.encodeSSEData(evt))
+			fmt.Fprintf(w, "%s%s%s", sseEventPrefix, eventName, sseNewline)
+			fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(evt), sseDoubleNewline)
+
 			flusher.Flush()
 		case <-r.Context().Done():
 			return nil
@@ -581,19 +628,43 @@ func (h *WoTHandler) getPropertyValue(thingID, propertyName string) (interface{}
 }
 
 func (h *WoTHandler) negotiateContentType(r *http.Request, property wot.PropertyAffordance) string {
-	accept := r.Header.Get("Accept")
-	if accept == "" {
-		accept = "application/json"
+	accept := r.Header.Get(headerAccept) // Use constant
+	if accept == "" || accept == "*/*" { // if accept is empty or wildcard, default to JSON
+		accept = contentTypeJSON // Use constant
 	}
 
-	// Check forms for supported content types
+	var httpForms []wot.Form
 	for _, form := range property.GetForms() {
-		if strings.Contains(accept, form.GetContentType()) {
+		// Filter for HTTP/HTTPS forms
+		protocol := form.GetProtocol()
+		if protocol == "http" || protocol == "https" {
+			httpForms = append(httpForms, form)
+		}
+	}
+
+	// Prefer forms that match the Accept header
+	for _, form := range httpForms {
+		if strings.Contains(accept, form.GetContentType()) { // Ensure form.GetContentType() is not empty
 			return form.GetContentType()
 		}
 	}
 
-	return "application/json"
+	// If no direct match, and if JSON is acceptable by client, and we have a JSON form, use it.
+	if strings.Contains(accept, contentTypeJSON) {
+		for _, form := range httpForms {
+			if form.GetContentType() == contentTypeJSON {
+				return contentTypeJSON
+			}
+		}
+	}
+
+	// If still no match, but there are HTTP forms, return the content type of the first one as a fallback.
+	if len(httpForms) > 0 {
+		return httpForms[0].GetContentType()
+	}
+
+	// Absolute fallback
+	return contentTypeJSON // Use constant
 }
 
 func (h *WoTHandler) encodeSSEData(data interface{}) string {

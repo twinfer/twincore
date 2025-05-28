@@ -15,11 +15,11 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/apache/arrow/go/v18/parquet"
-	"github.com/apache/arrow/go/v18/parquet/compress" // Keep this import
-	"github.com/apache/arrow/go/v18/parquet/file"     // For managing Parquet file reader/writer if needed more granularly
+	"github.com/apache/arrow/go/v18/parquet/compress"
+	"github.com/apache/arrow/go/v18/parquet/file"
 	"github.com/apache/arrow/go/v18/parquet/pqarrow"
 
-	"github.com/twinfer/twincore/internal/models" // Adjust if your module path is different
+	"github.com/twinfer/twincore/internal/models"
 
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/sirupsen/logrus"
@@ -198,26 +198,26 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 				existingRecords := make([]arrow.Record, 0, existingTable.NumCols())
 				tr := array.NewTableReader(existingTable, 0)
 				defer tr.Release()
-				
+
 				for tr.Next() {
 					rec := tr.Record()
 					rec.Retain() // Keep reference to avoid early release
 					existingRecords = append(existingRecords, rec)
 				}
-				
+
 				// Add the new record
 				arrowRecord.Retain() // Keep reference for the combined table
 				allRecords := append(existingRecords, arrowRecord)
-				
+
 				// Create merged table from all records
 				mergedTable := array.NewTableFromRecords(schema, allRecords)
-				
+
 				// Release all retained records since table now owns them
 				for _, rec := range existingRecords {
 					rec.Release()
 				}
 				arrowRecord.Release()
-				
+
 				tableToWrite = mergedTable
 			}
 		} else {
