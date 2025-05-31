@@ -5,30 +5,32 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/wot"
+	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // TDStreamCompositionService orchestrates the complete flow from Thing Description to active streams
+// This is a thin orchestration layer that uses the centralized binding generator
 type TDStreamCompositionService interface {
 	// ProcessThingDescription analyzes a TD and creates all necessary streams
-	ProcessThingDescription(ctx context.Context, thingID string, td map[string]interface{}, config StreamCompositionConfig) (*StreamCompositionResult, error)
-
-	// ProcessThingDescriptionWithExistingAnalysis creates streams from pre-analyzed TD
-	ProcessThingDescriptionWithExistingAnalysis(ctx context.Context, analysis *TDAnalysis, config StreamCompositionConfig) (*StreamCompositionResult, error)
+	ProcessThingDescription(ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error)
 
 	// UpdateStreamsForThing updates streams when a Thing Description changes
-	UpdateStreamsForThing(ctx context.Context, thingID string, td map[string]interface{}, config StreamCompositionConfig) (*StreamCompositionResult, error)
+	UpdateStreamsForThing(ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error)
 
 	// RemoveStreamsForThing removes all streams associated with a Thing
 	RemoveStreamsForThing(ctx context.Context, thingID string) error
+
+	// GetStreamCompositionStatus returns the current status of streams for a Thing
+	GetStreamCompositionStatus(ctx context.Context, thingID string) (*StreamCompositionStatus, error)
 }
 
 // StreamCompositionResult contains the result of TD stream composition
 type StreamCompositionResult struct {
 	ThingID        string                   `json:"thing_id"`
-	Analysis       *TDAnalysis              `json:"analysis"`
+	Bindings       *forms.AllBindings       `json:"bindings"`
 	CreatedStreams []StreamInfo             `json:"created_streams"`
 	FailedStreams  []StreamCreationFailure  `json:"failed_streams,omitempty"`
-	UpdatedStreams []StreamInfo             `json:"updated_streams,omitempty"`
 	RemovedStreams []string                 `json:"removed_streams,omitempty"`
 	Summary        StreamCompositionSummary `json:"summary"`
 }
@@ -44,143 +46,99 @@ type StreamCompositionSummary struct {
 	TotalInteractions int `json:"total_interactions"`
 	StreamsCreated    int `json:"streams_created"`
 	StreamsFailed     int `json:"streams_failed"`
-	StreamsUpdated    int `json:"streams_updated,omitempty"`
 	StreamsRemoved    int `json:"streams_removed,omitempty"`
+	HTTPRoutes        int `json:"http_routes"`
+	ProcessorChains   int `json:"processor_chains"`
 }
 
 // DefaultTDStreamCompositionService implements TDStreamCompositionService
+// Uses centralized binding generator instead of duplicating logic
 type DefaultTDStreamCompositionService struct {
-	composer      TDStreamComposer
-	streamManager BenthosStreamManager
-	logger        logrus.FieldLogger
+	bindingGenerator *forms.BindingGenerator
+	streamManager    BenthosStreamManager
+	logger           logrus.FieldLogger
 }
 
 // NewDefaultTDStreamCompositionService creates a new TD stream composition service
 func NewDefaultTDStreamCompositionService(
-	composer TDStreamComposer,
+	bindingGenerator *forms.BindingGenerator,
 	streamManager BenthosStreamManager,
 	logger logrus.FieldLogger,
 ) *DefaultTDStreamCompositionService {
 	return &DefaultTDStreamCompositionService{
-		composer:      composer,
-		streamManager: streamManager,
-		logger:        logger,
+		bindingGenerator: bindingGenerator,
+		streamManager:    streamManager,
+		logger:           logger,
 	}
 }
 
 // ProcessThingDescription analyzes a TD and creates all necessary streams
-func (s *DefaultTDStreamCompositionService) ProcessThingDescription(ctx context.Context, thingID string, td map[string]interface{}, config StreamCompositionConfig) (*StreamCompositionResult, error) {
-	s.logger.WithField("thing_id", thingID).Info("Processing Thing Description for stream composition")
+func (s *DefaultTDStreamCompositionService) ProcessThingDescription(ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error) {
+	s.logger.WithField("thing_id", td.ID).Info("Processing Thing Description for stream composition")
 
-	// Analyze the Thing Description
-	analysis, err := s.composer.AnalyzeTD(ctx, td)
-	if err != nil {
-		return nil, fmt.Errorf("failed to analyze Thing Description: %w", err)
-	}
-
-	// Ensure analysis has the correct thing ID
-	if analysis.ThingID != thingID {
-		s.logger.WithFields(logrus.Fields{
-			"expected_id": thingID,
-			"actual_id":   analysis.ThingID,
-		}).Warn("Thing ID mismatch between parameter and TD analysis")
-		analysis.ThingID = thingID // Use the provided ID
-	}
-
-	return s.ProcessThingDescriptionWithExistingAnalysis(ctx, analysis, config)
-}
-
-// ProcessThingDescriptionWithExistingAnalysis creates streams from pre-analyzed TD
-func (s *DefaultTDStreamCompositionService) ProcessThingDescriptionWithExistingAnalysis(ctx context.Context, analysis *TDAnalysis, config StreamCompositionConfig) (*StreamCompositionResult, error) {
 	result := &StreamCompositionResult{
-		ThingID:        analysis.ThingID,
-		Analysis:       analysis,
+		ThingID:        td.ID,
 		CreatedStreams: []StreamInfo{},
 		FailedStreams:  []StreamCreationFailure{},
 	}
 
-	// Calculate total interactions
-	totalInteractions := len(analysis.Properties) + len(analysis.Actions) + len(analysis.Events)
-	result.Summary.TotalInteractions = totalInteractions
-
-	s.logger.WithFields(logrus.Fields{
-		"thing_id":   analysis.ThingID,
-		"properties": len(analysis.Properties),
-		"actions":    len(analysis.Actions),
-		"events":     len(analysis.Events),
-		"total":      totalInteractions,
-	}).Info("Composing streams from TD analysis")
-
-	// Generate stream creation requests
-	streamRequests, err := s.composer.ComposeStreams(ctx, analysis, config)
+	// Use centralized binding generator to create all bindings
+	bindings, err := s.bindingGenerator.GenerateAllBindings(td)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compose streams: %w", err)
+		return nil, fmt.Errorf("failed to generate bindings: %w", err)
 	}
 
+	result.Bindings = bindings
+
+	// Count total interactions
+	totalInteractions := len(td.Properties) + len(td.Actions) + len(td.Events)
+	result.Summary.TotalInteractions = totalInteractions
+	result.Summary.HTTPRoutes = len(bindings.HTTPRoutes)
+	result.Summary.ProcessorChains = len(bindings.Processors)
+
 	s.logger.WithFields(logrus.Fields{
-		"thing_id": analysis.ThingID,
-		"requests": len(streamRequests),
-	}).Info("Generated stream creation requests")
+		"thing_id":         td.ID,
+		"total_streams":    len(bindings.Streams),
+		"http_routes":      len(bindings.HTTPRoutes),
+		"processor_chains": len(bindings.Processors),
+	}).Info("Generated bindings from Thing Description")
 
-	// Create streams
-	for _, request := range streamRequests {
-		s.logger.WithFields(logrus.Fields{
-			"thing_id":         request.ThingID,
-			"interaction_type": request.InteractionType,
-			"interaction_name": request.InteractionName,
-			"direction":        request.Direction,
-		}).Debug("Creating stream from request")
-
-		streamInfo, err := s.streamManager.CreateStream(ctx, request)
+	// The streams are already created by the binding generator
+	// Just collect the results
+	for streamID := range bindings.Streams {
+		// Get stream info from stream manager
+		streamInfo, err := s.streamManager.GetStream(ctx, streamID)
 		if err != nil {
-			s.logger.WithError(err).WithFields(logrus.Fields{
-				"thing_id":         request.ThingID,
-				"interaction_type": request.InteractionType,
-				"interaction_name": request.InteractionName,
-			}).Error("Failed to create stream")
-
-			failure := StreamCreationFailure{
-				Request: request,
-				Error:   err.Error(),
-			}
-			result.FailedStreams = append(result.FailedStreams, failure)
-			result.Summary.StreamsFailed++
+			s.logger.WithError(err).WithField("stream_id", streamID).Warn("Failed to get stream info")
 			continue
 		}
-
-		result.CreatedStreams = append(result.CreatedStreams, *streamInfo)
-		result.Summary.StreamsCreated++
-
-		s.logger.WithFields(logrus.Fields{
-			"stream_id":        streamInfo.ID,
-			"thing_id":         streamInfo.ThingID,
-			"interaction_type": streamInfo.InteractionType,
-			"interaction_name": streamInfo.InteractionName,
-		}).Info("Successfully created stream")
+		if streamInfo != nil {
+			result.CreatedStreams = append(result.CreatedStreams, *streamInfo)
+			result.Summary.StreamsCreated++
+		}
 	}
 
 	s.logger.WithFields(logrus.Fields{
-		"thing_id":        analysis.ThingID,
+		"thing_id":        td.ID,
 		"streams_created": result.Summary.StreamsCreated,
 		"streams_failed":  result.Summary.StreamsFailed,
-		"total_requests":  len(streamRequests),
 	}).Info("Completed stream composition for Thing Description")
 
 	return result, nil
 }
 
 // UpdateStreamsForThing updates streams when a Thing Description changes
-func (s *DefaultTDStreamCompositionService) UpdateStreamsForThing(ctx context.Context, thingID string, td map[string]interface{}, config StreamCompositionConfig) (*StreamCompositionResult, error) {
-	s.logger.WithField("thing_id", thingID).Info("Updating streams for Thing Description")
+func (s *DefaultTDStreamCompositionService) UpdateStreamsForThing(ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error) {
+	s.logger.WithField("thing_id", td.ID).Info("Updating streams for Thing Description")
 
 	// Get existing streams for this thing
-	existingStreams, err := s.streamManager.ListStreams(ctx, StreamFilters{ThingID: thingID})
+	existingStreams, err := s.streamManager.ListStreams(ctx, StreamFilters{ThingID: td.ID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list existing streams: %w", err)
 	}
 
 	s.logger.WithFields(logrus.Fields{
-		"thing_id":         thingID,
+		"thing_id":         td.ID,
 		"existing_streams": len(existingStreams),
 	}).Info("Found existing streams for thing")
 
@@ -195,7 +153,7 @@ func (s *DefaultTDStreamCompositionService) UpdateStreamsForThing(ctx context.Co
 	}
 
 	// Create new streams
-	result, err := s.ProcessThingDescription(ctx, thingID, td, config)
+	result, err := s.ProcessThingDescription(ctx, td)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new streams: %w", err)
 	}
@@ -205,7 +163,7 @@ func (s *DefaultTDStreamCompositionService) UpdateStreamsForThing(ctx context.Co
 	result.Summary.StreamsRemoved = len(removedStreamIDs)
 
 	s.logger.WithFields(logrus.Fields{
-		"thing_id":        thingID,
+		"thing_id":        td.ID,
 		"streams_removed": len(removedStreamIDs),
 		"streams_created": result.Summary.StreamsCreated,
 		"streams_failed":  result.Summary.StreamsFailed,
@@ -257,8 +215,6 @@ func (s *DefaultTDStreamCompositionService) RemoveStreamsForThing(ctx context.Co
 	return nil
 }
 
-// Utility methods for enhanced stream composition
-
 // GetStreamCompositionStatus returns the current status of streams for a Thing
 func (s *DefaultTDStreamCompositionService) GetStreamCompositionStatus(ctx context.Context, thingID string) (*StreamCompositionStatus, error) {
 	streams, err := s.streamManager.ListStreams(ctx, StreamFilters{ThingID: thingID})
@@ -287,40 +243,6 @@ type StreamCompositionStatus struct {
 	TotalStreams    int            `json:"total_streams"`
 	StreamsByType   map[string]int `json:"streams_by_type"`
 	StreamsByStatus map[string]int `json:"streams_by_status"`
-}
-
-// ValidateStreamCompositionConfig validates a stream composition configuration
-func ValidateStreamCompositionConfig(config StreamCompositionConfig) error {
-	if config.TopicPrefix == "" {
-		return fmt.Errorf("topic prefix is required")
-	}
-
-	if config.DefaultConsumerGroup == "" {
-		return fmt.Errorf("default consumer group is required")
-	}
-
-	if len(config.KafkaBrokers) == 0 {
-		return fmt.Errorf("at least one Kafka broker is required")
-	}
-
-	if !config.CreatePropertyStreams && !config.CreateActionStreams && !config.CreateEventStreams {
-		return fmt.Errorf("at least one stream type must be enabled")
-	}
-
-	// Validate processor chains
-	for interactionType, chain := range config.DefaultProcessorChains {
-		if len(chain) == 0 {
-			return fmt.Errorf("processor chain for %s cannot be empty", interactionType)
-		}
-
-		for i, processor := range chain {
-			if processor.Type == "" {
-				return fmt.Errorf("processor %d in %s chain has empty type", i, interactionType)
-			}
-		}
-	}
-
-	return nil
 }
 
 // Ensure DefaultTDStreamCompositionService implements TDStreamCompositionService interface

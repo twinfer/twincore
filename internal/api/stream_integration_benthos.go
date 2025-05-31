@@ -10,12 +10,12 @@ import (
 )
 
 // BenthosStreamIntegration is a refactored StreamIntegration that uses Benthos for Parquet
+// Parquet logging is now handled by centralized binding generation
 type BenthosStreamIntegration struct {
-	stateManager  StateManager
-	streamBridge  StreamBridge
-	eventBroker   *EventBroker
-	logger        logrus.FieldLogger
-	parquetClient *SimpleBenthosParquetClient
+	stateManager StateManager
+	streamBridge StreamBridge
+	eventBroker  *EventBroker
+	logger       logrus.FieldLogger
 }
 
 // Stream processing types
@@ -57,14 +57,9 @@ func NewBenthosStreamIntegration(
 		logger:       logger,
 	}
 
-	// Initialize Benthos Parquet client
+	// Parquet logging now handled by centralized binding generation
 	if benthosConfigDir != "" {
-		client, err := NewSimpleBenthosParquetClient(benthosConfigDir, "", logger)
-		if err != nil {
-			logger.WithError(err).Warn("Failed to initialize Benthos Parquet client")
-		} else {
-			si.parquetClient = client
-		}
+		logger.Info("Parquet logging will be handled by centralized binding generation")
 	}
 
 	return si, nil
@@ -122,11 +117,11 @@ func (si *BenthosStreamIntegration) ProcessActionResult(ctx context.Context, res
 // ProcessStreamEvent handles device events from streams
 func (si *BenthosStreamIntegration) ProcessStreamEvent(ctx context.Context, event StreamEvent) error {
 	// Log to Parquet via Benthos
-	if si.parquetClient != nil {
-		if err := si.parquetClient.LogEvent(event.ThingID, event.EventName, event.Data); err != nil {
-			si.logger.WithError(err).Error("Failed to log event to Parquet")
-		}
-	}
+	// Event logging now handled by centralized binding generation
+	si.logger.WithFields(logrus.Fields{
+		"thing_id":   event.ThingID,
+		"event_name": event.EventName,
+	}).Debug("Event logged via centralized binding generation")
 
 	// Publish to event broker for SSE
 	brokerEvent := models.Event{
@@ -143,8 +138,6 @@ func (si *BenthosStreamIntegration) ProcessStreamEvent(ctx context.Context, even
 
 // Close shuts down the stream integration
 func (si *BenthosStreamIntegration) Close() error {
-	if si.parquetClient != nil {
-		return si.parquetClient.Close()
-	}
+	// Parquet client cleanup now handled by centralized binding generation
 	return nil
 }

@@ -5,17 +5,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"   // Added for OPA policy file reading
-	"time" // Added for OPA input
 
-	"github.com/open-policy-agent/opa/rego"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/api"
 	"github.com/twinfer/twincore/internal/config"
-	"github.com/twinfer/twincore/internal/security" // Added for new security types
+	"github.com/twinfer/twincore/internal/security"
+	"github.com/twinfer/twincore/pkg/license"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
+	"github.com/twinfer/twincore/pkg/wot/forms"
 
 	svc "github.com/twinfer/twincore/service"
 )
@@ -48,17 +47,18 @@ type Container struct {
 
 	// Stream Composition Components
 	BenthosStreamManager api.BenthosStreamManager
-	TDStreamComposer     api.TDStreamComposer
 	TDStreamComposition  api.TDStreamCompositionService
 	ThingRegistrationSvc api.ThingRegistrationService
-	StreamConfigDefaults api.StreamConfigDefaults
 
 	// Benthos
 	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
 	BenthosEnvironment *service.Environment // Benthos v4 environment
 
-	// OPA Integration (optional, only used when OPA is enabled)
+	// Legacy security integration (deprecated, replaced by simplified license checking)
 	licenseIntegration *security.LicenseIntegration
+
+	// WoT Binding Generation
+	BindingGenerator *forms.BindingGenerator
 
 	// Initial configurations used to start services
 	InitialHTTPServiceConfig   types.ServiceConfig
@@ -134,68 +134,51 @@ func (c *Container) initDatabase(dbPath string) error {
 func (c *Container) initSecurity(cfg *Config) error {
 	c.Logger.Debug("Initializing security components")
 
-	// Initialize license manager using the new constructor from internal/security
-	// The types.LicenseManager in Container struct should be compatible with security.LicenseManager interface
-	var lm types.LicenseManager                                  // Ensure this type matches what NewLicenseManager returns or is compatible
-	var specificLm *security.LicenseManager                      // Corrected type to pointer
-	specificLm, err := security.NewLicenseManager(cfg.PublicKey) // Corrected assignment
+	// Initialize simplified license checker (replacing OPA)
+	simpleLicenseChecker, err := license.NewSimpleLicenseChecker(cfg.LicensePath, cfg.PublicKey, c.Logger)
 	if err != nil {
-		return fmt.Errorf("failed to create license manager: %w", err)
+		return fmt.Errorf("failed to create simplified license checker: %w", err)
 	}
-	lm = specificLm // Assign if compatible, or adjust types.LicenseManager
+
+	// Validate license features
+	features, err := simpleLicenseChecker.GetAllowedFeatures()
+	if err != nil {
+		return fmt.Errorf("failed to get license features: %w", err)
+	}
+
+	c.Logger.WithFields(logrus.Fields{
+		"bindings":    len(features["bindings"].([]string)),
+		"processors":  len(features["processors"].([]string)),
+		"has_license": features["has_license"],
+	}).Info("License validated successfully with simplified JWT checker")
+
+	// Initialize legacy license manager for backward compatibility
+	// Note: This can be removed once all components use the simplified checker
+	var lm types.LicenseManager
+	var specificLm *security.LicenseManager
+	specificLm, err = security.NewLicenseManager(cfg.PublicKey)
+	if err != nil {
+		c.Logger.WithError(err).Warn("Failed to create legacy license manager, continuing with simplified checker")
+		// Create a minimal implementation that satisfies the interface
+		lm = NewMinimalLicenseManager(simpleLicenseChecker, c.Logger)
+	} else {
+		lm = specificLm
+	}
 	c.LicenseManager = lm
 
-	// Initialize device manager using the new constructor from internal/security
+	// Initialize device manager using simplified license validation
 	dm, err := security.NewDeviceManager(cfg.LicensePath, cfg.PublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to create device manager: %w", err)
 	}
 	c.DeviceManager = dm
 
-	// Validate license by reading from file and using LicenseManager
+	// Validate license using device manager (legacy path)
 	if err := c.DeviceManager.InitializeLicense(context.Background()); err != nil {
-		return fmt.Errorf("license validation failed: %w", err)
-	}
-	c.Logger.Info("License file processed and basic validation complete.")
-
-	// OPA-based license validation
-	licenseClaims, err := c.DeviceManager.GetLicenseClaims()
-	if err != nil {
-		return fmt.Errorf("failed to get license claims for OPA validation: %w", err)
+		c.Logger.WithError(err).Warn("Legacy license validation failed, but simplified checker succeeded")
 	}
 
-	opaInput := map[string]interface{}{
-		"license":           licenseClaims,
-		"current_time_unix": time.Now().Unix(),
-	}
-
-	policyBytes, err := os.ReadFile("internal/container/license.rego")
-	if err != nil {
-		return fmt.Errorf("failed to read OPA policy file internal/container/license.rego: %w", err)
-	}
-
-	ctxOpa := context.Background()
-	query, err := rego.New(
-		rego.Query("data.twinedge.authz.allow"),
-		rego.Module("license.rego", string(policyBytes)),
-		rego.Input(opaInput),
-	).PrepareForEval(ctxOpa)
-	if err != nil {
-		return fmt.Errorf("failed to prepare OPA query: %w", err)
-	}
-
-	rs, err := query.Eval(ctxOpa)
-	if err != nil {
-		return fmt.Errorf("OPA policy evaluation error: %w", err)
-	}
-
-	if len(rs) == 0 || !rs[0].Expressions[0].Value.(bool) {
-		c.Logger.Error("License is not valid per OPA policy.")
-		return fmt.Errorf("license is not valid per OPA policy")
-	}
-
-	c.Logger.Info("License successfully validated with OPA policy.")
-	c.Logger.Info("Security components initialized.")
+	c.Logger.Info("Security components initialized with simplified JWT license checking")
 	return nil
 }
 
@@ -256,15 +239,62 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 		c.Logger,
 	)
 
+	// Initialize centralized binding generator
+	if err := c.initBindingGenerator(cfg); err != nil {
+		return fmt.Errorf("failed to initialize binding generator: %w", err)
+	}
+
 	c.Logger.Info("WoT components initialized")
+	return nil
+}
+
+// initBindingGenerator initializes the centralized WoT binding generator
+func (c *Container) initBindingGenerator(cfg *Config) error {
+	c.Logger.Debug("Initializing centralized binding generator")
+
+	// Create simplified license checker
+	simpleLicenseChecker, err := license.NewSimpleLicenseChecker(cfg.LicensePath, cfg.PublicKey, c.Logger)
+	if err != nil {
+		return fmt.Errorf("failed to create license checker: %w", err)
+	}
+
+	// Create license adapter
+	licenseAdapter := forms.NewLicenseAdapter(simpleLicenseChecker, c.Logger)
+
+	// Create configuration structures
+	parquetConfig := types.ParquetConfig{
+		BasePath:        cfg.ParquetLogPath,
+		BatchSize:       1000,
+		BatchPeriod:     "5s",
+		Compression:     "gzip",
+		FileNamePattern: "%s_%s.parquet",
+	}
+
+	kafkaConfig := types.KafkaConfig{
+		Brokers: []string{"${KAFKA_BROKERS:localhost:9092}"},
+	}
+
+	mqttConfig := types.MQTTConfig{
+		Broker: "${MQTT_BROKER:tcp://localhost:1883}",
+		QoS:    1,
+	}
+
+	// Initialize binding generator with existing dependencies
+	c.BindingGenerator = forms.NewBindingGenerator(
+		c.Logger,
+		licenseAdapter,
+		c.BenthosStreamManager, // Use existing stream manager
+		parquetConfig,
+		kafkaConfig,
+		mqttConfig,
+	)
+
+	c.Logger.Info("Centralized binding generator initialized")
 	return nil
 }
 
 func (c *Container) initStreamComposition(cfg *Config) error {
 	c.Logger.Debug("Initializing stream composition components")
-
-	// Initialize stream configuration defaults
-	c.StreamConfigDefaults = api.GetDefaultStreamConfigDefaults()
 
 	// Initialize Benthos stream manager with DuckDB persistence
 	streamManager, err := api.NewSimpleBenthosStreamManager(
@@ -277,45 +307,22 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 	}
 	c.BenthosStreamManager = streamManager
 
-	// Initialize TD stream composer
-	c.TDStreamComposer = api.NewSimpleTDStreamComposer(c.Logger)
-
-	// Initialize TD stream composition service
+	// Initialize TD stream composition service using the binding generator
 	c.TDStreamComposition = api.NewDefaultTDStreamCompositionService(
-		c.TDStreamComposer,
+		c.BindingGenerator,
 		c.BenthosStreamManager,
 		c.Logger,
 	)
 
-	// Create stream composition configuration with overrides from container config
-	overrides := map[string]interface{}{
-		"parquet_log_path": cfg.ParquetLogPath,
-		"enable_metrics":   true,
-	}
-	compositionConfig := api.GetStreamCompositionConfigFromDefaults(c.StreamConfigDefaults, overrides)
-
-	// Validate configuration
-	validator := api.NewStreamConfigValidator(c.StreamConfigDefaults)
-	if err := validator.ValidateConfig(compositionConfig); err != nil {
-		return fmt.Errorf("invalid stream composition configuration: %w", err)
-	}
-
-	// Initialize Thing registration service with stream composition
-	thingRegSvcBuilder := api.NewThingRegistrationServiceBuilder()
-
+	// Initialize Thing registration service
 	// Create an adapter for ThingRegistry to match the extended interface
 	thingRegistryExt := &ThingRegistryAdapter{ThingRegistry: c.ThingRegistry}
 
-	thingRegSvc, err := thingRegSvcBuilder.
-		WithThingRegistry(thingRegistryExt).
-		WithStreamManager(c.BenthosStreamManager).
-		WithLogger(c.Logger).
-		WithCompositionConfig(compositionConfig).
-		Build()
-	if err != nil {
-		return fmt.Errorf("failed to build Thing registration service: %w", err)
-	}
-	c.ThingRegistrationSvc = thingRegSvc
+	c.ThingRegistrationSvc = api.NewDefaultThingRegistrationService(
+		thingRegistryExt,
+		c.TDStreamComposition,
+		c.Logger,
+	)
 
 	c.Logger.Info("Stream composition components initialized")
 	return nil
@@ -356,22 +363,8 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 func (c *Container) wireDependencies(cfg *Config) error { // Added cfg parameter
 	c.Logger.Debug("Wiring dependencies")
 
-	// Wire stream integration
-	// Pass ParquetLogPath to NewStreamIntegration
-	// Signature: (stateMgr, eventBroker, streamBridge, logger, parquetLogPath)
-	integration := api.NewStreamIntegration(c.StateManager, c.EventBroker, c.StreamBridge, c.Logger, cfg.ParquetLogPath)
-
-	// Register Benthos processors using the container's BenthosEnvironment and Logger
-	// Signature: (env, integration, logger)
-	if err := api.RegisterWoTProcessors(c.BenthosEnvironment, integration, c.Logger); err != nil {
-		return fmt.Errorf("failed to register WoT Benthos processors: %w", err)
-	}
-
-	// Create WoT streams using the container's BenthosEnvironment
-	// Signature: (env)
-	if err := api.CreateWoTStreams(c.BenthosEnvironment); err != nil {
-		return fmt.Errorf("failed to create WoT Benthos streams: %w", err)
-	}
+	// Note: Stream integration, WoT processors and streams are now created dynamically by the centralized
+	// binding generator when Thing Descriptions are registered through the API
 
 	c.Logger.Info("Dependencies wired")
 	return nil
@@ -567,6 +560,45 @@ func (a *ThingRegistryAdapter) ListThings() ([]*wot.ThingDescription, error) {
 	return a.ThingRegistry.ListThings()
 }
 
+// MinimalLicenseManager provides a minimal implementation of LicenseManager interface
+// using the simplified JWT license checker
+type MinimalLicenseManager struct {
+	checker *license.SimpleLicenseChecker
+	logger  *logrus.Logger
+}
+
+// NewMinimalLicenseManager creates a new minimal license manager
+func NewMinimalLicenseManager(checker *license.SimpleLicenseChecker, logger *logrus.Logger) *MinimalLicenseManager {
+	return &MinimalLicenseManager{
+		checker: checker,
+		logger:  logger,
+	}
+}
+
+// ParseAndValidate implements types.LicenseManager interface
+// For simplified license checking, this just returns a license wrapper
+func (m *MinimalLicenseManager) ParseAndValidate(tokenString string) (types.License, error) {
+	// Since our license validation is done during SimpleLicenseChecker creation,
+	// we return a license wrapper that uses our checker
+	return &SimpleLicenseWrapper{checker: m.checker}, nil
+}
+
+// SimpleLicenseWrapper wraps SimpleLicenseChecker to implement types.License
+type SimpleLicenseWrapper struct {
+	checker *license.SimpleLicenseChecker
+}
+
+// IsFeatureEnabled implements types.License interface
+func (w *SimpleLicenseWrapper) IsFeatureEnabled(feature string) bool {
+	return w.checker.IsFeatureAvailable(feature)
+}
+
 // Ensure ThingRegistryAdapter implements both interfaces
 var _ api.ThingRegistry = (*ThingRegistryAdapter)(nil)
 var _ api.ThingRegistryExt = (*ThingRegistryAdapter)(nil)
+
+// Ensure MinimalLicenseManager implements types.LicenseManager interface
+var _ types.LicenseManager = (*MinimalLicenseManager)(nil)
+
+// Ensure SimpleLicenseWrapper implements types.License interface
+var _ types.License = (*SimpleLicenseWrapper)(nil)

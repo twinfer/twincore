@@ -11,6 +11,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -22,14 +23,22 @@ type BenthosBindingHandler struct {
 	logger        *logrus.Logger
 }
 
+// Type aliases from pkg/types for backward compatibility
+type (
+	StreamCreationRequest = types.StreamCreationRequest
+	ProcessorConfig       = types.ProcessorConfig
+	StreamEndpointConfig  = types.StreamEndpointConfig
+	StreamInfo            = types.StreamInfo
+	StreamFilters         = types.StreamFilters
+)
+
 // BenthosStreamManager manages Benthos stream lifecycle
+// This extends the basic interface from pkg/types with additional methods
 type BenthosStreamManager interface {
-	// Stream lifecycle
-	CreateStream(ctx context.Context, request StreamCreationRequest) (*StreamInfo, error)
+	types.BenthosStreamManager
+
+	// Additional methods for stream management
 	UpdateStream(ctx context.Context, streamID string, request StreamUpdateRequest) (*StreamInfo, error)
-	DeleteStream(ctx context.Context, streamID string) error
-	GetStream(ctx context.Context, streamID string) (*StreamInfo, error)
-	ListStreams(ctx context.Context, filters StreamFilters) ([]StreamInfo, error)
 
 	// Processor collection
 	CreateProcessorCollection(ctx context.Context, request ProcessorCollectionRequest) (*ProcessorCollection, error)
@@ -42,54 +51,12 @@ type BenthosStreamManager interface {
 	GetStreamStatus(ctx context.Context, streamID string) (*StreamStatus, error)
 }
 
-// Stream creation and management types
-type StreamCreationRequest struct {
-	ThingID         string                 `json:"thing_id"`
-	InteractionType string                 `json:"interaction_type"` // "properties", "actions", "events"
-	InteractionName string                 `json:"interaction_name"`
-	Direction       string                 `json:"direction"` // "input", "output", "bidirectional"
-	ProcessorChain  []ProcessorConfig      `json:"processor_chain"`
-	Input           StreamEndpointConfig   `json:"input"`
-	Output          StreamEndpointConfig   `json:"output"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
-}
-
+// Additional types not in pkg/types
 type StreamUpdateRequest struct {
 	ProcessorChain []ProcessorConfig      `json:"processor_chain,omitempty"`
 	Input          *StreamEndpointConfig  `json:"input,omitempty"`
 	Output         *StreamEndpointConfig  `json:"output,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-}
-
-type ProcessorConfig struct {
-	Type   string                 `json:"type"`
-	Config map[string]interface{} `json:"config"`
-}
-
-type StreamEndpointConfig struct {
-	Type   string                 `json:"type"` // "kafka", "http", "mqtt", etc.
-	Config map[string]interface{} `json:"config"`
-}
-
-type StreamInfo struct {
-	ID              string                 `json:"id"`
-	ThingID         string                 `json:"thing_id"`
-	InteractionType string                 `json:"interaction_type"`
-	InteractionName string                 `json:"interaction_name"`
-	Direction       string                 `json:"direction"`
-	ProcessorChain  []ProcessorConfig      `json:"processor_chain"`
-	Input           StreamEndpointConfig   `json:"input"`
-	Output          StreamEndpointConfig   `json:"output"`
-	Status          string                 `json:"status"`
-	CreatedAt       string                 `json:"created_at"`
-	UpdatedAt       string                 `json:"updated_at"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
-}
-
-type StreamFilters struct {
-	ThingID         string `json:"thing_id,omitempty"`
-	InteractionType string `json:"interaction_type,omitempty"`
-	Status          string `json:"status,omitempty"`
 }
 
 type StreamStatus struct {

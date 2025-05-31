@@ -2,6 +2,8 @@ package license
 
 import (
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 
@@ -63,7 +65,13 @@ func DefaultFeatures() LicenseFeatures {
 }
 
 // NewSimpleLicenseChecker creates JWT-based license checker
-func NewSimpleLicenseChecker(licenseFile string, publicKey *rsa.PublicKey, logger logrus.FieldLogger) (*SimpleLicenseChecker, error) {
+func NewSimpleLicenseChecker(licenseFile string, publicKeyBytes []byte, logger logrus.FieldLogger) (*SimpleLicenseChecker, error) {
+	// Parse public key from bytes
+	publicKey, err := parsePublicKey(publicKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %w", err)
+	}
+
 	checker := &SimpleLicenseChecker{
 		features:   DefaultFeatures(), // Start with defaults
 		publicKey:  publicKey,
@@ -255,3 +263,33 @@ func GenerateExampleLicense() LicenseFeatures {
 		AuditLogging: true,
 	}
 }
+
+// parsePublicKey parses RSA public key from PEM bytes
+func parsePublicKey(publicKeyBytes []byte) (*rsa.PublicKey, error) {
+	if len(publicKeyBytes) == 0 {
+		return nil, fmt.Errorf("public key bytes are empty")
+	}
+
+	// Parse PEM block
+	block, _ := pem.Decode(publicKeyBytes)
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block containing public key")
+	}
+
+	// Parse public key
+	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %w", err)
+	}
+
+	// Convert to RSA public key
+	rsaPubKey, ok := pubKey.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("public key is not RSA key")
+	}
+
+	return rsaPubKey, nil
+}
+
+// Ensure SimpleLicenseChecker implements LicenseChecker interface
+var _ LicenseChecker = (*SimpleLicenseChecker)(nil)

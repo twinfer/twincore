@@ -461,7 +461,7 @@ func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Reques
 		fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
 			"value":     value,
 			"timestamp": time.Now().UTC(),
-		}))
+		}), sseDoubleNewline)
 		flusher.Flush()
 	}
 
@@ -472,7 +472,7 @@ func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Reques
 			fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
 				"value":     update.Value,
 				"timestamp": update.Timestamp,
-			}))
+			}), sseDoubleNewline)
 			flusher.Flush()
 		case <-r.Context().Done():
 			return nil

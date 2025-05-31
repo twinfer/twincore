@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,18 +24,14 @@ type SimpleBenthosStreamManager struct {
 	streamBuilders       map[string]*service.StreamBuilder
 	activeStreams        map[string]*service.Stream
 	processorCollections map[string]*ProcessorCollection
-	templateFactory      *BenthosTemplateFactory
-	logger               logrus.FieldLogger
-	mu                   sync.RWMutex
+	// templateFactory removed - using direct YAML generation now
+	logger logrus.FieldLogger
+	mu     sync.RWMutex
 }
 
 // NewSimpleBenthosStreamManager creates a new simple Benthos stream manager with DuckDB persistence
 func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.FieldLogger) (*SimpleBenthosStreamManager, error) {
-	// Initialize template factory
-	templateFactory, err := NewBenthosTemplateFactory(logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create template factory: %w", err)
-	}
+	// Template factory removed - using centralized binding generation
 
 	sm := &SimpleBenthosStreamManager{
 		configDir:            configDir,
@@ -45,7 +40,6 @@ func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.F
 		streamBuilders:       make(map[string]*service.StreamBuilder),
 		activeStreams:        make(map[string]*service.Stream),
 		processorCollections: make(map[string]*ProcessorCollection),
-		templateFactory:      templateFactory,
 		logger:               logger,
 	}
 
@@ -725,10 +719,13 @@ func (sm *SimpleBenthosStreamManager) generateBenthosStreamBuilder(stream *Strea
 	// Create new stream builder
 	builder := service.NewStreamBuilder()
 
-	// Generate complete YAML configuration
-	yamlConfig, err := sm.generateStreamYAML(stream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate stream YAML: %w", err)
+	// Check if YAML configuration is provided in metadata
+	var yamlConfig string
+	if stream.Metadata != nil {
+		if yamlStr, ok := stream.Metadata["yaml_config"].(string); ok && yamlStr != "" {
+			yamlConfig = yamlStr
+			sm.logger.WithField("stream_id", stream.ID).Debug("Using YAML config from metadata")
+		}
 	}
 
 	// Set complete configuration using YAML
@@ -741,181 +738,10 @@ func (sm *SimpleBenthosStreamManager) generateBenthosStreamBuilder(stream *Strea
 		"thing_id":         stream.ThingID,
 		"interaction_type": stream.InteractionType,
 		"direction":        stream.Direction,
-	}).Debug("Generated Benthos stream builder using service API")
+		"yaml_source":      "metadata",
+	}).Debug("Created Benthos stream builder using service API")
 
 	return builder, nil
-}
-
-// generateStreamYAML creates a complete YAML configuration for the stream
-func (sm *SimpleBenthosStreamManager) generateStreamYAML(stream *StreamInfo) (string, error) {
-	inputConfig := sm.generateYAMLInputConfig(stream)
-	processorConfig := sm.generateYAMLProcessorConfig(stream)
-	outputConfig := sm.generateYAMLOutputConfig(stream)
-
-	yamlConfig := fmt.Sprintf(`
-input:
-%s
-
-pipeline:
-  processors:
-%s
-
-output:
-%s
-`, inputConfig, processorConfig, outputConfig)
-
-	return yamlConfig, nil
-}
-
-// generateYAMLInputConfig generates YAML input configuration
-func (sm *SimpleBenthosStreamManager) generateYAMLInputConfig(stream *StreamInfo) string {
-	inputType := stream.Input.Type
-
-	switch inputType {
-	case "kafka":
-		topic := stream.Input.Config["topic"].(string)
-		return fmt.Sprintf(`  kafka:
-    addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-    topics: ["%s"]
-    consumer_group: "twincore-%s-%s"
-    auto_replay_nacks: true`, topic, stream.InteractionType, stream.ThingID)
-
-	case "mqtt":
-		topic := stream.Input.Config["topic"].(string)
-		qos := stream.Input.Config["qos"]
-		return fmt.Sprintf(`  mqtt:
-    urls: ["${MQTT_BROKER:tcp://localhost:1883}"]
-    topics: ["%s"]
-    client_id: "twincore-%s-%s"
-    qos: %v`, topic, stream.ThingID, stream.InteractionName, qos)
-
-	case "http_server":
-		path := stream.Input.Config["path"].(string)
-		return fmt.Sprintf(`  http_server:
-    address: "${HTTP_ADDRESS:0.0.0.0:8080}"
-    path: "%s"
-    allowed_verbs: ["POST", "PUT"]
-    timeout: "30s"`, path)
-
-	default:
-		// Default to Kafka
-		return fmt.Sprintf(`  kafka:
-    addresses: ["localhost:9092"]
-    topics: ["things.%s.%s.%s"]
-    consumer_group: "twincore-%s-%s"`, stream.ThingID, stream.InteractionType, stream.InteractionName, stream.InteractionType, stream.ThingID)
-	}
-}
-
-// generateYAMLProcessorConfig generates YAML processor configuration
-func (sm *SimpleBenthosStreamManager) generateYAMLProcessorConfig(stream *StreamInfo) string {
-	var processors []string
-
-	for _, proc := range stream.ProcessorChain {
-		switch proc.Type {
-		case "bloblang_wot_property":
-			processors = append(processors, fmt.Sprintf(`    - label: "format_wot_property"
-      mapping: |
-        root.thing_id = "%s"
-        root.property_name = this.property_name
-        root.value = this.value
-        root.timestamp = timestamp_unix_nano()
-        root.source = this.source.or("%s")
-        root.@context = "https://www.w3.org/2019/wot/td/v1"
-        root.@type = "Property"`, stream.ThingID, stream.Direction))
-
-		case "bloblang_wot_action":
-			processors = append(processors, fmt.Sprintf(`    - label: "format_wot_action"
-      mapping: |
-        root.thing_id = "%s"
-        root.action_name = this.action_name
-        root.input = this.input
-        root.action_id = this.action_id.or(uuid_v4())
-        root.invoked_at = timestamp_unix_nano()
-        root.status = this.status.or("pending")
-        root.timeout = this.timeout.or("30s")
-        root.@context = "https://www.w3.org/2019/wot/td/v1"
-        root.@type = "ActionInvocation"
-        root.source = this.source.or("http")`, stream.ThingID))
-
-		case "bloblang_wot_event":
-			processors = append(processors, fmt.Sprintf(`    - label: "format_wot_event"
-      mapping: |
-        root.thing_id = "%s"
-        root.event_name = this.event_name
-        root.data = this.data
-        root.timestamp = timestamp_unix_nano()
-        root.severity = this.severity.or("info")
-        root.@context = "https://www.w3.org/2019/wot/td/v1"
-        root.@type = "Event"
-        root.source = this.source.or("device")`, stream.ThingID))
-
-		case "json_schema":
-			// Simple schema validation
-			processors = append(processors, `    - label: "validate_schema"
-      json_schema:
-        schema:
-          type: object
-          required: ["thing_id"]`)
-
-		case "parquet_encode":
-			processors = append(processors, `    - label: "encode_parquet"
-      parquet_encode:
-        schema:
-          - name: "thing_id"
-            type: "BYTE_ARRAY"
-            converted_type: "UTF8"
-          - name: "timestamp"
-            type: "INT64"
-          - name: "data"
-            type: "BYTE_ARRAY"
-            converted_type: "UTF8"
-          - name: "source"
-            type: "BYTE_ARRAY"
-            converted_type: "UTF8"`)
-
-		default:
-			// Generic processor handling
-			processors = append(processors, fmt.Sprintf(`    - label: "%s_processor"
-      %s: {}`, proc.Type, proc.Type))
-		}
-	}
-
-	return strings.Join(processors, "\n")
-}
-
-// generateYAMLOutputConfig generates YAML output configuration
-func (sm *SimpleBenthosStreamManager) generateYAMLOutputConfig(stream *StreamInfo) string {
-	outputType := stream.Output.Type
-
-	switch outputType {
-	case "kafka":
-		topic := stream.Output.Config["topic"].(string)
-		return fmt.Sprintf(`  kafka:
-    addresses: ["${KAFKA_BROKERS:localhost:9092}"]
-    topic: "%s"
-    key: "${! this.thing_id }"`, topic)
-
-	case "mqtt":
-		topic := stream.Output.Config["topic"].(string)
-		qos := stream.Output.Config["qos"]
-		return fmt.Sprintf(`  mqtt:
-    urls: ["${MQTT_BROKER:tcp://localhost:1883}"]
-    topic: "%s"
-    client_id: "twincore-pub-%s-%s"
-    qos: %v`, topic, stream.ThingID, stream.InteractionName, qos)
-
-	case "file", "parquet":
-		path := stream.Output.Config["path"].(string)
-		return fmt.Sprintf(`  file:
-    path: "%s"
-    codec: none`, path)
-
-	default:
-		// Default to Parquet file output
-		return fmt.Sprintf(`  file:
-    path: "${PARQUET_LOG_PATH:./logs}/%s/%s_${!timestamp_unix():yyyy-MM-dd}.parquet"
-    codec: none`, stream.InteractionType, stream.InteractionType)
-	}
 }
 
 // writeBenthosStreamBuilder writes a StreamBuilder to file for inspection

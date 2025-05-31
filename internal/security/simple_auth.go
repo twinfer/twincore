@@ -22,13 +22,13 @@ func init() {
 type SimpleAuth struct {
 	// BearerTokens is a list of valid bearer tokens (for simple token auth)
 	BearerTokens []string `json:"bearer_tokens,omitempty"`
-	
+
 	// JWTPublicKey is the public key for JWT validation (PEM format)
 	JWTPublicKey string `json:"jwt_public_key,omitempty"`
-	
+
 	// RequireAuth determines if authentication is required
 	RequireAuth bool `json:"require_auth,omitempty"`
-	
+
 	// logger is set during provisioning
 	logger logrus.FieldLogger
 }
@@ -44,12 +44,12 @@ func (SimpleAuth) CaddyModule() caddy.ModuleInfo {
 // Provision sets up the module.
 func (s *SimpleAuth) Provision(ctx caddy.Context) error {
 	s.logger = logrus.WithField("module", "simple_auth")
-	
+
 	// Validate configuration
 	if s.RequireAuth && len(s.BearerTokens) == 0 && s.JWTPublicKey == "" {
 		return fmt.Errorf("authentication required but no bearer tokens or JWT public key configured")
 	}
-	
+
 	return nil
 }
 
@@ -71,28 +71,28 @@ func (s *SimpleAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	if !s.RequireAuth {
 		return next.ServeHTTP(w, r)
 	}
-	
+
 	// Extract authorization header
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		return s.unauthorized(w, "missing authorization header")
 	}
-	
+
 	// Check if it's a bearer token
 	const bearerPrefix = "Bearer "
 	if !strings.HasPrefix(authHeader, bearerPrefix) {
 		return s.unauthorized(w, "invalid authorization format")
 	}
-	
+
 	token := strings.TrimPrefix(authHeader, bearerPrefix)
-	
+
 	// Try simple bearer token validation first
 	if s.isValidBearerToken(token) {
 		// Add authenticated flag to request context
 		ctx := context.WithValue(r.Context(), "authenticated", true)
 		return next.ServeHTTP(w, r.WithContext(ctx))
 	}
-	
+
 	// Try JWT validation if public key is configured
 	if s.JWTPublicKey != "" {
 		if err := s.validateJWT(token); err == nil {
@@ -101,7 +101,7 @@ func (s *SimpleAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 			return next.ServeHTTP(w, r.WithContext(ctx))
 		}
 	}
-	
+
 	return s.unauthorized(w, "invalid token")
 }
 
@@ -122,7 +122,7 @@ func (s *SimpleAuth) validateJWT(tokenString string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse public key: %w", err)
 	}
-	
+
 	// Parse and validate token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Ensure the token is using RSA
@@ -131,15 +131,15 @@ func (s *SimpleAuth) validateJWT(tokenString string) error {
 		}
 		return publicKey, nil
 	})
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to parse token: %w", err)
 	}
-	
+
 	if !token.Valid {
 		return fmt.Errorf("invalid token")
 	}
-	
+
 	return nil
 }
 
@@ -148,12 +148,12 @@ func (s *SimpleAuth) unauthorized(w http.ResponseWriter, message string) error {
 	w.Header().Set("WWW-Authenticate", `Bearer realm="TwinCore"`)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	
+
 	response := map[string]string{
-		"error": "unauthorized",
+		"error":   "unauthorized",
 		"message": message,
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 	return nil
 }

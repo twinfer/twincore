@@ -4,13 +4,13 @@ package types
 // that uses Caddy's built-in features instead of go-authcrunch
 type SimpleSecurityConfig struct {
 	Enabled bool `json:"enabled"`
-	
+
 	// Basic authentication
 	BasicAuth *BasicAuthConfig `json:"basic_auth,omitempty"`
-	
+
 	// Bearer token authentication
 	BearerAuth *BearerAuthConfig `json:"bearer_auth,omitempty"`
-	
+
 	// JWT validation
 	JWTAuth *JWTAuthConfig `json:"jwt_auth,omitempty"`
 }

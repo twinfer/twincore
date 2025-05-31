@@ -86,7 +86,7 @@ type IntegrationConfig struct {
 	PolicyDir     string
 	LicenseFile   string
 	PublicKeyPath string // Optional: path to public key file
-	PublicKey     []byte  // Optional: embedded public key data
+	PublicKey     []byte // Optional: embedded public key data
 	Logger        logrus.FieldLogger
 }
 

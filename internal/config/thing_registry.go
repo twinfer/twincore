@@ -348,7 +348,7 @@ func (r *ThingRegistry) validateTD(jsonData interface{}) error {
 				errorsStr += fmt.Sprintf("- %s\n", desc)
 			}
 			r.logger.Error(errorsStr)
-			return fmt.Errorf(errorsStr)
+			return fmt.Errorf("%s", errorsStr)
 		}
 		r.logger.Debug("TD successfully validated against JSON schema.")
 	} else {

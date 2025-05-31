@@ -395,7 +395,7 @@ func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interfac
 			"handler": "wot_handler", // Our custom WoT handler from caddy_app
 		},
 	}
-	
+
 	// Add auth if configured
 	if provider != "" && provider != "local" {
 		// Prepend auth handler
@@ -405,7 +405,7 @@ func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interfac
 		}
 		handlers = append([]map[string]interface{}{authHandler}, handlers...)
 	}
-	
+
 	return handlers
 }
 

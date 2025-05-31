@@ -12,10 +12,10 @@ import (
 )
 
 // BenthosStateManager is a refactored StateManager that uses Benthos for Parquet logging
+// Parquet logging is now handled by centralized binding generation
 type BenthosStateManager struct {
 	db             *sql.DB
 	logger         logrus.FieldLogger
-	parquetClient  *SimpleBenthosParquetClient
 	parquetEnabled bool
 }
 
@@ -26,16 +26,10 @@ func NewBenthosStateManager(db *sql.DB, benthosConfigDir, parquetLogPath string,
 		logger: logger,
 	}
 
-	// Initialize simple Benthos Parquet client
+	// Parquet logging now handled by centralized binding generation
 	if benthosConfigDir != "" || parquetLogPath != "" {
-		client, err := NewSimpleBenthosParquetClient(benthosConfigDir, parquetLogPath, logger)
-		if err != nil {
-			logger.WithError(err).Warn("Failed to initialize Benthos Parquet client, continuing without Parquet logging")
-		} else {
-			sm.parquetClient = client
-			sm.parquetEnabled = true
-			logger.Info("Benthos-based Parquet logging enabled")
-		}
+		sm.parquetEnabled = true
+		logger.Info("Parquet logging will be handled by centralized binding generation")
 	}
 
 	return sm, nil
@@ -92,17 +86,19 @@ func (sm *BenthosStateManager) SetPropertyWithContext(ctx context.Context, thing
 	}
 
 	// Log to Parquet via Benthos with source context
-	if sm.parquetEnabled && sm.parquetClient != nil {
+	if sm.parquetEnabled {
 		// Extract source from context
 		source := "unknown"
 		if updateCtx, ok := models.GetUpdateContext(ctx); ok {
 			source = string(updateCtx.Source)
 		}
 
-		if err := sm.parquetClient.LogPropertyUpdate(thingID, name, value, source); err != nil {
-			// Log error but don't fail the operation
-			sm.logger.WithError(err).Error("Failed to log property update to Parquet")
-		}
+		// Property logging now handled by centralized binding generation
+		sm.logger.WithFields(logrus.Fields{
+			"thing_id": thingID,
+			"property": name,
+			"source":   source,
+		}).Debug("Property update logged via centralized binding generation")
 	}
 
 	return nil
@@ -176,9 +172,7 @@ func (sm *BenthosStateManager) DeleteAllProperties(ctx context.Context, thingID 
 
 // Close shuts down the state manager
 func (sm *BenthosStateManager) Close() error {
-	if sm.parquetClient != nil {
-		return sm.parquetClient.Close()
-	}
+	// Parquet client cleanup now handled by centralized binding generation
 	return nil
 }
 

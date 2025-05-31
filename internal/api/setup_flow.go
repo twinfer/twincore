@@ -1,34 +1,34 @@
 package api
 
 import (
-	"encoding/json"
-	"net/http"
 	"database/sql"
+	"encoding/json"
 	"github.com/sirupsen/logrus"
+	"net/http"
 )
 
 // SetupHandler provides first-time setup flow
 type SetupHandler struct {
 	configManager *ConfigManager
-	db           *sql.DB
-	logger       logrus.FieldLogger
+	db            *sql.DB
+	logger        logrus.FieldLogger
 }
 
 // NewSetupHandler creates a new setup handler
 func NewSetupHandler(configManager *ConfigManager, db *sql.DB, logger logrus.FieldLogger) *SetupHandler {
 	return &SetupHandler{
 		configManager: configManager,
-		db:           db,
-		logger:       logger,
+		db:            db,
+		logger:        logger,
 	}
 }
 
 // SetupStatusResponse returns the current setup status
 type SetupStatusResponse struct {
-	Complete    bool   `json:"complete"`
-	Step        int    `json:"step"`
-	TotalSteps  int    `json:"total_steps"`
-	NextStep    string `json:"next_step,omitempty"`
+	Complete   bool   `json:"complete"`
+	Step       int    `json:"step"`
+	TotalSteps int    `json:"total_steps"`
+	NextStep   string `json:"next_step,omitempty"`
 }
 
 // GetSetupStatus returns the current setup status
@@ -37,12 +37,12 @@ func (h *SetupHandler) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 		Complete:   h.configManager.IsSetupComplete(),
 		TotalSteps: 4,
 	}
-	
+
 	if !status.Complete {
 		status.Step = h.getCurrentStep()
 		status.NextStep = h.getNextStepDescription(status.Step)
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
 }
@@ -59,13 +59,13 @@ func (h *SetupHandler) ProcessSetup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	var req SetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	
+
 	switch req.Step {
 	case 1:
 		h.processLicenseStep(w, req.Config)
@@ -94,7 +94,7 @@ func (h *SetupHandler) processLicenseStep(w http.ResponseWriter, config map[stri
 		}
 		h.logger.Info("License validated and saved")
 	}
-	
+
 	h.sendSetupResponse(w, "License configured successfully")
 }
 
@@ -105,18 +105,18 @@ func (h *SetupHandler) processAuthStep(w http.ResponseWriter, config map[string]
 		http.Error(w, "Provider type required", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Configure the selected authentication provider
 	authRequest := AuthConfigRequest{
 		Provider: providerType,
 		Config:   config,
 	}
-	
+
 	if err := h.configManager.ConfigureAuth(authRequest); err != nil {
 		http.Error(w, "Failed to configure auth: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	h.sendSetupResponse(w, "Authentication configured successfully")
 }
 
@@ -127,20 +127,20 @@ func (h *SetupHandler) processAdminUserStep(w http.ResponseWriter, config map[st
 		http.Error(w, "Username required", http.StatusBadRequest)
 		return
 	}
-	
+
 	password, ok := config["password"].(string)
 	if !ok || password == "" {
 		http.Error(w, "Password required", http.StatusBadRequest)
 		return
 	}
-	
+
 	email, _ := config["email"].(string)
-	
+
 	if err := h.createAdminUser(username, password, email); err != nil {
 		http.Error(w, "Failed to create admin user: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	h.sendSetupResponse(w, "Admin user created successfully")
 }
 
@@ -151,18 +151,18 @@ func (h *SetupHandler) processFinalizeStep(w http.ResponseWriter, config map[str
 		http.Error(w, "Failed to complete setup: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Apply initial configuration
 	if err := h.applyInitialConfiguration(); err != nil {
 		h.logger.WithError(err).Warn("Failed to apply some initial configurations")
 	}
-	
+
 	response := map[string]interface{}{
-		"message": "Setup completed successfully",
+		"message":    "Setup completed successfully",
 		"portal_url": "/portal/",
-		"api_url": "/api/v1/",
+		"api_url":    "/api/v1/",
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -178,7 +178,7 @@ func (h *SetupHandler) getCurrentStep() int {
 func (h *SetupHandler) getNextStepDescription(step int) string {
 	steps := map[int]string{
 		1: "Configure license",
-		2: "Select authentication provider", 
+		2: "Select authentication provider",
 		3: "Create admin user",
 		4: "Finalize setup",
 	}
@@ -198,7 +198,7 @@ func (h *SetupHandler) createAdminUser(username, password, email string) error {
 		INSERT INTO portal_users (id, username, email, password_hash, roles, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 	`, generateID(), username, email, hashPassword(password), `["admin"]`)
-	
+
 	return err
 }
 

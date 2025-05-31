@@ -28,35 +28,6 @@ type CommandStream struct {
 	Config map[string]interface{} `json:"config"`
 }
 
-// SecurityConfig directly mirrors the structure needed by go-authcrunch
-// to simplify setup in http-service.go.
-// This configuration would be part of the gateway's overall static configuration.
-// type SecurityConfig struct {
-// 	Enabled bool `json:"enabled"`
-
-// 	// Configuration for Authentication Portals
-// 	// Typically, one portal is defined.
-// 	AuthenticationPortals []*authn.PortalConfig `json:"authenticationPortals,omitempty"`
-
-// 	// Configuration for Identity Stores (e.g., local user database, LDAP)
-// 	// Note: authn.PortalConfig.IdentityStores and authn.PortalConfig.IdentityProviders are the typical way to link these.
-// 	// Exposing these at top level might be redundant if PortalConfig is fully specified.
-// 	// For now, including as per prompt, assuming they might be used to populate the main authcrunch.Config.
-// 	IdentityStores []*authn.IdentityStoreConfig `json:"identityStores,omitempty"`
-
-// 	// Configuration for Token Validators (e.g., JWT validators)
-// 	// Similar to IdentityStores, these are often part of PortalConfig.
-// 	TokenValidators []*authn.TokenValidatorConfig `json:"tokenValidators,omitempty"`
-
-// 	// Configuration for Authorization (Gatekeepers and Policies)
-// 	// Typically, one gatekeeper containing multiple policies is defined.
-// 	AuthorizationGatekeepers []*authz.Config `json:"authorizationGatekeepers,omitempty"`
-
-// 	// Other global settings from authcrunch.Config if necessary
-// 	// LogLevel string `json:"logLevel,omitempty"`
-// 	// LogFilePath string `json:"logFilePath,omitempty"`
-// }
-
 // HTTPConfig with Security field
 type HTTPConfig struct {
 	Routes   []HTTPRoute            `json:"routes"`

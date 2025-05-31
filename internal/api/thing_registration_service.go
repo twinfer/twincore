@@ -59,10 +59,9 @@ type ThingWithStreams struct {
 
 // DefaultThingRegistrationService implements ThingRegistrationService
 type DefaultThingRegistrationService struct {
-	thingRegistry     ThingRegistryExt // Extended interface
-	streamComposer    TDStreamCompositionService
-	logger            logrus.FieldLogger
-	compositionConfig StreamCompositionConfig
+	thingRegistry  ThingRegistryExt // Extended interface
+	streamComposer TDStreamCompositionService
+	logger         logrus.FieldLogger
 }
 
 // ThingRegistryExt extends ThingRegistry with registration methods
@@ -79,13 +78,11 @@ func NewDefaultThingRegistrationService(
 	thingRegistry ThingRegistryExt,
 	streamComposer TDStreamCompositionService,
 	logger logrus.FieldLogger,
-	compositionConfig StreamCompositionConfig,
 ) *DefaultThingRegistrationService {
 	return &DefaultThingRegistrationService{
-		thingRegistry:     thingRegistry,
-		streamComposer:    streamComposer,
-		logger:            logger,
-		compositionConfig: compositionConfig,
+		thingRegistry:  thingRegistry,
+		streamComposer: streamComposer,
+		logger:         logger,
 	}
 }
 
@@ -124,7 +121,7 @@ func (s *DefaultThingRegistrationService) RegisterThing(ctx context.Context, tdJ
 	s.logger.WithField("thing_id", td.ID).Info("Thing Description registered successfully")
 
 	// Create streams from Thing Description
-	streamResult, err := s.streamComposer.ProcessThingDescription(ctx, td.ID, tdMap, s.compositionConfig)
+	streamResult, err := s.streamComposer.ProcessThingDescription(ctx, td)
 	if err != nil {
 		s.logger.WithError(err).WithField("thing_id", td.ID).Error("Failed to create streams for Thing Description")
 		// Don't fail the entire registration for stream composition errors
@@ -181,7 +178,7 @@ func (s *DefaultThingRegistrationService) UpdateThing(ctx context.Context, thing
 	s.logger.WithField("thing_id", td.ID).Info("Thing Description updated successfully")
 
 	// Update streams for Thing Description
-	streamResult, err := s.streamComposer.UpdateStreamsForThing(ctx, td.ID, tdMap, s.compositionConfig)
+	streamResult, err := s.streamComposer.UpdateStreamsForThing(ctx, td)
 	if err != nil {
 		s.logger.WithError(err).WithField("thing_id", td.ID).Error("Failed to update streams for Thing Description")
 		result.Summary.Error = fmt.Sprintf("Thing updated but stream update failed: %v", err)
@@ -254,107 +251,6 @@ func (s *DefaultThingRegistrationService) GetThingWithStreams(ctx context.Contex
 		Streams:          streams,
 		StreamStatus:     status,
 	}, nil
-}
-
-// Utility methods
-
-// ValidateThingRegistrationConfig validates the service configuration
-func ValidateThingRegistrationConfig(config StreamCompositionConfig) error {
-	return ValidateStreamCompositionConfig(config)
-}
-
-// GetDefaultStreamCompositionConfig returns a default configuration optimized for Thing registration
-func GetDefaultStreamCompositionConfig() StreamCompositionConfig {
-	config := DefaultStreamCompositionConfig()
-
-	// Override defaults for Thing registration context
-	config.CreatePropertyStreams = true
-	config.CreateActionStreams = true
-	config.CreateEventStreams = true
-	config.EnableBidirectional = true
-
-	// Use more conservative defaults for registration
-	config.DefaultInputTemplate = "input-kafka"
-	config.DefaultOutputTemplate = "output-parquet"
-
-	return config
-}
-
-// ThingRegistrationServiceBuilder helps build a ThingRegistrationService with dependencies
-type ThingRegistrationServiceBuilder struct {
-	thingRegistry  ThingRegistryExt
-	streamManager  BenthosStreamManager
-	composer       TDStreamComposer
-	compositionSvc TDStreamCompositionService
-	logger         logrus.FieldLogger
-	config         StreamCompositionConfig
-}
-
-// NewThingRegistrationServiceBuilder creates a new builder
-func NewThingRegistrationServiceBuilder() *ThingRegistrationServiceBuilder {
-	return &ThingRegistrationServiceBuilder{
-		config: GetDefaultStreamCompositionConfig(),
-	}
-}
-
-// WithThingRegistry sets the Thing registry
-func (b *ThingRegistrationServiceBuilder) WithThingRegistry(registry ThingRegistryExt) *ThingRegistrationServiceBuilder {
-	b.thingRegistry = registry
-	return b
-}
-
-// WithStreamManager sets the stream manager
-func (b *ThingRegistrationServiceBuilder) WithStreamManager(manager BenthosStreamManager) *ThingRegistrationServiceBuilder {
-	b.streamManager = manager
-	return b
-}
-
-// WithLogger sets the logger
-func (b *ThingRegistrationServiceBuilder) WithLogger(logger logrus.FieldLogger) *ThingRegistrationServiceBuilder {
-	b.logger = logger
-	return b
-}
-
-// WithCompositionConfig sets the stream composition configuration
-func (b *ThingRegistrationServiceBuilder) WithCompositionConfig(config StreamCompositionConfig) *ThingRegistrationServiceBuilder {
-	b.config = config
-	return b
-}
-
-// Build creates the ThingRegistrationService
-func (b *ThingRegistrationServiceBuilder) Build() (ThingRegistrationService, error) {
-	// Validate required dependencies
-	if b.thingRegistry == nil {
-		return nil, fmt.Errorf("ThingRegistry is required")
-	}
-	if b.streamManager == nil {
-		return nil, fmt.Errorf("BenthosStreamManager is required")
-	}
-	if b.logger == nil {
-		return nil, fmt.Errorf("Logger is required")
-	}
-
-	// Validate configuration
-	if err := ValidateThingRegistrationConfig(b.config); err != nil {
-		return nil, fmt.Errorf("invalid stream composition config: %w", err)
-	}
-
-	// Create composer if not provided
-	if b.composer == nil {
-		b.composer = NewSimpleTDStreamComposer(b.logger)
-	}
-
-	// Create composition service if not provided
-	if b.compositionSvc == nil {
-		b.compositionSvc = NewDefaultTDStreamCompositionService(b.composer, b.streamManager, b.logger)
-	}
-
-	return NewDefaultThingRegistrationService(
-		b.thingRegistry,
-		b.compositionSvc,
-		b.logger,
-		b.config,
-	), nil
 }
 
 // Ensure DefaultThingRegistrationService implements ThingRegistrationService interface

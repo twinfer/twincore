@@ -24,12 +24,12 @@ const (
 	ProcessorBloblangWoTProperty BenthosProcessorType = "bloblang_wot_property"
 	ProcessorBloblangWoTAction   BenthosProcessorType = "bloblang_wot_action"
 	ProcessorBloblangWoTEvent    BenthosProcessorType = "bloblang_wot_event"
-	
+
 	// Data format processors
 	ProcessorJSONSchema    BenthosProcessorType = "json_schema"
 	ProcessorParquetEncode BenthosProcessorType = "parquet_encode"
 	ProcessorParquetDecode BenthosProcessorType = "parquet_decode"
-	
+
 	// License-aware processors
 	ProcessorLicenseCheck BenthosProcessorType = "license_check"
 )
@@ -47,12 +47,12 @@ const (
 type StreamProtocol string
 
 const (
-	ProtocolKafka      StreamProtocol = "kafka"
-	ProtocolMQTT       StreamProtocol = "mqtt"
-	ProtocolHTTP       StreamProtocol = "http"
-	ProtocolWebSocket  StreamProtocol = "websocket"
-	ProtocolFile       StreamProtocol = "file"
-	ProtocolInProc     StreamProtocol = "inproc" // In-process channels
+	ProtocolKafka     StreamProtocol = "kafka"
+	ProtocolMQTT      StreamProtocol = "mqtt"
+	ProtocolHTTP      StreamProtocol = "http"
+	ProtocolWebSocket StreamProtocol = "websocket"
+	ProtocolFile      StreamProtocol = "file"
+	ProtocolInProc    StreamProtocol = "inproc" // In-process channels
 )
 
 // ParquetConfig holds configuration for Parquet file outputs

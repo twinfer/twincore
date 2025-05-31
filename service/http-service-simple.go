@@ -231,10 +231,10 @@ func (h *HTTPServiceSimple) addSimpleAuth(server *caddyhttp.Server, securityConf
 	// For now, we'll use a simple approach:
 	// 1. Check for bearer tokens in a middleware
 	// 2. Use Caddy's built-in basic auth if configured
-	
+
 	// This is a placeholder - in production, you'd want proper JWT validation
 	// or integration with your existing license/auth system
-	
+
 	h.logger.Info("Security enabled - authentication will be enforced on protected routes")
 }
 

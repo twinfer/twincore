@@ -79,12 +79,14 @@ func init() {
 }
 
 // Implement api.CoreProvider
-func (tca *TwinCoreApp) GetLogger() *logrus.Logger                      { return tca.logger }
-func (tca *TwinCoreApp) GetStateManager() api.StateManager              { return tca.stateManager }
-func (tca *TwinCoreApp) GetStreamBridge() api.StreamBridge              { return tca.streamBridge }
-func (tca *TwinCoreApp) GetThingRegistry() api.ThingRegistry            { return tca.thingRegistry }
-func (tca *TwinCoreApp) GetEventBroker() *api.EventBroker               { return tca.eventBroker }
-func (tca *TwinCoreApp) GetBenthosStreamManager() api.BenthosStreamManager { return tca.benthosStreamManager }
+func (tca *TwinCoreApp) GetLogger() *logrus.Logger           { return tca.logger }
+func (tca *TwinCoreApp) GetStateManager() api.StateManager   { return tca.stateManager }
+func (tca *TwinCoreApp) GetStreamBridge() api.StreamBridge   { return tca.streamBridge }
+func (tca *TwinCoreApp) GetThingRegistry() api.ThingRegistry { return tca.thingRegistry }
+func (tca *TwinCoreApp) GetEventBroker() *api.EventBroker    { return tca.eventBroker }
+func (tca *TwinCoreApp) GetBenthosStreamManager() api.BenthosStreamManager {
+	return tca.benthosStreamManager
+}
 
 // Interface guards
 var (

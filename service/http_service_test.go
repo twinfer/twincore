@@ -47,7 +47,7 @@ func TestHTTPServiceSimple(t *testing.T) {
 				},
 			},
 			"security": map[string]interface{}{
-				"enabled": true,
+				"enabled":       true,
 				"bearer_tokens": []string{"test-token-123"},
 			},
 		},
@@ -84,7 +84,7 @@ func TestHTTPServiceSimple(t *testing.T) {
 		req, err := http.NewRequest("GET", "http://localhost:8080/api/protected", nil)
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer test-token-123")
-		
+
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
@@ -117,7 +117,7 @@ func TestHTTPServiceV2(t *testing.T) {
 						Methods: []string{"GET"},
 						Handler: "static_response",
 						Metadata: map[string]interface{}{
-							"body": `{"status": "healthy", "version": "v2"}`,
+							"body":        `{"status": "healthy", "version": "v2"}`,
 							"status_code": 200.0,
 						},
 					},

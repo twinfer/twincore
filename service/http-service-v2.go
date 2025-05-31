@@ -127,7 +127,7 @@ func (h *HTTPServiceV2) buildCaddyConfig(config types.ServiceConfig) (map[string
 
 	// Build routes with authentication
 	var routes []interface{}
-	
+
 	// Add authentication route if security is enabled
 	if enabled, _ := securityConfig["enabled"].(bool); enabled {
 		authRoute := h.buildAuthRoute(securityConfig)
@@ -227,12 +227,12 @@ func (h *HTTPServiceV2) buildAuthRoute(securityConfig map[string]interface{}) ma
 func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[string]interface{}) map[string]interface{} {
 	// Build matchers
 	var matchers []map[string]interface{}
-	
+
 	// Path matcher
 	matchers = append(matchers, map[string]interface{}{
 		"path": []string{route.Path},
 	})
-	
+
 	// Method matcher
 	if len(route.Methods) > 0 {
 		matchers = append(matchers, map[string]interface{}{
@@ -274,11 +274,11 @@ func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[str
 						// No Authorization header - return 401
 						"handle": []map[string]interface{}{
 							{
-								"handler": "static_response",
+								"handler":     "static_response",
 								"status_code": 401,
 								"headers": map[string][]string{
 									"WWW-Authenticate": {`Bearer realm="TwinCore"`},
-									"Content-Type": {"application/json"},
+									"Content-Type":     {"application/json"},
 								},
 								"body": `{"error": "unauthorized", "message": "missing or invalid authorization"}`,
 							},
@@ -307,21 +307,21 @@ func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[str
 			statusCode = 200
 		}
 		handlers = append(handlers, map[string]interface{}{
-			"handler": "static_response",
+			"handler":     "static_response",
 			"status_code": int(statusCode),
-			"body": body,
+			"body":        body,
 		})
 	default:
 		// Default to a simple response
 		handlers = append(handlers, map[string]interface{}{
-			"handler": "static_response",
+			"handler":     "static_response",
 			"status_code": 200,
-			"body": fmt.Sprintf(`{"message": "Handler not implemented: %s"}`, route.Handler),
+			"body":        fmt.Sprintf(`{"message": "Handler not implemented: %s"}`, route.Handler),
 		})
 	}
 
 	return map[string]interface{}{
-		"match": matchers,
+		"match":  matchers,
 		"handle": handlers,
 	}
 }
