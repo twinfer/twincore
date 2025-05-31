@@ -1,0 +1,74 @@
+# Event Logging Stream
+# Replaces custom Parquet writer in wot_benthos_integration.go
+
+input:
+  resource: event_updates_input
+
+pipeline:
+  processors:
+    # Check license for event logging
+    - label: check_license
+      branch:
+        request_map: |
+          root = if !meta("skip_license_check").or(false) {
+            "feature": "parquet_logging"
+          }
+        processors:
+          - plugin:
+              path: /etc/twincore/plugins/license_checker.wasm
+          - catch:
+              - mapping: |
+                  root = if !exists("features.storage") || !this.features.storage.contains("parquet_logging") {
+                    deleted()
+                  }
+    
+    # Format event record
+    - label: format_event_record
+      mapping: |
+        root.thing_id = this.thing_id
+        root.event_name = this.event_name
+        root.data = this.data.string()
+        root.timestamp = if meta("timestamp").exists() {
+          meta("timestamp")
+        } else {
+          timestamp_unix_nano()
+        }
+    
+    # Encode to Parquet
+    - label: encode_parquet
+      parquet_encode:
+        schema:
+          - name: thing_id
+            type: BYTE_ARRAY
+            converted_type: UTF8
+            repetition_type: REQUIRED
+          - name: event_name
+            type: BYTE_ARRAY
+            converted_type: UTF8
+            repetition_type: REQUIRED
+          - name: data
+            type: BYTE_ARRAY
+            converted_type: UTF8
+            repetition_type: REQUIRED
+          - name: timestamp
+            type: INT64
+            converted_type: TIMESTAMP_NANOS
+            repetition_type: REQUIRED
+        default_compression: SNAPPY
+
+output:
+  label: event_parquet_output
+  file:
+    path: "${PARQUET_LOG_PATH:./twincore_data}/events/events_${!timestamp_unix():2006-01-02}.parquet"
+    codec: all-bytes
+  processors:
+    - label: batch_events
+      batch:
+        count: ${PARQUET_BATCH_SIZE:100}
+        period: ${PARQUET_BATCH_PERIOD:5s}
+        byte_size: ${PARQUET_BATCH_BYTES:5MB}
+
+resources:
+  - label: event_updates_input
+    inproc:
+      name: event_updates

@@ -13,11 +13,12 @@ require (
 	github.com/kazarena/json-gold v0.3.0
 	github.com/marcboeker/go-duckdb v1.8.5
 	github.com/open-policy-agent/opa v1.4.2
-	github.com/redpanda-data/benthos/v4 v4.51.0
+	github.com/redpanda-data/benthos/v4 v4.52.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/wI2L/jsondiff v0.7.0
 	github.com/xeipuuv/gojsonschema v1.2.0
+	gopkg.in/yaml.v3 v3.0.1
 
 )
 
@@ -196,7 +197,8 @@ require (
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace github.com/greenpau/go-authcrunch => github.com/greenpau/go-authcrunch v1.0.50

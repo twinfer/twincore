@@ -460,6 +460,13 @@ func (b *BenthosStreamBridge) PublishPropertyUpdate(thingID, propertyName string
 	return nil
 }
 
+// PublishPropertyUpdateWithContext sends a property update to the Benthos/Kafka topic with context
+func (b *BenthosStreamBridge) PublishPropertyUpdateWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error {
+	// For now, just delegate to the non-context version
+	// In a real implementation, this would use the context for cancellation/timeout
+	return b.PublishPropertyUpdate(thingID, propertyName, value)
+}
+
 // PublishActionInvocation sends an action invocation to the Benthos/Kafka topic.
 func (b *BenthosStreamBridge) PublishActionInvocation(thingID, actionName string, input interface{}) (string, error) {
 	actionID := uuid.New().String()

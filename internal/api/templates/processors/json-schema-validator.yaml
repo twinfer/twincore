@@ -1,0 +1,14 @@
+# JSON Schema Validator Processor
+# Base template for validating JSON against schemas
+
+json_schema:
+  {{- if .SchemaPath }}
+  schema_path: "{{ .SchemaPath }}"
+  {{- else if .Schema }}
+  schema:
+    {{- toYaml .Schema | nindent 4 }}
+  {{- end }}
+  {{- if .FailureAction }}
+  # Options: "error", "drop", "log"
+  on_failure: "{{ .FailureAction }}"
+  {{- end }}

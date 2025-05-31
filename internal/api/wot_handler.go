@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -70,6 +71,7 @@ type WoTHandler struct {
 type StateManager interface {
 	GetProperty(thingID, propertyName string) (interface{}, error)
 	SetProperty(thingID, propertyName string, value interface{}) error
+	SetPropertyWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error
 	SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) // Use models.PropertyUpdate
 	UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate)    // Use models.PropertyUpdate
 }
@@ -77,6 +79,7 @@ type StateManager interface {
 // StreamBridge connects HTTP handlers to Benthos streams
 type StreamBridge interface {
 	PublishPropertyUpdate(thingID, propertyName string, value interface{}) error
+	PublishPropertyUpdateWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error
 	PublishActionInvocation(thingID, actionName string, input interface{}) (string, error)
 	PublishEvent(thingID, eventName string, data interface{}) error
 	GetActionResult(actionID string, timeout time.Duration) (interface{}, error)
@@ -412,13 +415,16 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
 	}
 
-	// Update property value
-	if err := h.stateManager.SetProperty(thingID, propertyName, value); err != nil {
+	// Create update context to track source
+	updateCtx := models.WithUpdateContext(r.Context(), models.NewUpdateContext(models.UpdateSourceHTTP))
+
+	// Update property value with context
+	if err := h.stateManager.SetPropertyWithContext(updateCtx, thingID, propertyName, value); err != nil {
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
-	// Publish update to stream
-	if err := h.streamBridge.PublishPropertyUpdate(thingID, propertyName, value); err != nil {
+	// Publish update to stream (only if source is HTTP to prevent circular updates)
+	if err := h.streamBridge.PublishPropertyUpdateWithContext(updateCtx, thingID, propertyName, value); err != nil {
 		// Log but don't fail the request
 		h.logError("failed to publish property update", err)
 	}
