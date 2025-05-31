@@ -133,7 +133,7 @@ func NewBenthosBindingHandler(
 // CaddyModule returns the Caddy module information
 func (BenthosBindingHandler) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "benthos_binding_handler",
+		ID:  "wot_binding_handler",
 		New: func() caddy.Module { return new(BenthosBindingHandler) },
 	}
 }
@@ -143,12 +143,12 @@ func (h *BenthosBindingHandler) Provision(ctx caddy.Context) error {
 	// Get dependencies from TwinCore app
 	appModule, err := ctx.App("twincore")
 	if err != nil {
-		return fmt.Errorf("BenthosBindingHandler: 'twincore' Caddy app module not found: %w", err)
+		return fmt.Errorf("wotBindingHandler: 'twincore' Caddy app module not found: %w", err)
 	}
 
 	coreProvider, ok := appModule.(CoreProvider)
 	if !ok {
-		return fmt.Errorf("BenthosBindingHandler: 'twincore' Caddy app module does not implement CoreProvider")
+		return fmt.Errorf("wotBindingHandler: 'twincore' Caddy app module does not implement CoreProvider")
 	}
 
 	h.logger = coreProvider.GetLogger()
