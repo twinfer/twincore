@@ -1,3 +1,4 @@
+
 # Property State Logging Stream
 # Replaces custom Parquet writer in state_manager.go
 

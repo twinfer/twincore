@@ -14,10 +14,10 @@ func (c *Container) initSecurityWithOPA(cfg *Config) error {
 
 	// Create integrated license system
 	integrationCfg := &security.IntegrationConfig{
-		PolicyDir:     security.DefaultPolicyDir(),
-		LicenseFile:   cfg.LicensePath,
-		PublicKeyPath: cfg.PublicKey,
-		Logger:        c.Logger,
+		PolicyDir:   security.DefaultPolicyDir(),
+		LicenseFile: cfg.LicensePath,
+		PublicKey:   cfg.PublicKey, // Use PublicKey directly as []byte
+		Logger:      c.Logger,
 	}
 
 	licenseIntegration, err := security.NewLicenseIntegration(integrationCfg)
@@ -90,11 +90,12 @@ func (c *Container) GetSecurityConfig() (map[string]interface{}, error) {
 	}
 
 	// Get current config (could be from environment or config file)
+	// TODO: These should come from environment variables or config files
 	currentConfig := map[string]interface{}{
-		"jwt_jwks_url":        c.Config.JWTJwksURL,
-		"jwt_issuer":          c.Config.JWTIssuer,
-		"oauth2_provider_url": c.Config.OAuth2ProviderURL,
-		"oauth2_client_id":    c.Config.OAuth2ClientID,
+		"jwt_jwks_url":        "", // Will be configured via portal
+		"jwt_issuer":          "", // Will be configured via portal
+		"oauth2_provider_url": "", // Will be configured via portal
+		"oauth2_client_id":    "", // Will be configured via portal
 	}
 
 	return c.licenseIntegration.GetSecurityConfig(currentConfig)

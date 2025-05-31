@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TwinCore Gateway</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔗 TwinCore Gateway</h1>
+            <p>Web of Things Gateway Portal</p>
+        </div>
+        
+        <div class="status">
+            <h3>📡 Portal Active</h3>
+            <p>The TwinCore portal is running. This is a placeholder until the full React/Vue portal is built.</p>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <h3>🔧 Quick Links</h3>
+            <ul>
+                <li><a href="/api/v1/health">Health Check</a></li>
+                <li><a href="/things/">WoT Things</a></li>
+                <li><a href="http://localhost:2019/config/">Caddy Admin API</a></li>
+            </ul>
+        </div>
+        
+        <div style="margin-top: 30px; text-align: center; color: #666;">
+            <p>TwinCore Gateway - Powered by Caddy + Benthos</p>
+        </div>
+    </div>
+</body>
+</html>

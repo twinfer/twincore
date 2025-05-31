@@ -44,6 +44,20 @@ func NewJWTLicenseValidator(publicKeyPath, policyDir string, logger logrus.Field
 	}, nil
 }
 
+// NewJWTLicenseValidatorFromData creates a new JWT license validator from embedded key data
+func NewJWTLicenseValidatorFromData(keyData []byte, policyDir string, logger logrus.FieldLogger) (*JWTLicenseValidator, error) {
+	// Parse public key from embedded data
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(keyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse embedded public key: %w", err)
+	}
+
+	return &JWTLicenseValidator{
+		publicKey: publicKey,
+		logger:    logger,
+	}, nil
+}
+
 // ValidateAndLoad validates a JWT license file and loads it into OPA
 func (v *JWTLicenseValidator) ValidateAndLoad(licenseFile, policyDir string) (*LicenseCheckerOPA, error) {
 	// Read license file

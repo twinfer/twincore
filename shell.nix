@@ -5,5 +5,6 @@ pkgs.mkShell {
     pkgs.go
     pkgs.kaitai-struct-compiler
     pkgs.gotools
+    pkgs.ripgrep
   ];
 }
