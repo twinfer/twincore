@@ -27,6 +27,7 @@ const (
 
 	// Data format processors
 	ProcessorJSONSchema    BenthosProcessorType = "json_schema"
+	ProcessorJSONEncode    BenthosProcessorType = "json_encode"
 	ProcessorParquetEncode BenthosProcessorType = "parquet_encode"
 	ProcessorParquetDecode BenthosProcessorType = "parquet_decode"
 

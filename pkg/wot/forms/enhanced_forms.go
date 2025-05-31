@@ -712,8 +712,8 @@ func (bg *BindingGenerator) generatePropertyBindings(thingID, propName string, p
 		}
 	}
 
-	// Generate persistence stream if logging is enabled
-	if bg.licenseChecker.IsFeatureAvailable("parquet_logging") {
+	// Generate persistence stream if data persistence is enabled
+	if bg.licenseChecker.IsFeatureAvailable("data_persistence") {
 		if err := bg.generatePropertyLoggingStream(thingID, propName, prop, bindings); err != nil {
 			return err
 		}
@@ -742,8 +742,8 @@ func (bg *BindingGenerator) generateActionBindings(thingID, actionName string, a
 		}
 	}
 
-	// Generate action logging stream
-	if bg.licenseChecker.IsFeatureAvailable("parquet_logging") {
+	// Generate action persistence stream
+	if bg.licenseChecker.IsFeatureAvailable("data_persistence") {
 		if err := bg.generateActionLoggingStream(thingID, actionName, action, bindings); err != nil {
 			return err
 		}
@@ -772,8 +772,8 @@ func (bg *BindingGenerator) generateEventBindings(thingID, eventName string, eve
 		}
 	}
 
-	// Generate event logging stream
-	if bg.licenseChecker.IsFeatureAvailable("parquet_logging") {
+	// Generate event persistence stream
+	if bg.licenseChecker.IsFeatureAvailable("data_persistence") {
 		if err := bg.generateEventLoggingStream(thingID, eventName, event, bindings); err != nil {
 			return err
 		}
@@ -870,25 +870,193 @@ root.source = this.source.or("stream")
 `, thingID, propName)
 }
 
-func (bg *BindingGenerator) generatePropertyLoggingMapping(thingID, propName string) string {
+func (bg *BindingGenerator) generatePropertyPersistenceMapping(thingID, propName string) string {
 	return fmt.Sprintf(`
 root.thing_id = "%s"
 root.property_name = "%s"
-root.value = this.value.string()
+root.value = this.value
 root.timestamp = timestamp_unix_nano()
 root.source = this.source.or("stream")
 `, thingID, propName)
 }
 
+func (bg *BindingGenerator) generatePropertyObservationMapping(thingID, propName string) string {
+	return fmt.Sprintf(`
+# Format for real-time property observation
+root.thing_id = "%s"
+root.property_name = "%s"
+root.value = this.value
+root.timestamp = timestamp_unix_nano()
+root.change_type = this.change_type.or("update")
+root.previous_value = this.previous_value
+root.source = this.source.or("device")
+
+# Add metadata for observers
+root.metadata = {
+  "observable": true,
+  "data_type": this.data_type.or("unknown"),
+  "unit": this.unit.or(""),
+  "quality": this.quality.or("good")
+}
+`, thingID, propName)
+}
+
+func (bg *BindingGenerator) generatePropertyLoggingMapping(thingID, propName string) string {
+	// Legacy method - redirect to persistence mapping
+	return bg.generatePropertyPersistenceMapping(thingID, propName)
+}
+
 func (bg *BindingGenerator) generatePropertyCommandMapping(thingID, propName string) string {
 	return fmt.Sprintf(`
+# Process incoming property command
 root.thing_id = "%s"
 root.property_name = "%s"
 root.value = this.value
 root.command_id = uuid_v4()
 root.timestamp = timestamp_unix_nano()
 root.source = "http"
-`, thingID, propName)
+root.requester = this.requester.or("anonymous")
+root.correlation_id = this.correlation_id.or(uuid_v4())
+
+# Command metadata
+root.command_type = "property_write"
+root.target_device = "%s"
+root.expected_response = true
+`, thingID, propName, thingID)
+}
+
+func (bg *BindingGenerator) generateDeviceCommandMapping(thingID, propName string) string {
+	return fmt.Sprintf(`
+# Transform for device-specific protocol
+root.device_id = "%s"
+root.command = {
+  "type": "set_property",
+  "property": "%s",
+  "value": this.value,
+  "timestamp": this.timestamp,
+  "command_id": this.command_id,
+  "correlation_id": this.correlation_id
+}
+
+# Device protocol envelope
+root.message_type = "command"
+root.target = "%s"
+root.reply_to = "twincore.responses." + this.correlation_id
+root.expires_at = (timestamp_unix() + 30).ts_format("2006-01-02T15:04:05Z07:00")
+`, thingID, propName, thingID)
+}
+
+func (bg *BindingGenerator) generateActionInvocationMapping(thingID, actionName string) string {
+	return fmt.Sprintf(`
+# Process incoming action invocation
+root.thing_id = "%s"
+root.action_name = "%s"
+root.input = this.input
+root.action_id = uuid_v4()
+root.timestamp = timestamp_unix_nano()
+root.source = "http"
+root.requester = this.requester.or("anonymous")
+root.correlation_id = this.correlation_id.or(uuid_v4())
+
+# Action metadata
+root.invocation_type = "action_invoke"
+root.target_device = "%s"
+root.expected_response = true
+root.timeout = this.timeout.or(30)
+`, thingID, actionName, thingID)
+}
+
+func (bg *BindingGenerator) generateDeviceActionMapping(thingID, actionName string) string {
+	return fmt.Sprintf(`
+# Transform for device-specific protocol
+root.device_id = "%s"
+root.command = {
+  "type": "invoke_action",
+  "action": "%s",
+  "input": this.input,
+  "timestamp": this.timestamp,
+  "action_id": this.action_id,
+  "correlation_id": this.correlation_id,
+  "timeout": this.timeout
+}
+
+# Device protocol envelope
+root.message_type = "action"
+root.target = "%s"
+root.reply_to = "twincore.responses." + this.correlation_id
+root.expires_at = (timestamp_unix() + this.timeout).ts_format("2006-01-02T15:04:05Z07:00")
+`, thingID, actionName, thingID)
+}
+
+func (bg *BindingGenerator) generateActionPersistenceMapping(thingID, actionName string) string {
+	return fmt.Sprintf(`
+# Normalize action data for persistence
+root.thing_id = "%s"
+root.action_name = "%s"
+root.action_id = this.action_id
+root.input = this.input
+root.output = this.output
+root.status = this.status.or("pending")
+root.timestamp = timestamp_unix_nano()
+root.duration_ms = this.duration_ms.or(0)
+root.error = this.error
+root.source = this.source.or("stream")
+`, thingID, actionName)
+}
+
+func (bg *BindingGenerator) generateEventProcessingMapping(thingID, eventName string) string {
+	return fmt.Sprintf(`
+# Process incoming event for client distribution
+root.thing_id = "%s"
+root.event_name = "%s"
+root.event_id = uuid_v4()
+root.data = this.data
+root.timestamp = timestamp_unix_nano()
+root.source = this.source.or("device")
+root.severity = this.severity.or("info")
+
+# Event metadata for clients
+root.event_type = "thing_event"
+root.subscription_topic = "things.%s.events.%s"
+`, thingID, eventName, thingID, eventName)
+}
+
+func (bg *BindingGenerator) generateEventEnrichmentMapping(thingID, eventName string) string {
+	return fmt.Sprintf(`
+# Enrich event data for client consumption
+root.thing_id = "%s"
+root.event_name = "%s"
+root.event_id = this.event_id
+root.data = this.data
+root.timestamp = this.timestamp
+root.source = this.source
+root.severity = this.severity
+
+# Client-specific enrichment
+root.subscription_info = {
+  "thing_id": "%s",
+  "event_name": "%s",
+  "client_format": "sse",
+  "content_type": "application/json"
+}
+
+# Add SSE formatting for web clients
+root.sse_data = "event: %s\\ndata: " + json.dumps(this) + "\\n\\n"
+`, thingID, eventName, thingID, eventName, eventName)
+}
+
+func (bg *BindingGenerator) generateEventPersistenceMapping(thingID, eventName string) string {
+	return fmt.Sprintf(`
+# Normalize event data for persistence
+root.thing_id = "%s"
+root.event_name = "%s"
+root.event_id = this.event_id.or(uuid_v4())
+root.data = this.data
+root.timestamp = timestamp_unix_nano()
+root.severity = this.severity.or("info")
+root.source = this.source.or("stream")
+root.subscription_count = this.subscription_count.or(0)
+`, thingID, eventName)
 }
 
 // Schema generation methods
@@ -899,6 +1067,34 @@ func (bg *BindingGenerator) generatePropertyParquetSchema() []map[string]interfa
 		{"name": "value", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
 		{"name": "timestamp", "type": "INT64", "converted_type": "TIMESTAMP_NANOS", "repetition_type": "REQUIRED"},
 		{"name": "source", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+	}
+}
+
+func (bg *BindingGenerator) generateActionParquetSchema() []map[string]interface{} {
+	return []map[string]interface{}{
+		{"name": "thing_id", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "action_name", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "action_id", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "input", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "OPTIONAL"},
+		{"name": "output", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "OPTIONAL"},
+		{"name": "status", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "timestamp", "type": "INT64", "converted_type": "TIMESTAMP_NANOS", "repetition_type": "REQUIRED"},
+		{"name": "duration_ms", "type": "INT64", "converted_type": "TIMESTAMP_MILLIS", "repetition_type": "OPTIONAL"},
+		{"name": "error", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "OPTIONAL"},
+		{"name": "source", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+	}
+}
+
+func (bg *BindingGenerator) generateEventParquetSchema() []map[string]interface{} {
+	return []map[string]interface{}{
+		{"name": "thing_id", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "event_name", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "event_id", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "data", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "OPTIONAL"},
+		{"name": "timestamp", "type": "INT64", "converted_type": "TIMESTAMP_NANOS", "repetition_type": "REQUIRED"},
+		{"name": "severity", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "source", "type": "BYTE_ARRAY", "converted_type": "UTF8", "repetition_type": "REQUIRED"},
+		{"name": "subscription_count", "type": "INT64", "converted_type": "INT_64", "repetition_type": "OPTIONAL"},
 	}
 }
 
@@ -976,16 +1172,25 @@ func (bg *BindingGenerator) generateProcessorChainYAML(processors []types.Proces
 
 	for _, proc := range processors {
 		switch proc.Type {
-		case string(types.ProcessorLicenseCheck):
-			feature := proc.Config["feature"].(string)
-			lines = append(lines, fmt.Sprintf(`    - label: "license_check_%s"
-      license_check:
-        feature: "%s"`, feature, feature))
-
 		case string(types.ProcessorBloblangWoTProperty):
 			mapping := proc.Config["mapping"].(string)
 			lines = append(lines, fmt.Sprintf(`    - label: "format_wot_property"
       mapping: |%s`, indentString(mapping, "        ")))
+
+		case string(types.ProcessorBloblangWoTAction):
+			mapping := proc.Config["mapping"].(string)
+			lines = append(lines, fmt.Sprintf(`    - label: "format_wot_action"
+      mapping: |%s`, indentString(mapping, "        ")))
+
+		case string(types.ProcessorBloblangWoTEvent):
+			mapping := proc.Config["mapping"].(string)
+			lines = append(lines, fmt.Sprintf(`    - label: "format_wot_event"
+      mapping: |%s`, indentString(mapping, "        ")))
+
+		case string(types.ProcessorJSONEncode):
+			lines = append(lines, `    - label: "json_encode"
+      encode:
+        json: {}`)
 
 		case string(types.ProcessorParquetEncode):
 			schema := proc.Config["schema"].([]map[string]interface{})
@@ -994,6 +1199,13 @@ func (bg *BindingGenerator) generateProcessorChainYAML(processors []types.Proces
       parquet_encode:
         schema:
 %s`, schemaYAML))
+
+		case string(types.ProcessorJSONSchema):
+			if schema, ok := proc.Config["schema"]; ok {
+				lines = append(lines, fmt.Sprintf(`    - label: "json_schema_validation"
+      json_schema:
+        schema: %v`, schema))
+			}
 
 		default:
 			lines = append(lines, fmt.Sprintf(`    - label: "%s_processor"
@@ -1096,17 +1308,13 @@ func (bg *BindingGenerator) convertDataSchemaToJSONSchema(schema wot.DataSchemaC
 
 // Placeholder methods for action and event stream generation
 func (bg *BindingGenerator) generatePropertyObservationStream(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
-	// Implementation similar to generatePropertyLoggingStream but for observation
-	return nil
-}
+	// License validation at app level
+	if !bg.licenseChecker.IsFeatureAvailable("property_streaming") {
+		bg.logger.WithField("feature", "property_streaming").Debug("Property streaming not available in license")
+		return nil
+	}
 
-func (bg *BindingGenerator) generatePropertyCommandStream(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
-	// Implementation for property command streams
-	return nil
-}
-
-func (bg *BindingGenerator) generatePropertyLoggingStream(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
-	streamID := fmt.Sprintf("%s_property_%s_logging", thingID, propName)
+	streamID := fmt.Sprintf("%s_property_%s_observation", thingID, propName)
 	topic := fmt.Sprintf("things.%s.properties.%s", thingID, propName)
 
 	bg.logger.WithFields(logrus.Fields{
@@ -1114,53 +1322,331 @@ func (bg *BindingGenerator) generatePropertyLoggingStream(thingID, propName stri
 		"thing_id":  thingID,
 		"property":  propName,
 		"topic":     topic,
-	}).Debug("Generating property logging stream")
+	}).Debug("Generating property observation stream")
 
-	// Create processor chain with license check and Parquet encoding
-	processorChainID := fmt.Sprintf("%s_logging_processors", streamID)
+	// Create processor chain for property observation
+	processorChainID := fmt.Sprintf("%s_observation_processors", streamID)
 	processors := []ProcessorConfig{
 		{
-			Type:  types.ProcessorLicenseCheck,
-			Label: "license_validation",
-			Config: map[string]interface{}{
-				"feature": "parquet_logging",
-			},
-			Description: "Validate license allows Parquet logging",
-		},
-		{
 			Type:  types.ProcessorBloblangWoTProperty,
-			Label: "property_normalization",
+			Label: "property_observation_mapping",
 			Config: map[string]interface{}{
-				"mapping": bg.generatePropertyLoggingMapping(thingID, propName),
+				"mapping": bg.generatePropertyObservationMapping(thingID, propName),
 			},
-			Description: "Normalize property data for logging",
+			Description: "Map property data for observation clients",
 		},
-		{
-			Type:  types.ProcessorParquetEncode,
-			Label: "parquet_encoding",
+	}
+
+	// Add schema validation if property has a schema
+	if prop.Type != "" {
+		jsonSchema := bg.convertDataSchemaToJSONSchema(prop.DataSchemaCore)
+		processors = append(processors, ProcessorConfig{
+			Type:  types.ProcessorJSONSchema,
+			Label: "property_schema_validation",
 			Config: map[string]interface{}{
-				"schema": bg.generatePropertyParquetSchema(),
+				"schema": jsonSchema,
 			},
-			Description: "Encode property data to Parquet format",
-		},
+			Description: "Validate property data against Thing Description schema",
+		})
 	}
 
 	// Store processor chain
 	bindings.Processors[processorChainID] = ProcessorChain{
 		ID:         processorChainID,
-		Name:       fmt.Sprintf("Property %s logging processors", propName),
+		Name:       fmt.Sprintf("Property %s observation processors", propName),
 		Processors: processors,
 		Metadata: map[string]interface{}{
 			"thing_id":         thingID,
 			"property_name":    propName,
 			"interaction_type": "property",
-			"purpose":          "logging",
+			"purpose":          "observation",
 		},
 	}
 
-	// Create StreamCreationRequest using existing API
-	filePath := fmt.Sprintf("%s/properties/props_%s_%s.parquet",
-		bg.parquetConfig.BasePath, thingID, "${!timestamp_unix():yyyy-MM-dd}")
+	// Generate output configuration for observation (typically WebSocket/SSE)
+	observationConfig := bg.licenseChecker.GetFeatureConfig("property_streaming")
+	outputConfig, err := bg.generateObservationOutputConfig(thingID, propName, observationConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate observation output config: %w", err)
+	}
+
+	request := types.StreamCreationRequest{
+		ThingID:         thingID,
+		InteractionType: "properties",
+		InteractionName: propName,
+		Direction:       "output", // Property changes flow OUT to observers
+		Input: types.StreamEndpointConfig{
+			Type: "kafka",
+			Config: map[string]interface{}{
+				"addresses":      bg.kafkaConfig.Brokers,
+				"topics":         []string{topic},
+				"consumer_group": fmt.Sprintf("twincore-property-observation-%s", thingID),
+			},
+		},
+		Output:         outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
+		Metadata: map[string]interface{}{
+			"generated_by": "centralized_binding_generator",
+			"purpose":      "property_observation",
+			"created_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	// Generate YAML configuration for the stream
+	yamlConfig, err := bg.generateStreamRequestYAML(request)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML for property observation stream %s: %w", streamID, err)
+	}
+
+	request.Metadata["yaml_config"] = yamlConfig
+
+	// Use existing stream manager to create stream
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	if err != nil {
+		return fmt.Errorf("failed to create property observation stream %s: %w", streamID, err)
+	}
+
+	// Convert StreamInfo to StreamConfig and store
+	streamConfig := StreamConfig{
+		ID:        streamInfo.ID,
+		Type:      types.StreamTypePropertyOutput,
+		Direction: types.StreamDirectionOutbound,
+		Input: StreamEndpoint{
+			Protocol: types.ProtocolKafka,
+			Config:   request.Input.Config,
+		},
+		Output: StreamEndpoint{
+			Protocol: types.StreamProtocol(outputConfig.Type),
+			Config:   outputConfig.Config,
+		},
+		ProcessorChain: bindings.Processors[processorChainID],
+		YAML:           "", // Would be generated by stream manager
+	}
+
+	bindings.Streams[streamID] = streamConfig
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID,
+		"stream_status":   streamInfo.Status,
+		"processor_count": len(processors),
+		"output_type":     outputConfig.Type,
+	}).Info("Property observation stream created successfully")
+
+	return nil
+}
+
+func (bg *BindingGenerator) generatePropertyCommandStream(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+	// License validation at app level
+	if !bg.licenseChecker.IsFeatureAvailable("property_commands") {
+		bg.logger.WithField("feature", "property_commands").Debug("Property commands not available in license")
+		return nil
+	}
+
+	streamID := fmt.Sprintf("%s_property_%s_command", thingID, propName)
+	topic := fmt.Sprintf("things.%s.properties.%s.commands", thingID, propName)
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id": streamID,
+		"thing_id":  thingID,
+		"property":  propName,
+		"topic":     topic,
+	}).Debug("Generating property command stream")
+
+	// Create processor chain for property commands
+	processorChainID := fmt.Sprintf("%s_command_processors", streamID)
+	processors := []ProcessorConfig{
+		{
+			Type:  types.ProcessorBloblangWoTProperty,
+			Label: "property_command_mapping",
+			Config: map[string]interface{}{
+				"mapping": bg.generatePropertyCommandMapping(thingID, propName),
+			},
+			Description: "Map property command data for device execution",
+		},
+	}
+
+	// Add schema validation if property has a schema
+	if prop.Type != "" {
+		jsonSchema := bg.convertDataSchemaToJSONSchema(prop.DataSchemaCore)
+		processors = append(processors, ProcessorConfig{
+			Type:  types.ProcessorJSONSchema,
+			Label: "property_command_validation",
+			Config: map[string]interface{}{
+				"schema": jsonSchema,
+			},
+			Description: "Validate property command against Thing Description schema",
+		})
+	}
+
+	// Add command transformation for device protocol
+	processors = append(processors, ProcessorConfig{
+		Type:  types.ProcessorBloblangWoTProperty,
+		Label: "device_command_transform",
+		Config: map[string]interface{}{
+			"mapping": bg.generateDeviceCommandMapping(thingID, propName),
+		},
+		Description: "Transform command for device-specific protocol",
+	})
+
+	// Store processor chain
+	bindings.Processors[processorChainID] = ProcessorChain{
+		ID:         processorChainID,
+		Name:       fmt.Sprintf("Property %s command processors", propName),
+		Processors: processors,
+		Metadata: map[string]interface{}{
+			"thing_id":         thingID,
+			"property_name":    propName,
+			"interaction_type": "property",
+			"purpose":          "command",
+		},
+	}
+
+	// Generate output configuration for commands (device communication)
+	commandConfig := bg.licenseChecker.GetFeatureConfig("property_commands")
+	outputConfig, err := bg.generateCommandOutputConfig(thingID, propName, commandConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate command output config: %w", err)
+	}
+
+	request := types.StreamCreationRequest{
+		ThingID:         thingID,
+		InteractionType: "properties",
+		InteractionName: propName,
+		Direction:       "input", // Commands flow IN from clients to devices
+		Input: types.StreamEndpointConfig{
+			Type: "http_server",
+			Config: map[string]interface{}{
+				"address":       "${HTTP_ADDRESS:0.0.0.0:8080}",
+				"path":          fmt.Sprintf("/things/%s/properties/%s", thingID, propName),
+				"allowed_verbs": []string{"PUT", "PATCH"},
+				"timeout":       "30s",
+			},
+		},
+		Output:         outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
+		Metadata: map[string]interface{}{
+			"generated_by": "centralized_binding_generator",
+			"purpose":      "property_command",
+			"created_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	// Generate YAML configuration for the stream
+	yamlConfig, err := bg.generateStreamRequestYAML(request)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML for property command stream %s: %w", streamID, err)
+	}
+
+	request.Metadata["yaml_config"] = yamlConfig
+
+	// Use existing stream manager to create stream
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	if err != nil {
+		return fmt.Errorf("failed to create property command stream %s: %w", streamID, err)
+	}
+
+	// Convert StreamInfo to StreamConfig and store
+	streamConfig := StreamConfig{
+		ID:        streamInfo.ID,
+		Type:      types.StreamTypePropertyInput,
+		Direction: types.StreamDirectionInbound,
+		Input: StreamEndpoint{
+			Protocol: types.ProtocolHTTP,
+			Config:   request.Input.Config,
+		},
+		Output: StreamEndpoint{
+			Protocol: types.StreamProtocol(outputConfig.Type),
+			Config:   outputConfig.Config,
+		},
+		ProcessorChain: bindings.Processors[processorChainID],
+		YAML:           "", // Would be generated by stream manager
+	}
+
+	bindings.Streams[streamID] = streamConfig
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID,
+		"stream_status":   streamInfo.Status,
+		"processor_count": len(processors),
+		"output_type":     outputConfig.Type,
+	}).Info("Property command stream created successfully")
+
+	return nil
+}
+
+func (bg *BindingGenerator) generatePropertyLoggingStream(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+	// License validation should happen at app level before calling this method
+	if !bg.licenseChecker.IsFeatureAvailable("data_persistence") {
+		bg.logger.WithField("feature", "data_persistence").Debug("Persistence feature not available in license")
+		return nil // Skip stream generation
+	}
+
+	streamID := fmt.Sprintf("%s_property_%s_persistence", thingID, propName)
+	topic := fmt.Sprintf("things.%s.properties.%s", thingID, propName)
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id": streamID,
+		"thing_id":  thingID,
+		"property":  propName,
+		"topic":     topic,
+	}).Debug("Generating property persistence stream")
+
+	// Get persistence configuration from license
+	persistenceConfig := bg.licenseChecker.GetFeatureConfig("data_persistence")
+	
+	// Create processor chain for data normalization only
+	processorChainID := fmt.Sprintf("%s_persistence_processors", streamID)
+	processors := []ProcessorConfig{
+		{
+			Type:  types.ProcessorBloblangWoTProperty,
+			Label: "property_normalization",
+			Config: map[string]interface{}{
+				"mapping": bg.generatePropertyPersistenceMapping(thingID, propName),
+			},
+			Description: "Normalize property data for persistence",
+		},
+	}
+
+	// Add format-specific processors based on persistence config
+	if format, ok := persistenceConfig["format"].(string); ok {
+		switch format {
+		case "parquet":
+			processors = append(processors, ProcessorConfig{
+				Type:  types.ProcessorParquetEncode,
+				Label: "parquet_encoding",
+				Config: map[string]interface{}{
+					"schema": bg.generatePropertyParquetSchema(),
+				},
+				Description: "Encode property data to Parquet format",
+			})
+		case "json":
+			processors = append(processors, ProcessorConfig{
+				Type:  types.ProcessorJSONEncode,
+				Label: "json_encoding",
+				Config: map[string]interface{}{},
+				Description: "Encode property data to JSON format",
+			})
+		}
+	}
+
+	// Store processor chain
+	bindings.Processors[processorChainID] = ProcessorChain{
+		ID:         processorChainID,
+		Name:       fmt.Sprintf("Property %s persistence processors", propName),
+		Processors: processors,
+		Metadata: map[string]interface{}{
+			"thing_id":         thingID,
+			"property_name":    propName,
+			"interaction_type": "property",
+			"purpose":          "persistence",
+		},
+	}
+
+	// Generate output configuration based on persistence settings
+	outputConfig, err := bg.generatePersistenceOutputConfig(thingID, propName, persistenceConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate persistence output config: %w", err)
+	}
 
 	request := types.StreamCreationRequest{
 		ThingID:         thingID,
@@ -1172,39 +1658,14 @@ func (bg *BindingGenerator) generatePropertyLoggingStream(thingID, propName stri
 			Config: map[string]interface{}{
 				"addresses":      bg.kafkaConfig.Brokers,
 				"topics":         []string{topic},
-				"consumer_group": fmt.Sprintf("twincore-property-logger-%s", thingID),
+				"consumer_group": fmt.Sprintf("twincore-property-persistence-%s", thingID),
 			},
 		},
-		Output: types.StreamEndpointConfig{
-			Type: "file",
-			Config: map[string]interface{}{
-				"path":  filePath,
-				"codec": "none",
-			},
-		},
-		ProcessorChain: []types.ProcessorConfig{
-			{
-				Type: string(types.ProcessorLicenseCheck),
-				Config: map[string]interface{}{
-					"feature": "parquet_logging",
-				},
-			},
-			{
-				Type: string(types.ProcessorBloblangWoTProperty),
-				Config: map[string]interface{}{
-					"mapping": bg.generatePropertyLoggingMapping(thingID, propName),
-				},
-			},
-			{
-				Type: string(types.ProcessorParquetEncode),
-				Config: map[string]interface{}{
-					"schema": bg.generatePropertyParquetSchema(),
-				},
-			},
-		},
+		Output: outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
 		Metadata: map[string]interface{}{
 			"generated_by": "centralized_binding_generator",
-			"purpose":      "property_logging",
+			"purpose":      "property_persistence",
 			"created_at":   time.Now().UTC().Format(time.RFC3339),
 		},
 	}
@@ -1253,21 +1714,1360 @@ func (bg *BindingGenerator) generatePropertyLoggingStream(thingID, propName stri
 }
 
 func (bg *BindingGenerator) generateActionInvocationStream(thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
-	// Implementation for action invocation streams
+	// License validation at app level
+	if !bg.licenseChecker.IsFeatureAvailable("action_invocation") {
+		bg.logger.WithField("feature", "action_invocation").Debug("Action invocation not available in license")
+		return nil
+	}
+
+	streamID := fmt.Sprintf("%s_action_%s_invocation", thingID, actionName)
+	topic := fmt.Sprintf("things.%s.actions.%s", thingID, actionName)
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id": streamID,
+		"thing_id":  thingID,
+		"action":    actionName,
+		"topic":     topic,
+	}).Debug("Generating action invocation stream")
+
+	// Create processor chain for action invocation
+	processorChainID := fmt.Sprintf("%s_invocation_processors", streamID)
+	processors := []ProcessorConfig{
+		{
+			Type:  types.ProcessorBloblangWoTAction,
+			Label: "action_invocation_mapping",
+			Config: map[string]interface{}{
+				"mapping": bg.generateActionInvocationMapping(thingID, actionName),
+			},
+			Description: "Map action invocation data for device execution",
+		},
+	}
+
+	// Add schema validation if action has input schema
+	if action.Input != nil && action.Input.Type != "" {
+		jsonSchema := bg.convertDataSchemaToJSONSchema(action.Input.DataSchemaCore)
+		processors = append(processors, ProcessorConfig{
+			Type:  types.ProcessorJSONSchema,
+			Label: "action_input_validation",
+			Config: map[string]interface{}{
+				"schema": jsonSchema,
+			},
+			Description: "Validate action input against Thing Description schema",
+		})
+	}
+
+	// Add command transformation for device protocol
+	processors = append(processors, ProcessorConfig{
+		Type:  types.ProcessorBloblangWoTAction,
+		Label: "device_action_transform",
+		Config: map[string]interface{}{
+			"mapping": bg.generateDeviceActionMapping(thingID, actionName),
+		},
+		Description: "Transform action for device-specific protocol",
+	})
+
+	// Store processor chain
+	bindings.Processors[processorChainID] = ProcessorChain{
+		ID:         processorChainID,
+		Name:       fmt.Sprintf("Action %s invocation processors", actionName),
+		Processors: processors,
+		Metadata: map[string]interface{}{
+			"thing_id":         thingID,
+			"action_name":      actionName,
+			"interaction_type": "action",
+			"purpose":          "invocation",
+		},
+	}
+
+	// Generate output configuration for action invocation (device communication)
+	invocationConfig := bg.licenseChecker.GetFeatureConfig("action_invocation")
+	outputConfig, err := bg.generateActionOutputConfig(thingID, actionName, invocationConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate action output config: %w", err)
+	}
+
+	request := types.StreamCreationRequest{
+		ThingID:         thingID,
+		InteractionType: "actions",
+		InteractionName: actionName,
+		Direction:       "input", // Action invocations flow IN from clients to devices
+		Input: types.StreamEndpointConfig{
+			Type: "http_server",
+			Config: map[string]interface{}{
+				"address":       "${HTTP_ADDRESS:0.0.0.0:8080}",
+				"path":          fmt.Sprintf("/things/%s/actions/%s", thingID, actionName),
+				"allowed_verbs": []string{"POST"},
+				"timeout":       "30s",
+			},
+		},
+		Output:         outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
+		Metadata: map[string]interface{}{
+			"generated_by": "centralized_binding_generator",
+			"purpose":      "action_invocation",
+			"created_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	// Generate YAML configuration for the stream
+	yamlConfig, err := bg.generateStreamRequestYAML(request)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML for action invocation stream %s: %w", streamID, err)
+	}
+
+	request.Metadata["yaml_config"] = yamlConfig
+
+	// Use existing stream manager to create stream
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	if err != nil {
+		return fmt.Errorf("failed to create action invocation stream %s: %w", streamID, err)
+	}
+
+	// Convert StreamInfo to StreamConfig and store
+	streamConfig := StreamConfig{
+		ID:        streamInfo.ID,
+		Type:      types.StreamTypeActionInput,
+		Direction: types.StreamDirectionInbound,
+		Input: StreamEndpoint{
+			Protocol: types.ProtocolHTTP,
+			Config:   request.Input.Config,
+		},
+		Output: StreamEndpoint{
+			Protocol: types.StreamProtocol(outputConfig.Type),
+			Config:   outputConfig.Config,
+		},
+		ProcessorChain: bindings.Processors[processorChainID],
+		YAML:           "", // Would be generated by stream manager
+	}
+
+	bindings.Streams[streamID] = streamConfig
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID,
+		"stream_status":   streamInfo.Status,
+		"processor_count": len(processors),
+		"output_type":     outputConfig.Type,
+	}).Info("Action invocation stream created successfully")
+
 	return nil
 }
 
 func (bg *BindingGenerator) generateActionLoggingStream(thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
-	// Implementation for action logging streams
+	// License validation at app level
+	if !bg.licenseChecker.IsFeatureAvailable("data_persistence") {
+		bg.logger.WithField("feature", "data_persistence").Debug("Persistence feature not available in license")
+		return nil
+	}
+
+	streamID := fmt.Sprintf("%s_action_%s_persistence", thingID, actionName)
+	topic := fmt.Sprintf("things.%s.actions.%s", thingID, actionName)
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id": streamID,
+		"thing_id":  thingID,
+		"action":    actionName,
+		"topic":     topic,
+	}).Debug("Generating action persistence stream")
+
+	// Get persistence configuration from license
+	persistenceConfig := bg.licenseChecker.GetFeatureConfig("data_persistence")
+	
+	// Create processor chain for data normalization only
+	processorChainID := fmt.Sprintf("%s_persistence_processors", streamID)
+	processors := []ProcessorConfig{
+		{
+			Type:  types.ProcessorBloblangWoTAction,
+			Label: "action_normalization",
+			Config: map[string]interface{}{
+				"mapping": bg.generateActionPersistenceMapping(thingID, actionName),
+			},
+			Description: "Normalize action data for persistence",
+		},
+	}
+
+	// Add format-specific processors based on persistence config
+	if format, ok := persistenceConfig["format"].(string); ok {
+		switch format {
+		case "parquet":
+			processors = append(processors, ProcessorConfig{
+				Type:  types.ProcessorParquetEncode,
+				Label: "parquet_encoding",
+				Config: map[string]interface{}{
+					"schema": bg.generateActionParquetSchema(),
+				},
+				Description: "Encode action data to Parquet format",
+			})
+		case "json":
+			processors = append(processors, ProcessorConfig{
+				Type:  types.ProcessorJSONEncode,
+				Label: "json_encoding",
+				Config: map[string]interface{}{},
+				Description: "Encode action data to JSON format",
+			})
+		}
+	}
+
+	// Store processor chain
+	bindings.Processors[processorChainID] = ProcessorChain{
+		ID:         processorChainID,
+		Name:       fmt.Sprintf("Action %s persistence processors", actionName),
+		Processors: processors,
+		Metadata: map[string]interface{}{
+			"thing_id":         thingID,
+			"action_name":      actionName,
+			"interaction_type": "action",
+			"purpose":          "persistence",
+		},
+	}
+
+	// Generate output configuration based on persistence settings
+	outputConfig, err := bg.generateActionPersistenceOutputConfig(thingID, actionName, persistenceConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate action persistence output config: %w", err)
+	}
+
+	request := types.StreamCreationRequest{
+		ThingID:         thingID,
+		InteractionType: "actions",
+		InteractionName: actionName,
+		Direction:       "input",
+		Input: types.StreamEndpointConfig{
+			Type: "kafka",
+			Config: map[string]interface{}{
+				"addresses":      bg.kafkaConfig.Brokers,
+				"topics":         []string{topic},
+				"consumer_group": fmt.Sprintf("twincore-action-persistence-%s", thingID),
+			},
+		},
+		Output: outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
+		Metadata: map[string]interface{}{
+			"generated_by": "centralized_binding_generator",
+			"purpose":      "action_persistence",
+			"created_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	// Generate YAML configuration for the stream
+	yamlConfig, err := bg.generateStreamRequestYAML(request)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML for action logging stream %s: %w", streamID, err)
+	}
+
+	// Add YAML to metadata
+	request.Metadata["yaml_config"] = yamlConfig
+
+	// Use existing stream manager to create stream
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	if err != nil {
+		return fmt.Errorf("failed to create action logging stream %s: %w", streamID, err)
+	}
+
+	// Convert StreamInfo to StreamConfig and store
+	streamConfig := StreamConfig{
+		ID:        streamInfo.ID,
+		Type:      types.StreamTypeActionLogger,
+		Direction: types.StreamDirectionInternal,
+		Input: StreamEndpoint{
+			Protocol: types.ProtocolKafka,
+			Config:   request.Input.Config,
+		},
+		Output: StreamEndpoint{
+			Protocol: types.ProtocolFile,
+			Config:   request.Output.Config,
+		},
+		ProcessorChain: bindings.Processors[processorChainID],
+		YAML:           "", // Would be generated by stream manager
+	}
+
+	bindings.Streams[streamID] = streamConfig
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID,
+		"stream_status":   streamInfo.Status,
+		"processor_count": len(processors),
+	}).Info("Action logging stream created successfully")
+
 	return nil
 }
 
 func (bg *BindingGenerator) generateEventProcessingStream(thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
-	// Implementation for event processing streams
+	// License validation at app level
+	if !bg.licenseChecker.IsFeatureAvailable("event_processing") {
+		bg.logger.WithField("feature", "event_processing").Debug("Event processing not available in license")
+		return nil
+	}
+
+	streamID := fmt.Sprintf("%s_event_%s_processing", thingID, eventName)
+	topic := fmt.Sprintf("things.%s.events.%s", thingID, eventName)
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id": streamID,
+		"thing_id":  thingID,
+		"event":     eventName,
+		"topic":     topic,
+	}).Debug("Generating event processing stream")
+
+	// Create processor chain for event processing
+	processorChainID := fmt.Sprintf("%s_processing_processors", streamID)
+	processors := []ProcessorConfig{
+		{
+			Type:  types.ProcessorBloblangWoTEvent,
+			Label: "event_processing_mapping",
+			Config: map[string]interface{}{
+				"mapping": bg.generateEventProcessingMapping(thingID, eventName),
+			},
+			Description: "Map event data for client distribution",
+		},
+	}
+
+	// Add schema validation if event has data schema
+	if event.Data != nil && event.Data.Type != "" {
+		jsonSchema := bg.convertDataSchemaToJSONSchema(event.Data.DataSchemaCore)
+		processors = append(processors, ProcessorConfig{
+			Type:  types.ProcessorJSONSchema,
+			Label: "event_data_validation",
+			Config: map[string]interface{}{
+				"schema": jsonSchema,
+			},
+			Description: "Validate event data against Thing Description schema",
+		})
+	}
+
+	// Add event enrichment and routing
+	processors = append(processors, ProcessorConfig{
+		Type:  types.ProcessorBloblangWoTEvent,
+		Label: "event_enrichment",
+		Config: map[string]interface{}{
+			"mapping": bg.generateEventEnrichmentMapping(thingID, eventName),
+		},
+		Description: "Enrich event data for client consumption",
+	})
+
+	// Store processor chain
+	bindings.Processors[processorChainID] = ProcessorChain{
+		ID:         processorChainID,
+		Name:       fmt.Sprintf("Event %s processing processors", eventName),
+		Processors: processors,
+		Metadata: map[string]interface{}{
+			"thing_id":         thingID,
+			"event_name":       eventName,
+			"interaction_type": "event",
+			"purpose":          "processing",
+		},
+	}
+
+	// Generate output configuration for event distribution (SSE, WebSocket, etc.)
+	processingConfig := bg.licenseChecker.GetFeatureConfig("event_processing")
+	outputConfig, err := bg.generateEventOutputConfig(thingID, eventName, processingConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate event output config: %w", err)
+	}
+
+	request := types.StreamCreationRequest{
+		ThingID:         thingID,
+		InteractionType: "events",
+		InteractionName: eventName,
+		Direction:       "output", // Events flow OUT from devices to clients
+		Input: types.StreamEndpointConfig{
+			Type: "kafka",
+			Config: map[string]interface{}{
+				"addresses":      bg.kafkaConfig.Brokers,
+				"topics":         []string{topic},
+				"consumer_group": fmt.Sprintf("twincore-event-processing-%s", thingID),
+			},
+		},
+		Output:         outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
+		Metadata: map[string]interface{}{
+			"generated_by": "centralized_binding_generator",
+			"purpose":      "event_processing",
+			"created_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	// Generate YAML configuration for the stream
+	yamlConfig, err := bg.generateStreamRequestYAML(request)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML for event processing stream %s: %w", streamID, err)
+	}
+
+	request.Metadata["yaml_config"] = yamlConfig
+
+	// Use existing stream manager to create stream
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	if err != nil {
+		return fmt.Errorf("failed to create event processing stream %s: %w", streamID, err)
+	}
+
+	// Convert StreamInfo to StreamConfig and store
+	streamConfig := StreamConfig{
+		ID:        streamInfo.ID,
+		Type:      types.StreamTypeEventOutput,
+		Direction: types.StreamDirectionOutbound,
+		Input: StreamEndpoint{
+			Protocol: types.ProtocolKafka,
+			Config:   request.Input.Config,
+		},
+		Output: StreamEndpoint{
+			Protocol: types.StreamProtocol(outputConfig.Type),
+			Config:   outputConfig.Config,
+		},
+		ProcessorChain: bindings.Processors[processorChainID],
+		YAML:           "", // Would be generated by stream manager
+	}
+
+	bindings.Streams[streamID] = streamConfig
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID,
+		"stream_status":   streamInfo.Status,
+		"processor_count": len(processors),
+		"output_type":     outputConfig.Type,
+	}).Info("Event processing stream created successfully")
+
 	return nil
 }
 
 func (bg *BindingGenerator) generateEventLoggingStream(thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
-	// Implementation for event logging streams
+	// License validation at app level
+	if !bg.licenseChecker.IsFeatureAvailable("data_persistence") {
+		bg.logger.WithField("feature", "data_persistence").Debug("Persistence feature not available in license")
+		return nil
+	}
+
+	streamID := fmt.Sprintf("%s_event_%s_persistence", thingID, eventName)
+	topic := fmt.Sprintf("things.%s.events.%s", thingID, eventName)
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id": streamID,
+		"thing_id":  thingID,
+		"event":     eventName,
+		"topic":     topic,
+	}).Debug("Generating event persistence stream")
+
+	// Get persistence configuration from license
+	persistenceConfig := bg.licenseChecker.GetFeatureConfig("data_persistence")
+	
+	// Create processor chain for data normalization only
+	processorChainID := fmt.Sprintf("%s_persistence_processors", streamID)
+	processors := []ProcessorConfig{
+		{
+			Type:  types.ProcessorBloblangWoTEvent,
+			Label: "event_normalization",
+			Config: map[string]interface{}{
+				"mapping": bg.generateEventPersistenceMapping(thingID, eventName),
+			},
+			Description: "Normalize event data for persistence",
+		},
+	}
+
+	// Add format-specific processors based on persistence config
+	if format, ok := persistenceConfig["format"].(string); ok {
+		switch format {
+		case "parquet":
+			processors = append(processors, ProcessorConfig{
+				Type:  types.ProcessorParquetEncode,
+				Label: "parquet_encoding",
+				Config: map[string]interface{}{
+					"schema": bg.generateEventParquetSchema(),
+				},
+				Description: "Encode event data to Parquet format",
+			})
+		case "json":
+			processors = append(processors, ProcessorConfig{
+				Type:  types.ProcessorJSONEncode,
+				Label: "json_encoding",
+				Config: map[string]interface{}{},
+				Description: "Encode event data to JSON format",
+			})
+		}
+	}
+
+	// Store processor chain
+	bindings.Processors[processorChainID] = ProcessorChain{
+		ID:         processorChainID,
+		Name:       fmt.Sprintf("Event %s persistence processors", eventName),
+		Processors: processors,
+		Metadata: map[string]interface{}{
+			"thing_id":         thingID,
+			"event_name":       eventName,
+			"interaction_type": "event",
+			"purpose":          "persistence",
+		},
+	}
+
+	// Generate output configuration based on persistence settings
+	outputConfig, err := bg.generateEventPersistenceOutputConfig(thingID, eventName, persistenceConfig)
+	if err != nil {
+		return fmt.Errorf("failed to generate event persistence output config: %w", err)
+	}
+
+	request := types.StreamCreationRequest{
+		ThingID:         thingID,
+		InteractionType: "events",
+		InteractionName: eventName,
+		Direction:       "input",
+		Input: types.StreamEndpointConfig{
+			Type: "kafka",
+			Config: map[string]interface{}{
+				"addresses":      bg.kafkaConfig.Brokers,
+				"topics":         []string{topic},
+				"consumer_group": fmt.Sprintf("twincore-event-persistence-%s", thingID),
+			},
+		},
+		Output: outputConfig,
+		ProcessorChain: bg.convertToTypesProcessorConfig(processors),
+		Metadata: map[string]interface{}{
+			"generated_by": "centralized_binding_generator",
+			"purpose":      "event_persistence",
+			"created_at":   time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	// Generate YAML configuration for the stream
+	yamlConfig, err := bg.generateStreamRequestYAML(request)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML for event logging stream %s: %w", streamID, err)
+	}
+
+	// Add YAML to metadata
+	request.Metadata["yaml_config"] = yamlConfig
+
+	// Use existing stream manager to create stream
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	if err != nil {
+		return fmt.Errorf("failed to create event logging stream %s: %w", streamID, err)
+	}
+
+	// Convert StreamInfo to StreamConfig and store
+	streamConfig := StreamConfig{
+		ID:        streamInfo.ID,
+		Type:      types.StreamTypeEventLogger,
+		Direction: types.StreamDirectionInternal,
+		Input: StreamEndpoint{
+			Protocol: types.ProtocolKafka,
+			Config:   request.Input.Config,
+		},
+		Output: StreamEndpoint{
+			Protocol: types.ProtocolFile,
+			Config:   request.Output.Config,
+		},
+		ProcessorChain: bindings.Processors[processorChainID],
+		YAML:           "", // Would be generated by stream manager
+	}
+
+	bindings.Streams[streamID] = streamConfig
+
+	bg.logger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID,
+		"stream_status":   streamInfo.Status,
+		"processor_count": len(processors),
+	}).Info("Event logging stream created successfully")
+
 	return nil
+}
+
+// generatePersistenceOutputConfig creates output configuration based on persistence settings
+func (bg *BindingGenerator) generatePersistenceOutputConfig(thingID, name string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to local file if no config provided
+	sinkType := "file"
+	if st, ok := config["sink_type"].(string); ok {
+		sinkType = st
+	}
+
+	format := "json"
+	if f, ok := config["format"].(string); ok {
+		format = f
+	}
+
+	switch sinkType {
+	case "file", "local":
+		return bg.generateLocalFileOutput(thingID, name, format)
+	case "s3":
+		return bg.generateS3Output(thingID, name, format, config)
+	case "kafka":
+		return bg.generateKafkaPersistenceOutput(thingID, name, config)
+	case "noop":
+		return types.StreamEndpointConfig{
+			Type: "drop",
+			Config: map[string]interface{}{},
+		}, nil
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported sink type: %s", sinkType)
+	}
+}
+
+// generateLocalFileOutput creates local file output configuration
+func (bg *BindingGenerator) generateLocalFileOutput(thingID, name, format string) (types.StreamEndpointConfig, error) {
+	var extension string
+	switch format {
+	case "parquet":
+		extension = "parquet"
+	case "json":
+		extension = "jsonl"
+	case "csv":
+		extension = "csv"
+	default:
+		extension = "txt"
+	}
+
+	basePath := bg.parquetConfig.BasePath
+	if basePath == "" {
+		basePath = "./twincore_data"
+	}
+
+	filePath := fmt.Sprintf("%s/properties/%s_%s_${!timestamp_unix():yyyy-MM-dd}.%s",
+		basePath, thingID, name, extension)
+
+	return types.StreamEndpointConfig{
+		Type: "file",
+		Config: map[string]interface{}{
+			"path":  filePath,
+			"codec": "none",
+		},
+	}, nil
+}
+
+// generateS3Output creates S3 output configuration
+func (bg *BindingGenerator) generateS3Output(thingID, name, format string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	bucket, ok := config["s3_bucket"].(string)
+	if !ok {
+		return types.StreamEndpointConfig{}, fmt.Errorf("s3_bucket is required for S3 sink")
+	}
+
+	var extension string
+	switch format {
+	case "parquet":
+		extension = "parquet"
+	case "json":
+		extension = "jsonl"
+	default:
+		extension = "txt"
+	}
+
+	// Use environment variables for AWS credentials
+	s3Config := map[string]interface{}{
+		"bucket": bucket,
+		"path":   fmt.Sprintf("twincore/properties/%s/%s/${!timestamp_unix():yyyy/MM/dd}/%s_${!uuid_v4()}.%s", thingID, name, name, extension),
+		"region": "${AWS_REGION:us-east-1}",
+		"credentials": map[string]interface{}{
+			"id":     "${AWS_ACCESS_KEY_ID}",
+			"secret": "${AWS_SECRET_ACCESS_KEY}",
+			"token":  "${AWS_SESSION_TOKEN:}",
+		},
+	}
+
+	// Add optional S3 configuration
+	if region, ok := config["s3_region"].(string); ok {
+		s3Config["region"] = region
+	}
+
+	return types.StreamEndpointConfig{
+		Type:   "aws_s3",
+		Config: s3Config,
+	}, nil
+}
+
+// generateKafkaPersistenceOutput creates Kafka persistence output
+func (bg *BindingGenerator) generateKafkaPersistenceOutput(thingID, name string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	persistenceTopic := fmt.Sprintf("twincore.persistence.%s.%s", thingID, name)
+	if topic, ok := config["persistence_topic"].(string); ok {
+		persistenceTopic = topic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     persistenceTopic,
+			"key":       fmt.Sprintf("${! this.thing_id }-%s", name),
+		},
+	}, nil
+}
+
+// convertToTypesProcessorConfig converts internal ProcessorConfig to types.ProcessorConfig
+func (bg *BindingGenerator) convertToTypesProcessorConfig(processors []ProcessorConfig) []types.ProcessorConfig {
+	result := make([]types.ProcessorConfig, len(processors))
+	for i, proc := range processors {
+		result[i] = types.ProcessorConfig{
+			Type:   string(proc.Type),
+			Config: proc.Config,
+		}
+	}
+	return result
+}
+
+// generateObservationOutputConfig creates output configuration for property observation
+func (bg *BindingGenerator) generateObservationOutputConfig(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to WebSocket for real-time observation
+	outputType := "websocket"
+	if ot, ok := config["output_type"].(string); ok {
+		outputType = ot
+	}
+
+	switch outputType {
+	case "websocket":
+		return bg.generateWebSocketObservationOutput(thingID, propName, config)
+	case "sse", "server_sent_events":
+		return bg.generateSSEObservationOutput(thingID, propName, config)
+	case "mqtt":
+		return bg.generateMQTTObservationOutput(thingID, propName, config)
+	case "kafka":
+		return bg.generateKafkaObservationOutput(thingID, propName, config)
+	case "http_server":
+		return bg.generateHTTPServerObservationOutput(thingID, propName, config)
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported observation output type: %s", outputType)
+	}
+}
+
+// generateWebSocketObservationOutput creates WebSocket output for real-time property updates
+func (bg *BindingGenerator) generateWebSocketObservationOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	path := fmt.Sprintf("/things/%s/properties/%s/observe", thingID, propName)
+	if customPath, ok := config["websocket_path"].(string); ok {
+		path = customPath
+	}
+
+	address := "${WEBSOCKET_ADDRESS:0.0.0.0:8080}"
+	if addr, ok := config["websocket_address"].(string); ok {
+		address = addr
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "websocket",
+		Config: map[string]interface{}{
+			"address": address,
+			"path":    path,
+			"timeout": "30s",
+		},
+	}, nil
+}
+
+// generateSSEObservationOutput creates Server-Sent Events output for property updates
+func (bg *BindingGenerator) generateSSEObservationOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	path := fmt.Sprintf("/things/%s/properties/%s/events", thingID, propName)
+	if customPath, ok := config["sse_path"].(string); ok {
+		path = customPath
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "http_server",
+		Config: map[string]interface{}{
+			"address":           "${HTTP_ADDRESS:0.0.0.0:8080}",
+			"path":              path,
+			"allowed_verbs":     []string{"GET"},
+			"timeout":           "0", // Keep-alive for SSE
+			"stream_response":   true,
+			"content_type":      "text/event-stream",
+			"response_headers": map[string]string{
+				"Cache-Control": "no-cache",
+				"Connection":    "keep-alive",
+			},
+		},
+	}, nil
+}
+
+// generateMQTTObservationOutput creates MQTT output for property observation
+func (bg *BindingGenerator) generateMQTTObservationOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("things/%s/properties/%s/observe", thingID, propName)
+	if customTopic, ok := config["mqtt_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "mqtt",
+		Config: map[string]interface{}{
+			"urls":      []string{bg.mqttConfig.Broker},
+			"topic":     topic,
+			"client_id": fmt.Sprintf("twincore-observer-%s-%s", thingID, propName),
+			"qos":       1,
+		},
+	}, nil
+}
+
+// generateKafkaObservationOutput creates Kafka output for property observation
+func (bg *BindingGenerator) generateKafkaObservationOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("twincore.observations.%s.%s", thingID, propName)
+	if customTopic, ok := config["kafka_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     topic,
+			"key":       fmt.Sprintf("${! this.thing_id }-%s", propName),
+		},
+	}, nil
+}
+
+// generateHTTPServerObservationOutput creates HTTP server output for polling-based observation
+func (bg *BindingGenerator) generateHTTPServerObservationOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	path := fmt.Sprintf("/things/%s/properties/%s/latest", thingID, propName)
+	if customPath, ok := config["http_path"].(string); ok {
+		path = customPath
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "http_server",
+		Config: map[string]interface{}{
+			"address":       "${HTTP_ADDRESS:0.0.0.0:8080}",
+			"path":          path,
+			"allowed_verbs": []string{"GET"},
+			"timeout":       "10s",
+		},
+	}, nil
+}
+
+// generateCommandOutputConfig creates output configuration for property commands
+func (bg *BindingGenerator) generateCommandOutputConfig(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to Kafka for device communication
+	outputType := "kafka"
+	if ot, ok := config["output_type"].(string); ok {
+		outputType = ot
+	}
+
+	switch outputType {
+	case "kafka":
+		return bg.generateKafkaCommandOutput(thingID, propName, config)
+	case "mqtt":
+		return bg.generateMQTTCommandOutput(thingID, propName, config)
+	case "http_client":
+		return bg.generateHTTPClientCommandOutput(thingID, propName, config)
+	case "websocket":
+		return bg.generateWebSocketCommandOutput(thingID, propName, config)
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported command output type: %s", outputType)
+	}
+}
+
+// generateKafkaCommandOutput creates Kafka output for device commands
+func (bg *BindingGenerator) generateKafkaCommandOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("twincore.commands.%s", thingID)
+	if customTopic, ok := config["kafka_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     topic,
+			"key":       fmt.Sprintf("${! this.device_id }"),
+		},
+	}, nil
+}
+
+// generateMQTTCommandOutput creates MQTT output for device commands
+func (bg *BindingGenerator) generateMQTTCommandOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("devices/%s/commands", thingID)
+	if customTopic, ok := config["mqtt_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "mqtt",
+		Config: map[string]interface{}{
+			"urls":      []string{bg.mqttConfig.Broker},
+			"topic":     topic,
+			"client_id": fmt.Sprintf("twincore-commands-%s", thingID),
+			"qos":       1,
+		},
+	}, nil
+}
+
+// generateHTTPClientCommandOutput creates HTTP client output for device commands
+func (bg *BindingGenerator) generateHTTPClientCommandOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	url := fmt.Sprintf("${DEVICE_API_URL}/%s/properties/%s", thingID, propName)
+	if customURL, ok := config["device_url"].(string); ok {
+		url = customURL
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "http_client",
+		Config: map[string]interface{}{
+			"url":     url,
+			"verb":    "PUT",
+			"headers": map[string]string{
+				"Content-Type":    "application/json",
+				"X-Command-ID":    "${! this.command_id }",
+				"X-Correlation-ID": "${! this.correlation_id }",
+			},
+			"timeout": "10s",
+		},
+	}, nil
+}
+
+// generateWebSocketCommandOutput creates WebSocket output for device commands
+func (bg *BindingGenerator) generateWebSocketCommandOutput(thingID, propName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	url := fmt.Sprintf("${DEVICE_WS_URL}/%s/commands", thingID)
+	if customURL, ok := config["websocket_url"].(string); ok {
+		url = customURL
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "websocket",
+		Config: map[string]interface{}{
+			"url":     url,
+			"timeout": "30s",
+		},
+	}, nil
+}
+
+// generateActionOutputConfig creates output configuration for action invocations
+func (bg *BindingGenerator) generateActionOutputConfig(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to Kafka for device communication
+	outputType := "kafka"
+	if ot, ok := config["output_type"].(string); ok {
+		outputType = ot
+	}
+
+	switch outputType {
+	case "kafka":
+		return bg.generateKafkaActionOutput(thingID, actionName, config)
+	case "mqtt":
+		return bg.generateMQTTActionOutput(thingID, actionName, config)
+	case "http_client":
+		return bg.generateHTTPClientActionOutput(thingID, actionName, config)
+	case "websocket":
+		return bg.generateWebSocketActionOutput(thingID, actionName, config)
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported action output type: %s", outputType)
+	}
+}
+
+// generateKafkaActionOutput creates Kafka output for action invocations
+func (bg *BindingGenerator) generateKafkaActionOutput(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("twincore.actions.%s", thingID)
+	if customTopic, ok := config["kafka_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     topic,
+			"key":       fmt.Sprintf("${! this.device_id }"),
+		},
+	}, nil
+}
+
+// generateMQTTActionOutput creates MQTT output for action invocations
+func (bg *BindingGenerator) generateMQTTActionOutput(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("devices/%s/actions", thingID)
+	if customTopic, ok := config["mqtt_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "mqtt",
+		Config: map[string]interface{}{
+			"urls":      []string{bg.mqttConfig.Broker},
+			"topic":     topic,
+			"client_id": fmt.Sprintf("twincore-actions-%s", thingID),
+			"qos":       1,
+		},
+	}, nil
+}
+
+// generateHTTPClientActionOutput creates HTTP client output for action invocations
+func (bg *BindingGenerator) generateHTTPClientActionOutput(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	url := fmt.Sprintf("${DEVICE_API_URL}/%s/actions/%s", thingID, actionName)
+	if customURL, ok := config["device_url"].(string); ok {
+		url = customURL
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "http_client",
+		Config: map[string]interface{}{
+			"url":  url,
+			"verb": "POST",
+			"headers": map[string]string{
+				"Content-Type":     "application/json",
+				"X-Action-ID":      "${! this.action_id }",
+				"X-Correlation-ID": "${! this.correlation_id }",
+			},
+			"timeout": "30s",
+		},
+	}, nil
+}
+
+// generateWebSocketActionOutput creates WebSocket output for action invocations
+func (bg *BindingGenerator) generateWebSocketActionOutput(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	url := fmt.Sprintf("${DEVICE_WS_URL}/%s/actions", thingID)
+	if customURL, ok := config["websocket_url"].(string); ok {
+		url = customURL
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "websocket",
+		Config: map[string]interface{}{
+			"url":     url,
+			"timeout": "30s",
+		},
+	}, nil
+}
+
+// generateActionPersistenceOutputConfig creates output configuration for action persistence
+func (bg *BindingGenerator) generateActionPersistenceOutputConfig(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to local file if no config provided
+	sinkType := "file"
+	if st, ok := config["sink_type"].(string); ok {
+		sinkType = st
+	}
+
+	format := "json"
+	if f, ok := config["format"].(string); ok {
+		format = f
+	}
+
+	switch sinkType {
+	case "file", "local":
+		return bg.generateLocalActionFileOutput(thingID, actionName, format)
+	case "s3":
+		return bg.generateS3ActionOutput(thingID, actionName, format, config)
+	case "kafka":
+		return bg.generateKafkaActionPersistenceOutput(thingID, actionName, config)
+	case "noop":
+		return types.StreamEndpointConfig{
+			Type:   "drop",
+			Config: map[string]interface{}{},
+		}, nil
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported action persistence sink type: %s", sinkType)
+	}
+}
+
+// generateLocalActionFileOutput creates local file output for action persistence
+func (bg *BindingGenerator) generateLocalActionFileOutput(thingID, actionName, format string) (types.StreamEndpointConfig, error) {
+	var extension string
+	switch format {
+	case "parquet":
+		extension = "parquet"
+	case "json":
+		extension = "jsonl"
+	case "csv":
+		extension = "csv"
+	default:
+		extension = "txt"
+	}
+
+	basePath := bg.parquetConfig.BasePath
+	if basePath == "" {
+		basePath = "./twincore_data"
+	}
+
+	filePath := fmt.Sprintf("%s/actions/%s_%s_${!timestamp_unix():yyyy-MM-dd}.%s",
+		basePath, thingID, actionName, extension)
+
+	return types.StreamEndpointConfig{
+		Type: "file",
+		Config: map[string]interface{}{
+			"path":  filePath,
+			"codec": "none",
+		},
+	}, nil
+}
+
+// generateS3ActionOutput creates S3 output for action persistence
+func (bg *BindingGenerator) generateS3ActionOutput(thingID, actionName, format string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	bucket, ok := config["s3_bucket"].(string)
+	if !ok {
+		return types.StreamEndpointConfig{}, fmt.Errorf("s3_bucket is required for S3 sink")
+	}
+
+	var extension string
+	switch format {
+	case "parquet":
+		extension = "parquet"
+	case "json":
+		extension = "jsonl"
+	default:
+		extension = "txt"
+	}
+
+	// Use environment variables for AWS credentials
+	s3Config := map[string]interface{}{
+		"bucket": bucket,
+		"path":   fmt.Sprintf("twincore/actions/%s/%s/${!timestamp_unix():yyyy/MM/dd}/%s_${!uuid_v4()}.%s", thingID, actionName, actionName, extension),
+		"region": "${AWS_REGION:us-east-1}",
+		"credentials": map[string]interface{}{
+			"id":     "${AWS_ACCESS_KEY_ID}",
+			"secret": "${AWS_SECRET_ACCESS_KEY}",
+			"token":  "${AWS_SESSION_TOKEN:}",
+		},
+	}
+
+	// Add optional S3 configuration
+	if region, ok := config["s3_region"].(string); ok {
+		s3Config["region"] = region
+	}
+
+	return types.StreamEndpointConfig{
+		Type:   "aws_s3",
+		Config: s3Config,
+	}, nil
+}
+
+// generateKafkaActionPersistenceOutput creates Kafka persistence output for actions
+func (bg *BindingGenerator) generateKafkaActionPersistenceOutput(thingID, actionName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	persistenceTopic := fmt.Sprintf("twincore.persistence.%s.%s", thingID, actionName)
+	if topic, ok := config["persistence_topic"].(string); ok {
+		persistenceTopic = topic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     persistenceTopic,
+			"key":       fmt.Sprintf("${! this.thing_id }-%s", actionName),
+		},
+	}, nil
+}
+
+// generateEventOutputConfig creates output configuration for event processing
+func (bg *BindingGenerator) generateEventOutputConfig(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to Server-Sent Events for real-time event distribution
+	outputType := "sse"
+	if ot, ok := config["output_type"].(string); ok {
+		outputType = ot
+	}
+
+	switch outputType {
+	case "sse", "server_sent_events":
+		return bg.generateSSEEventOutput(thingID, eventName, config)
+	case "websocket":
+		return bg.generateWebSocketEventOutput(thingID, eventName, config)
+	case "mqtt":
+		return bg.generateMQTTEventOutput(thingID, eventName, config)
+	case "kafka":
+		return bg.generateKafkaEventOutput(thingID, eventName, config)
+	case "http_server":
+		return bg.generateHTTPServerEventOutput(thingID, eventName, config)
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported event output type: %s", outputType)
+	}
+}
+
+// generateSSEEventOutput creates Server-Sent Events output for real-time event distribution
+func (bg *BindingGenerator) generateSSEEventOutput(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	path := fmt.Sprintf("/things/%s/events/%s", thingID, eventName)
+	if customPath, ok := config["sse_path"].(string); ok {
+		path = customPath
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "http_server",
+		Config: map[string]interface{}{
+			"address":           "${HTTP_ADDRESS:0.0.0.0:8080}",
+			"path":              path,
+			"allowed_verbs":     []string{"GET"},
+			"timeout":           "0", // Keep-alive for SSE
+			"stream_response":   true,
+			"content_type":      "text/event-stream",
+			"response_headers": map[string]string{
+				"Cache-Control":                "no-cache",
+				"Connection":                   "keep-alive",
+				"Access-Control-Allow-Origin":  "*",
+				"Access-Control-Allow-Headers": "Cache-Control",
+			},
+		},
+	}, nil
+}
+
+// generateWebSocketEventOutput creates WebSocket output for real-time event distribution
+func (bg *BindingGenerator) generateWebSocketEventOutput(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	path := fmt.Sprintf("/things/%s/events/%s/ws", thingID, eventName)
+	if customPath, ok := config["websocket_path"].(string); ok {
+		path = customPath
+	}
+
+	address := "${WEBSOCKET_ADDRESS:0.0.0.0:8080}"
+	if addr, ok := config["websocket_address"].(string); ok {
+		address = addr
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "websocket",
+		Config: map[string]interface{}{
+			"address": address,
+			"path":    path,
+			"timeout": "300s", // 5 minute timeout for event subscriptions
+		},
+	}, nil
+}
+
+// generateMQTTEventOutput creates MQTT output for event distribution
+func (bg *BindingGenerator) generateMQTTEventOutput(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("things/%s/events/%s", thingID, eventName)
+	if customTopic, ok := config["mqtt_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "mqtt",
+		Config: map[string]interface{}{
+			"urls":      []string{bg.mqttConfig.Broker},
+			"topic":     topic,
+			"client_id": fmt.Sprintf("twincore-events-%s-%s", thingID, eventName),
+			"qos":       1,
+		},
+	}, nil
+}
+
+// generateKafkaEventOutput creates Kafka output for event distribution
+func (bg *BindingGenerator) generateKafkaEventOutput(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	topic := fmt.Sprintf("twincore.events.%s.%s", thingID, eventName)
+	if customTopic, ok := config["kafka_topic"].(string); ok {
+		topic = customTopic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     topic,
+			"key":       fmt.Sprintf("${! this.thing_id }-%s", eventName),
+		},
+	}, nil
+}
+
+// generateHTTPServerEventOutput creates HTTP server output for polling-based event access
+func (bg *BindingGenerator) generateHTTPServerEventOutput(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	path := fmt.Sprintf("/things/%s/events/%s/latest", thingID, eventName)
+	if customPath, ok := config["http_path"].(string); ok {
+		path = customPath
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "http_server",
+		Config: map[string]interface{}{
+			"address":       "${HTTP_ADDRESS:0.0.0.0:8080}",
+			"path":          path,
+			"allowed_verbs": []string{"GET"},
+			"timeout":       "10s",
+		},
+	}, nil
+}
+
+// generateEventPersistenceOutputConfig creates output configuration for event persistence
+func (bg *BindingGenerator) generateEventPersistenceOutputConfig(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	// Default to local file if no config provided
+	sinkType := "file"
+	if st, ok := config["sink_type"].(string); ok {
+		sinkType = st
+	}
+
+	format := "json"
+	if f, ok := config["format"].(string); ok {
+		format = f
+	}
+
+	switch sinkType {
+	case "file", "local":
+		return bg.generateLocalEventFileOutput(thingID, eventName, format)
+	case "s3":
+		return bg.generateS3EventOutput(thingID, eventName, format, config)
+	case "kafka":
+		return bg.generateKafkaEventPersistenceOutput(thingID, eventName, config)
+	case "noop":
+		return types.StreamEndpointConfig{
+			Type:   "drop",
+			Config: map[string]interface{}{},
+		}, nil
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported event persistence sink type: %s", sinkType)
+	}
+}
+
+// generateLocalEventFileOutput creates local file output for event persistence
+func (bg *BindingGenerator) generateLocalEventFileOutput(thingID, eventName, format string) (types.StreamEndpointConfig, error) {
+	var extension string
+	switch format {
+	case "parquet":
+		extension = "parquet"
+	case "json":
+		extension = "jsonl"
+	case "csv":
+		extension = "csv"
+	default:
+		extension = "txt"
+	}
+
+	basePath := bg.parquetConfig.BasePath
+	if basePath == "" {
+		basePath = "./twincore_data"
+	}
+
+	filePath := fmt.Sprintf("%s/events/%s_%s_${!timestamp_unix():yyyy-MM-dd}.%s",
+		basePath, thingID, eventName, extension)
+
+	return types.StreamEndpointConfig{
+		Type: "file",
+		Config: map[string]interface{}{
+			"path":  filePath,
+			"codec": "none",
+		},
+	}, nil
+}
+
+// generateS3EventOutput creates S3 output for event persistence
+func (bg *BindingGenerator) generateS3EventOutput(thingID, eventName, format string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	bucket, ok := config["s3_bucket"].(string)
+	if !ok {
+		return types.StreamEndpointConfig{}, fmt.Errorf("s3_bucket is required for S3 sink")
+	}
+
+	var extension string
+	switch format {
+	case "parquet":
+		extension = "parquet"
+	case "json":
+		extension = "jsonl"
+	default:
+		extension = "txt"
+	}
+
+	// Use environment variables for AWS credentials
+	s3Config := map[string]interface{}{
+		"bucket": bucket,
+		"path":   fmt.Sprintf("twincore/events/%s/%s/${!timestamp_unix():yyyy/MM/dd}/%s_${!uuid_v4()}.%s", thingID, eventName, eventName, extension),
+		"region": "${AWS_REGION:us-east-1}",
+		"credentials": map[string]interface{}{
+			"id":     "${AWS_ACCESS_KEY_ID}",
+			"secret": "${AWS_SECRET_ACCESS_KEY}",
+			"token":  "${AWS_SESSION_TOKEN:}",
+		},
+	}
+
+	// Add optional S3 configuration
+	if region, ok := config["s3_region"].(string); ok {
+		s3Config["region"] = region
+	}
+
+	return types.StreamEndpointConfig{
+		Type:   "aws_s3",
+		Config: s3Config,
+	}, nil
+}
+
+// generateKafkaEventPersistenceOutput creates Kafka persistence output for events
+func (bg *BindingGenerator) generateKafkaEventPersistenceOutput(thingID, eventName string, config map[string]interface{}) (types.StreamEndpointConfig, error) {
+	persistenceTopic := fmt.Sprintf("twincore.persistence.%s.%s", thingID, eventName)
+	if topic, ok := config["persistence_topic"].(string); ok {
+		persistenceTopic = topic
+	}
+
+	return types.StreamEndpointConfig{
+		Type: "kafka",
+		Config: map[string]interface{}{
+			"addresses": bg.kafkaConfig.Brokers,
+			"topic":     persistenceTopic,
+			"key":       fmt.Sprintf("${! this.thing_id }-%s", eventName),
+		},
+	}, nil
 }
