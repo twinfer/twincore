@@ -1,4 +1,4 @@
-twincore Gateway - High-Level Design Document
+twincore  - High-Level Design Document
 Executive Summary
 twincore  is a configuration-driven W3C WoT servient /TD Processor that unifies HTTP serving (via embedded Caddy) and high-throughput streaming (via Redpanda) into a single, dynamically configurable application. The system translates W3C Web of Things (WoT) Thing Descriptions into both HTTP API endpoints and streaming data pipelines, providing a unified interface for IoT and edge computing scenarios.
 System Architecture Overview

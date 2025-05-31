@@ -25,11 +25,18 @@ func NewLicenseIntegration(cfg *IntegrationConfig) (*LicenseIntegration, error) 
 		logger: cfg.Logger,
 	}
 
-	// Initialize JWT validator if public key provided
+	// Initialize JWT validator if public key provided (either as path or embedded data)
 	if cfg.PublicKeyPath != "" {
 		jwtValidator, err := NewJWTLicenseValidator(cfg.PublicKeyPath, cfg.PolicyDir, cfg.Logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create JWT validator: %w", err)
+		}
+		li.jwtValidator = jwtValidator
+	} else if len(cfg.PublicKey) > 0 {
+		// Use embedded public key data
+		jwtValidator, err := NewJWTLicenseValidatorFromData(cfg.PublicKey, cfg.PolicyDir, cfg.Logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create JWT validator from embedded key: %w", err)
 		}
 		li.jwtValidator = jwtValidator
 	}
@@ -78,7 +85,8 @@ func NewLicenseIntegration(cfg *IntegrationConfig) (*LicenseIntegration, error) 
 type IntegrationConfig struct {
 	PolicyDir     string
 	LicenseFile   string
-	PublicKeyPath string
+	PublicKeyPath string // Optional: path to public key file
+	PublicKey     []byte  // Optional: embedded public key data
 	Logger        logrus.FieldLogger
 }
 

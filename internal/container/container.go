@@ -57,6 +57,9 @@ type Container struct {
 	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
 	BenthosEnvironment *service.Environment // Benthos v4 environment
 
+	// OPA Integration (optional, only used when OPA is enabled)
+	licenseIntegration *security.LicenseIntegration
+
 	// Initial configurations used to start services
 	InitialHTTPServiceConfig   types.ServiceConfig
 	InitialStreamServiceConfig types.ServiceConfig
@@ -325,7 +328,7 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 	c.ServiceRegistry = svc.NewServiceRegistry()
 
 	// Create services
-	c.HTTPService = svc.NewHTTPService(c.Logger, c.DB) // Corrected constructor
+	c.HTTPService = svc.NewHTTPServiceSimple(c.Logger) // Use the available constructor
 	// NewStreamService was refactored to take *service.Environment.
 	// Constructor: NewStreamService(env *service.Environment, logger *logrus.Logger)
 	c.StreamService = svc.NewStreamService(c.BenthosEnvironment, c.Logger)
@@ -415,8 +418,9 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 	// TODO: Load this from a static gateway configuration file or define robust defaults.
 	// For now, providing a minimal structure.
 	// The `security` part is essential for `main.go` when registering new Things.
-	defaultSecurityConfig := types.SecurityConfig{
-		Enabled: true, // Or false, depending on default posture
+	// Create default security configuration as a map since SecurityConfig is commented out
+	defaultSecurityConfig := map[string]interface{}{
+		"enabled": true, // Or false, depending on default posture
 		// Initialize with empty slices for now to avoid compilation issues
 		// These can be populated from actual configuration when needed
 	}

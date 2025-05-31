@@ -21,11 +21,12 @@ func SetGlobalContainer(c *container.Container) {
 // TwinCoreApp is a Caddy app module to make core components available.
 type TwinCoreApp struct {
 	// These fields will be populated from the globalContainer during Provision.
-	logger        *logrus.Logger
-	stateManager  api.StateManager
-	streamBridge  api.StreamBridge
-	thingRegistry api.ThingRegistry
-	eventBroker   *api.EventBroker
+	logger               *logrus.Logger
+	stateManager         api.StateManager
+	streamBridge         api.StreamBridge
+	thingRegistry        api.ThingRegistry
+	eventBroker          *api.EventBroker
+	benthosStreamManager api.BenthosStreamManager
 }
 
 // CaddyModule returns the Caddy module information.
@@ -46,6 +47,7 @@ func (tca *TwinCoreApp) Provision(ctx caddy.Context) error {
 	tca.streamBridge = globalContainer.StreamBridge
 	tca.thingRegistry = globalContainer.ThingRegistry
 	tca.eventBroker = globalContainer.EventBroker
+	tca.benthosStreamManager = globalContainer.BenthosStreamManager
 
 	if tca.logger != nil {
 		tca.logger.Info("TwinCoreApp provisioned successfully")
@@ -55,7 +57,7 @@ func (tca *TwinCoreApp) Provision(ctx caddy.Context) error {
 
 // Validate ensures the module is configured correctly.
 func (tca *TwinCoreApp) Validate() error {
-	if tca.logger == nil || tca.stateManager == nil || tca.streamBridge == nil || tca.thingRegistry == nil || tca.eventBroker == nil {
+	if tca.logger == nil || tca.stateManager == nil || tca.streamBridge == nil || tca.thingRegistry == nil || tca.eventBroker == nil || tca.benthosStreamManager == nil {
 		return fmt.Errorf("twincore app: one or more core dependencies are nil")
 	}
 	return nil
@@ -77,11 +79,12 @@ func init() {
 }
 
 // Implement api.CoreProvider
-func (tca *TwinCoreApp) GetLogger() *logrus.Logger           { return tca.logger }
-func (tca *TwinCoreApp) GetStateManager() api.StateManager   { return tca.stateManager }
-func (tca *TwinCoreApp) GetStreamBridge() api.StreamBridge   { return tca.streamBridge }
-func (tca *TwinCoreApp) GetThingRegistry() api.ThingRegistry { return tca.thingRegistry }
-func (tca *TwinCoreApp) GetEventBroker() *api.EventBroker    { return tca.eventBroker }
+func (tca *TwinCoreApp) GetLogger() *logrus.Logger                      { return tca.logger }
+func (tca *TwinCoreApp) GetStateManager() api.StateManager              { return tca.stateManager }
+func (tca *TwinCoreApp) GetStreamBridge() api.StreamBridge              { return tca.streamBridge }
+func (tca *TwinCoreApp) GetThingRegistry() api.ThingRegistry            { return tca.thingRegistry }
+func (tca *TwinCoreApp) GetEventBroker() *api.EventBroker               { return tca.eventBroker }
+func (tca *TwinCoreApp) GetBenthosStreamManager() api.BenthosStreamManager { return tca.benthosStreamManager }
 
 // Interface guards
 var (

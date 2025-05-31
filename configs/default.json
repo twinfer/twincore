@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "default_auth": "local",
+  "setup_required": true,
+  "portal": {
+    "title": "TwinCore Gateway",
+    "theme": "basic"
+  }
+}
