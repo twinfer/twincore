@@ -1,0 +1,32 @@
+# WoT Action Formatting Processor
+# Bloblang mapping for standardizing WoT action invocations
+
+mapping: |
+  # Core WoT action structure
+  root.thing_id = "{{ .ThingID }}"
+  root.action_name = this.action_name
+  root.input = this.input
+  root.action_id = this.action_id.or(uuid_v4())
+  root.invoked_at = timestamp_unix_nano()
+  
+  # Action lifecycle tracking
+  root.status = this.status.or("pending")
+  root.timeout = this.timeout.or("{{ .DefaultTimeout | default "30s" }}")
+  
+  # WoT metadata
+  root.@context = "https://www.w3.org/2019/wot/td/v1"
+  root.@type = "ActionInvocation"
+  
+  # Source tracking
+  root.source = this.source.or("{{ .DefaultSource | default "http" }}")
+  
+  # Optional result handling
+  {{- if .IncludeResultTracking }}
+  root.result_topic = "things.{{ .ThingID }}.actions." + this.action_name + ".results"
+  root.callback_url = this.callback_url.or(null)
+  {{- end }}
+  
+  # Request metadata preservation
+  {{- if .PreserveHeaders }}
+  root.headers = this.headers.or({})
+  {{- end }}

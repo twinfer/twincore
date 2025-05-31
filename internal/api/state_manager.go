@@ -275,7 +275,19 @@ func (m *DuckDBStateManager) GetProperty(thingID, propertyName string) (interfac
 }
 
 func (m *DuckDBStateManager) SetProperty(thingID, propertyName string, value interface{}) error {
+	// Use default HTTP source for backward compatibility
+	ctx := models.WithUpdateContext(context.Background(), models.NewUpdateContext(models.UpdateSourceHTTP))
+	return m.SetPropertyWithContext(ctx, thingID, propertyName, value)
+}
+
+func (m *DuckDBStateManager) SetPropertyWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error {
 	m.logger.Debugf("Setting property: %s/%s = %v", thingID, propertyName, value)
+
+	// Extract source from context
+	source := "unknown"
+	if updateCtx, ok := models.GetUpdateContext(ctx); ok {
+		source = string(updateCtx.Source)
+	}
 
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
@@ -296,14 +308,14 @@ func (m *DuckDBStateManager) SetProperty(thingID, propertyName string, value int
 
 	m.logger.Infof("Property updated in DB: %s/%s", thingID, propertyName)
 
-	// Log to Parquet
+	// Log to Parquet with source context
 	if m.parquetLogPath != "" {
 		parquetRecord := models.PropertyStateParquetRecord{
 			ThingID:      thingID,
 			PropertyName: propertyName,
 			Value:        string(valueJSON), // Already marshaled
 			Timestamp:    time.Now().UnixNano(),
-			Source:       "database_update", // Or determine source more dynamically if available
+			Source:       source, // Use source from context
 		}
 		if err := m.logPropertyToParquet(parquetRecord); err != nil {
 			// Log error but do not fail the SetProperty operation

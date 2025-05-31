@@ -1,0 +1,29 @@
+# Kafka Output Template
+# Base template for Kafka message publishing
+
+kafka:
+  addresses:
+    - "{{ .KafkaBrokers | default "localhost:9092" }}"
+  topic: "{{ .Topic }}"
+  {{- if .Key }}
+  key: "{{ .Key }}"
+  {{- end }}
+  {{- if .Partition }}
+  partition: "{{ .Partition }}"
+  {{- end }}
+  {{- if .CompressionType }}
+  compression: "{{ .CompressionType }}"
+  {{- end }}
+  {{- if .MaxMessageBytes }}
+  max_message_bytes: {{ .MaxMessageBytes }}
+  {{- end }}
+  {{- if .BatchingPolicy }}
+  batching:
+    count: {{ .BatchingPolicy.Count | default 1 }}
+    {{- if .BatchingPolicy.ByteSize }}
+    byte_size: {{ .BatchingPolicy.ByteSize }}
+    {{- end }}
+    {{- if .BatchingPolicy.Period }}
+    period: "{{ .BatchingPolicy.Period }}"
+    {{- end }}
+  {{- end }}

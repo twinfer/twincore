@@ -1,0 +1,14 @@
+# Parquet Output Template
+# Base template for Parquet file writing via file output
+
+file:
+  path: "{{ .FilePath }}"
+  {{- if .Codec }}
+  codec: "{{ .Codec }}"
+  {{- end }}
+  {{- if .MaxAge }}
+  max_age: "{{ .MaxAge }}"
+  {{- end }}
+  {{- if .MaxCount }}
+  max_count: {{ .MaxCount }}
+  {{- end }}

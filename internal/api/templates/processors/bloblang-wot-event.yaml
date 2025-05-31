@@ -1,0 +1,40 @@
+# WoT Event Formatting Processor
+# Bloblang mapping for standardizing WoT event data
+
+mapping: |
+  # Core WoT event structure
+  root.thing_id = "{{ .ThingID }}"
+  root.event_name = this.event_name
+  root.data = this.data
+  root.timestamp = timestamp_unix_nano()
+  
+  # Event classification
+  root.severity = this.severity.or("{{ .DefaultSeverity | default "info" }}")
+  root.category = this.category.or("{{ .DefaultCategory | default "device" }}")
+  
+  # WoT metadata
+  root.@context = "https://www.w3.org/2019/wot/td/v1"
+  root.@type = "Event"
+  
+  # Source tracking
+  root.source = this.source.or("{{ .DefaultSource | default "device" }}")
+  
+  # Event correlation and tracing
+  {{- if .IncludeTracing }}
+  root.trace_id = this.trace_id.or(uuid_v4())
+  root.span_id = this.span_id.or(uuid_v4())
+  {{- end }}
+  
+  # Event sequence and ordering
+  {{- if .IncludeSequencing }}
+  root.sequence_number = this.sequence_number.or(0)
+  root.partition_key = "{{ .ThingID }}"
+  {{- end }}
+  
+  # Optional aggregation metadata
+  {{- if .IncludeAggregation }}
+  root.aggregation = {
+    "window": this.aggregation.window.or("1m"),
+    "count": this.aggregation.count.or(1)
+  }
+  {{- end }}

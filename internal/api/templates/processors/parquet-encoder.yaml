@@ -1,0 +1,24 @@
+# Parquet Encoder Processor
+# Base template for encoding data to Parquet format
+
+parquet_encode:
+  schema:
+    {{- range .Schema }}
+    - name: "{{ .Name }}"
+      type: "{{ .Type }}"
+      {{- if .ConvertedType }}
+      converted_type: "{{ .ConvertedType }}"
+      {{- end }}
+      {{- if .LogicalType }}
+      logical_type: "{{ .LogicalType }}"
+      {{- end }}
+      {{- if .Repetition }}
+      repetition: "{{ .Repetition }}"
+      {{- end }}
+    {{- end }}
+  {{- if .CompressionCodec }}
+  compression_codec: "{{ .CompressionCodec }}"
+  {{- end }}
+  {{- if .RowGroupSize }}
+  row_group_size: {{ .RowGroupSize }}
+  {{- end }}

@@ -15,6 +15,7 @@ import (
 	"github.com/twinfer/twincore/internal/config"
 	"github.com/twinfer/twincore/internal/security" // Added for new security types
 	"github.com/twinfer/twincore/pkg/types"
+	"github.com/twinfer/twincore/pkg/wot"
 
 	svc "github.com/twinfer/twincore/service"
 )
@@ -44,6 +45,13 @@ type Container struct {
 	StreamBridge api.StreamBridge
 	EventBroker  *api.EventBroker
 	WoTHandler   *api.WoTHandler
+
+	// Stream Composition Components
+	BenthosStreamManager api.BenthosStreamManager
+	TDStreamComposer     api.TDStreamComposer
+	TDStreamComposition  api.TDStreamCompositionService
+	ThingRegistrationSvc api.ThingRegistrationService
+	StreamConfigDefaults api.StreamConfigDefaults
 
 	// Benthos
 	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
@@ -231,6 +239,11 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 	sb := api.NewBenthosStreamBridge(c.BenthosEnvironment, c.StateManager, c.DB, c.Logger, cfg.ParquetLogPath)
 	c.StreamBridge = sb
 
+	// Initialize stream composition components
+	if err := c.initStreamComposition(cfg); err != nil {
+		return fmt.Errorf("failed to initialize stream composition: %w", err)
+	}
+
 	// Initialize WoT handler
 	c.WoTHandler = api.NewWoTHandler(
 		c.StateManager,
@@ -241,6 +254,67 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 	)
 
 	c.Logger.Info("WoT components initialized")
+	return nil
+}
+
+func (c *Container) initStreamComposition(cfg *Config) error {
+	c.Logger.Debug("Initializing stream composition components")
+
+	// Initialize stream configuration defaults
+	c.StreamConfigDefaults = api.GetDefaultStreamConfigDefaults()
+
+	// Initialize Benthos stream manager with DuckDB persistence
+	streamManager, err := api.NewSimpleBenthosStreamManager(
+		cfg.ParquetLogPath+"/stream_configs", // Config directory for debug files
+		c.DB,
+		c.Logger,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize Benthos stream manager: %w", err)
+	}
+	c.BenthosStreamManager = streamManager
+
+	// Initialize TD stream composer
+	c.TDStreamComposer = api.NewSimpleTDStreamComposer(c.Logger)
+
+	// Initialize TD stream composition service
+	c.TDStreamComposition = api.NewDefaultTDStreamCompositionService(
+		c.TDStreamComposer,
+		c.BenthosStreamManager,
+		c.Logger,
+	)
+
+	// Create stream composition configuration with overrides from container config
+	overrides := map[string]interface{}{
+		"parquet_log_path": cfg.ParquetLogPath,
+		"enable_metrics":   true,
+	}
+	compositionConfig := api.GetStreamCompositionConfigFromDefaults(c.StreamConfigDefaults, overrides)
+
+	// Validate configuration
+	validator := api.NewStreamConfigValidator(c.StreamConfigDefaults)
+	if err := validator.ValidateConfig(compositionConfig); err != nil {
+		return fmt.Errorf("invalid stream composition configuration: %w", err)
+	}
+
+	// Initialize Thing registration service with stream composition
+	thingRegSvcBuilder := api.NewThingRegistrationServiceBuilder()
+
+	// Create an adapter for ThingRegistry to match the extended interface
+	thingRegistryExt := &ThingRegistryAdapter{ThingRegistry: c.ThingRegistry}
+
+	thingRegSvc, err := thingRegSvcBuilder.
+		WithThingRegistry(thingRegistryExt).
+		WithStreamManager(c.BenthosStreamManager).
+		WithLogger(c.Logger).
+		WithCompositionConfig(compositionConfig).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to build Thing registration service: %w", err)
+	}
+	c.ThingRegistrationSvc = thingRegSvc
+
+	c.Logger.Info("Stream composition components initialized")
 	return nil
 }
 
@@ -342,11 +416,9 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 	// For now, providing a minimal structure.
 	// The `security` part is essential for `main.go` when registering new Things.
 	defaultSecurityConfig := types.SecurityConfig{
-		Enabled:                  true, // Or false, depending on default posture
-		AuthenticationPortals:    []*authn.PortalConfig{},
-		IdentityStores:           []*authn.IdentityStoreConfig{},
-		TokenValidators:          []*authn.TokenValidatorConfig{},
-		AuthorizationGatekeepers: []*authz.Config{},
+		Enabled: true, // Or false, depending on default posture
+		// Initialize with empty slices for now to avoid compilation issues
+		// These can be populated from actual configuration when needed
 	}
 
 	return types.ServiceConfig{
@@ -451,3 +523,46 @@ func runMigrations(db *sql.DB) error {
 	_, err := db.Exec(schema)
 	return err
 }
+
+// ThingRegistryAdapter adapts the existing ThingRegistry to implement ThingRegistryExt
+type ThingRegistryAdapter struct {
+	ThingRegistry *config.ThingRegistry
+}
+
+// Implement api.ThingRegistry interface methods
+func (a *ThingRegistryAdapter) GetThing(thingID string) (*wot.ThingDescription, error) {
+	return a.ThingRegistry.GetThing(thingID)
+}
+
+func (a *ThingRegistryAdapter) GetProperty(thingID, propertyName string) (wot.PropertyAffordance, error) {
+	return a.ThingRegistry.GetProperty(thingID, propertyName)
+}
+
+func (a *ThingRegistryAdapter) GetAction(thingID, actionName string) (wot.ActionAffordance, error) {
+	return a.ThingRegistry.GetAction(thingID, actionName)
+}
+
+func (a *ThingRegistryAdapter) GetEvent(thingID, eventName string) (wot.EventAffordance, error) {
+	return a.ThingRegistry.GetEvent(thingID, eventName)
+}
+
+// Implement api.ThingRegistryExt interface methods (extended interface)
+func (a *ThingRegistryAdapter) RegisterThing(tdJSONLD string) (*wot.ThingDescription, error) {
+	return a.ThingRegistry.RegisterThing(tdJSONLD)
+}
+
+func (a *ThingRegistryAdapter) UpdateThing(thingID string, tdJSONLD string) (*wot.ThingDescription, error) {
+	return a.ThingRegistry.UpdateThing(thingID, tdJSONLD)
+}
+
+func (a *ThingRegistryAdapter) DeleteThing(thingID string) error {
+	return a.ThingRegistry.DeleteThing(thingID)
+}
+
+func (a *ThingRegistryAdapter) ListThings() ([]*wot.ThingDescription, error) {
+	return a.ThingRegistry.ListThings()
+}
+
+// Ensure ThingRegistryAdapter implements both interfaces
+var _ api.ThingRegistry = (*ThingRegistryAdapter)(nil)
+var _ api.ThingRegistryExt = (*ThingRegistryAdapter)(nil)

@@ -1,0 +1,23 @@
+# MQTT Output Template
+# Base template for MQTT message publishing
+
+mqtt:
+  urls:
+    - "{{ .MQTTBroker | default "tcp://localhost:1883" }}"
+  topic: "{{ .Topic }}"
+  client_id: "{{ .ClientID | default "twincore-publisher" }}"
+  {{- if .QoS }}
+  qos: {{ .QoS }}
+  {{- end }}
+  {{- if .Username }}
+  user: "{{ .Username }}"
+  {{- end }}
+  {{- if .Password }}
+  password: "{{ .Password }}"
+  {{- end }}
+  {{- if .Retained }}
+  retained: {{ .Retained }}
+  {{- end }}
+  {{- if .MaxInFlight }}
+  max_in_flight: {{ .MaxInFlight }}
+  {{- end }}

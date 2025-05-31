@@ -1,0 +1,28 @@
+# HTTP Server Input Template
+# Base template for HTTP request handling
+
+http_server:
+  address: "{{ .Address | default "0.0.0.0:8080" }}"
+  path: "{{ .Path }}"
+  {{- if .AllowedVerbs }}
+  allowed_verbs:
+    {{- range .AllowedVerbs }}
+    - "{{ . }}"
+    {{- end }}
+  {{- end }}
+  {{- if .Timeout }}
+  timeout: "{{ .Timeout }}"
+  {{- end }}
+  {{- if .RateLimit }}
+  rate_limit: "{{ .RateLimit }}"
+  {{- end }}
+  {{- if .CORS }}
+  cors:
+    enabled: {{ .CORS.Enabled }}
+    {{- if .CORS.AllowedOrigins }}
+    allowed_origins:
+      {{- range .CORS.AllowedOrigins }}
+      - "{{ . }}"
+      {{- end }}
+    {{- end }}
+  {{- end }}

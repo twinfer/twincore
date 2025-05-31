@@ -1,0 +1,34 @@
+# WoT Property Formatting Processor
+# Bloblang mapping for standardizing WoT property data
+
+mapping: |
+  # Core WoT property structure
+  root.thing_id = "{{ .ThingID }}"
+  root.property_name = this.property_name
+  root.value = this.value
+  root.timestamp = timestamp_unix_nano()
+  
+  # Source tracking for circular update prevention
+  root.source = this.source.or("{{ .DefaultSource | default "unknown" }}")
+  
+  # WoT metadata
+  root.@context = "https://www.w3.org/2019/wot/td/v1"
+  root.@type = "Property"
+  
+  # Optional metadata preservation
+  {{- if .PreserveMetadata }}
+  root.metadata = this.metadata.or({})
+  {{- end }}
+  
+  # Optional data schema validation metadata
+  {{- if .IncludeSchema }}
+  root.schema = {
+    "type": this.schema.type.or("unknown"),
+    "unit": this.schema.unit.or(null)
+  }
+  {{- end }}
+  
+  # Request correlation for HTTP sources
+  {{- if .IncludeCorrelation }}
+  root.correlation_id = this.correlation_id.or(uuid_v4())
+  {{- end }}
