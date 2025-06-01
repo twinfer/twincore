@@ -1,0 +1,45 @@
+input:
+  label: {{.label}}
+  mqtt:
+    urls:
+    {{- range .urls }}
+      - {{ . }}
+    {{- end }}
+    topics:
+    {{- range .topics }}
+      - {{ . }}
+    {{- end }}
+    client_id: {{.client_id}}
+    qos: {{.qos}}
+    clean_session: {{.clean_session | default true}}
+    {{- if .username }}
+    username: {{.username}}
+    {{- end }}
+    {{- if .password }}
+    password: {{.password}}
+    {{- end }}
+    {{- if .tls }}
+    tls:
+      enabled: {{.tls.enabled | default true}}
+      {{- if .tls.ca_cert }}
+      ca_cert: {{.tls.ca_cert}}
+      {{- end }}
+      {{- if .tls.client_cert }}
+      client_cert: {{.tls.client_cert}}
+      {{- end }}
+      {{- if .tls.client_key }}
+      client_key: {{.tls.client_key}}
+      {{- end }}
+      {{- if .tls.skip_verify }}
+      skip_verify: {{.tls.skip_verify}}
+      {{- end }}
+    {{- end }}
+    {{- if .connect_timeout }}
+    connect_timeout: {{.connect_timeout}}
+    {{- end }}
+    {{- if .ping_timeout }}
+    ping_timeout: {{.ping_timeout}}
+    {{- end }}
+    {{- if .keep_alive }}
+    keep_alive: {{.keep_alive}}
+    {{- end }}
