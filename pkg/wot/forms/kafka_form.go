@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -52,10 +53,11 @@ func (f *KafkaForm) GetStreamDirection(op []string) types.StreamDirection {
 }
 
 func (f *KafkaForm) GenerateStreamEndpoint() (map[string]interface{}, error) {
-	return f.GenerateConfig(nil)
+	return f.GenerateConfig(logrus.NewEntry(logrus.StandardLogger()), nil) // Pass default logger if called directly
 }
 
-func (f *KafkaForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
+func (f *KafkaForm) GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
+	logger.WithFields(logrus.Fields{"form_href": f.Href, "protocol": f.GetProtocol()}).Debug("Generating config for Kafka form")
 	// Determine if this is input or output based on operations
 	isInput := false
 	for _, op := range f.Op {
@@ -66,9 +68,16 @@ func (f *KafkaForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (
 	}
 
 	// Select template
-	tmplStr := kafkaOutputTemplate
+	var tmplStr string
+	var templateName string
 	if isInput {
 		tmplStr = kafkaInputTemplate
+		templateName = "kafkaInputTemplate"
+		logger.WithField("template_name", templateName).Debug("Selected Kafka input template")
+	} else {
+		tmplStr = kafkaOutputTemplate
+		templateName = "kafkaOutputTemplate"
+		logger.WithField("template_name", templateName).Debug("Selected Kafka output template")
 	}
 
 	// Build config data
@@ -79,13 +88,14 @@ func (f *KafkaForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (
 	}
 
 	// Add security config
-	if auth := f.extractAuthConfig(securityDefs); auth != nil {
+	if auth := f.extractAuthConfig(logger, securityDefs); auth != nil { // Pass logger here
 		config["auth"] = auth
 	}
 
 	// Execute template
-	yamlOutput, err := executeTemplate("kafka", tmplStr, config) // Assumes executeTemplate is in the same package
+	yamlOutput, err := executeTemplate("kafka", tmplStr, config)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"form_href": f.Href, "template_name": templateName}).Error("Failed to execute Kafka form template")
 		return nil, fmt.Errorf("failed to execute kafka template: %w", err)
 	}
 
@@ -96,7 +106,7 @@ func (f *KafkaForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (
 	}, nil
 }
 
-func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme) map[string]interface{} {
+func (f *KafkaForm) extractAuthConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) map[string]interface{} {
 	for _, schemeDef := range securityDefs {
 		if schemeDef.Scheme == "" {
 			continue
@@ -117,6 +127,7 @@ func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme
 					password = passVal
 				}
 			}
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying security scheme to Kafka form config")
 			return map[string]interface{}{
 				"mechanism": "PLAIN",
 				"username":  username,
@@ -137,6 +148,7 @@ func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme
 					password = passVal
 				}
 			}
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying security scheme to Kafka form config")
 			return map[string]interface{}{
 				"mechanism": mechanism,
 				"username":  username,
@@ -151,6 +163,7 @@ func (f *KafkaForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme
 					tokenPlaceholder = tokenVal
 				}
 			}
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying security scheme to Kafka form config")
 			return map[string]interface{}{
 				"mechanism": "OAUTHBEARER",
 				"token":     tokenPlaceholder,

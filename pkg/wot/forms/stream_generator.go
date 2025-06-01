@@ -55,9 +55,12 @@ func logStreamGeneration(logger logrus.FieldLogger, streamIDBase, thingID, inter
 // Note: ProcessorConfig type here refers to the one defined in binding_generator.go (part of AllBindings).
 // types.ProcessorConfig is used for the StreamCreationRequest.
 func buildProcessorChain(bg *BindingGenerator, namePrefix, chainDisplayName, interactionType, purpose, thingID, interactionName string, dataSchema *wot.DataSchemaCore, customMappings ...ProcessorConfig) (ProcessorChain, error) {
-	chainID := fmt.Sprintf("%s_processors", namePrefix)
+	baseChainID := namePrefix // Use namePrefix as the base for logging before the "_processors" suffix is added.
+	bg.logger.WithFields(logrus.Fields{"chain_id_base": baseChainID, "purpose": purpose, "thing_id": thingID, "interaction_name": interactionName}).Debug("Building processor chain")
+
+	actualChainID := fmt.Sprintf("%s_processors", namePrefix)
 	chain := ProcessorChain{
-		ID:         chainID,
+		ID:         actualChainID,
 		Name:       chainDisplayName,
 		Processors: []ProcessorConfig{},
 		Metadata: map[string]interface{}{
@@ -86,16 +89,22 @@ func buildProcessorChain(bg *BindingGenerator, namePrefix, chainDisplayName, int
 		// Insert schema validation before other processors if needed, or append.
 		// For now, appending. Consider if order matters critically for specific streams.
 		chain.Processors = append(chain.Processors, schemaValidationProcessor)
+		bg.logger.WithFields(logrus.Fields{"chain_id": actualChainID, "processor_type": string(schemaValidationProcessor.Type), "processor_label": schemaValidationProcessor.Label}).Debug("Added schema validation processor to chain")
+	}
+
+	for _, proc := range customMappings { // Log custom mappings added
+		bg.logger.WithFields(logrus.Fields{"chain_id": actualChainID, "processor_type": string(proc.Type), "processor_label": proc.Label}).Debug("Added custom mapping processor to chain")
 	}
 
 	// Example: Add a common final processor if any (none for now)
 
-	bg.bindings.Processors[chainID] = chain // Assumes bg.bindings is the AllBindings struct
+	bg.bindings.Processors[actualChainID] = chain // Assumes bg.bindings is the AllBindings struct
 	return chain, nil
 }
 
 // createStreamRequest constructs the StreamCreationRequest object and generates YAML.
 func createStreamRequest(bg *BindingGenerator, thingID, interactionType, interactionName, direction string, inputConfig types.StreamEndpointConfig, outputConfig types.StreamEndpointConfig, processorChainConfigs []types.ProcessorConfig, purpose string) (types.StreamCreationRequest, error) {
+	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "interaction_name": interactionName, "purpose": purpose}).Debug("Creating stream request")
 	request := types.StreamCreationRequest{
 		ThingID:         thingID,
 		InteractionType: interactionType,
@@ -113,6 +122,7 @@ func createStreamRequest(bg *BindingGenerator, thingID, interactionType, interac
 
 	yamlConfig, err := generateStreamRequestYAML(bg, request)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "interaction_name": interactionName}).Error("Failed to generate stream YAML for request")
 		return types.StreamCreationRequest{}, fmt.Errorf("failed to generate YAML for stream request: %w", err)
 	}
 	request.Metadata["yaml_config"] = yamlConfig
@@ -236,7 +246,7 @@ func generatePropertyObservationStream(bg *BindingGenerator, thingID, propName s
 	// Pass the constructed processorChain (which is stored in bg.bindings.Processors by buildProcessorChain)
 	_, err = registerStreamWithManager(bg, request, types.StreamTypePropertyOutput, types.StreamDirectionOutbound, processorChain)
 	if err != nil {
-		// The error from registerStreamWithManager already includes context, no need to wrap further unless adding more specific context here.
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "stream_purpose": purpose}).Error("Failed during property observation stream generation (registering)")
 		return err
 	}
 
@@ -310,6 +320,7 @@ func generatePropertyCommandStream(bg *BindingGenerator, thingID, propName strin
 
 	_, err = registerStreamWithManager(bg, request, types.StreamTypePropertyInput, types.StreamDirectionInbound, processorChain)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "stream_purpose": purpose}).Error("Failed during property command stream generation (registering)")
 		return err
 	}
 
@@ -394,6 +405,7 @@ func generatePropertyLoggingStream(bg *BindingGenerator, thingID, propName strin
 
 	_, err = registerStreamWithManager(bg, request, types.StreamTypePropertyLogger, types.StreamDirectionInternal, processorChain)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "stream_purpose": purpose}).Error("Failed during property logging stream generation (registering)")
 		return err
 	}
 
@@ -466,6 +478,7 @@ func generateActionInvocationStream(bg *BindingGenerator, thingID, actionName st
 
 	_, err = registerStreamWithManager(bg, request, types.StreamTypeActionInput, types.StreamDirectionInbound, processorChain)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName, "stream_purpose": purpose}).Error("Failed during action invocation stream generation (registering)")
 		return err
 	}
 
@@ -548,6 +561,7 @@ func generateActionLoggingStream(bg *BindingGenerator, thingID, actionName strin
 
 	_, err = registerStreamWithManager(bg, request, types.StreamTypeActionLogger, types.StreamDirectionInternal, processorChain)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName, "stream_purpose": purpose}).Error("Failed during action logging stream generation (registering)")
 		return err
 	}
 
@@ -620,6 +634,7 @@ func generateEventProcessingStream(bg *BindingGenerator, thingID, eventName stri
 
 	_, err = registerStreamWithManager(bg, request, types.StreamTypeEventOutput, types.StreamDirectionOutbound, processorChain)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "event_name": eventName, "stream_purpose": purpose}).Error("Failed during event processing stream generation (registering)")
 		return err
 	}
 
@@ -709,6 +724,7 @@ func generateEventLoggingStream(bg *BindingGenerator, thingID, eventName string,
 
 	_, err = registerStreamWithManager(bg, request, types.StreamTypeEventLogger, types.StreamDirectionInternal, processorChain)
 	if err != nil {
+		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "event_name": eventName, "stream_purpose": purpose}).Error("Failed during event logging stream generation (registering)")
 		return err
 	}
 

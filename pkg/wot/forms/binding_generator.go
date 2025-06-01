@@ -53,6 +53,7 @@ func NewBindingGenerator(
 
 // GenerateAllBindings generates all bindings (HTTP routes + Benthos streams) from a Thing Description
 func (bg *BindingGenerator) GenerateAllBindings(td *wot.ThingDescription) (*AllBindings, error) {
+	bg.logger.WithField("thing_id", td.ID).Info("Starting binding generation for Thing Description")
 	bindings := &AllBindings{
 		ThingID:     td.ID,
 		HTTPRoutes:  make(map[string]HTTPRoute),
@@ -64,6 +65,7 @@ func (bg *BindingGenerator) GenerateAllBindings(td *wot.ThingDescription) (*AllB
 	// Generate property bindings
 	for propName, prop := range td.Properties {
 		if err := bg.generatePropertyBindings(td.ID, propName, prop, bindings); err != nil {
+			bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": td.ID, "property_name": propName}).Error("Failed to generate property bindings")
 			return nil, fmt.Errorf("failed to generate property bindings for %s: %w", propName, err)
 		}
 	}
@@ -71,6 +73,7 @@ func (bg *BindingGenerator) GenerateAllBindings(td *wot.ThingDescription) (*AllB
 	// Generate action bindings
 	for actionName, action := range td.Actions {
 		if err := bg.generateActionBindings(td.ID, actionName, action, bindings); err != nil {
+			bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": td.ID, "action_name": actionName}).Error("Failed to generate action bindings")
 			return nil, fmt.Errorf("failed to generate action bindings for %s: %w", actionName, err)
 		}
 	}
@@ -78,6 +81,7 @@ func (bg *BindingGenerator) GenerateAllBindings(td *wot.ThingDescription) (*AllB
 	// Generate event bindings
 	for eventName, event := range td.Events {
 		if err := bg.generateEventBindings(td.ID, eventName, event, bindings); err != nil {
+			bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": td.ID, "event_name": eventName}).Error("Failed to generate event bindings")
 			return nil, fmt.Errorf("failed to generate event bindings for %s: %w", eventName, err)
 		}
 	}
@@ -145,6 +149,7 @@ type ProcessorConfig struct {
 
 // generatePropertyBindings creates all bindings for a property affordance
 func (bg *BindingGenerator) generatePropertyBindings(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName}).Debug("Generating bindings for property")
 	// Generate HTTP routes from forms
 	for i, form := range prop.Forms {
 		routeID := fmt.Sprintf("%s_property_%s_form_%d", thingID, propName, i)
@@ -182,6 +187,7 @@ func (bg *BindingGenerator) generatePropertyBindings(thingID, propName string, p
 
 // generateActionBindings creates all bindings for an action affordance
 func (bg *BindingGenerator) generateActionBindings(thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
+	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName}).Debug("Generating bindings for action")
 	// Generate HTTP routes from forms
 	for i, form := range action.Forms {
 		routeID := fmt.Sprintf("%s_action_%s_form_%d", thingID, actionName, i)
@@ -212,6 +218,7 @@ func (bg *BindingGenerator) generateActionBindings(thingID, actionName string, a
 
 // generateEventBindings creates all bindings for an event affordance
 func (bg *BindingGenerator) generateEventBindings(thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
+	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "event_name": eventName}).Debug("Generating bindings for event")
 	// Generate HTTP routes from forms (typically SSE endpoints)
 	for i, form := range event.Forms {
 		routeID := fmt.Sprintf("%s_event_%s_form_%d", thingID, eventName, i)

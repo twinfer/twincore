@@ -25,6 +25,9 @@ type EnhancedForm interface {
 	GetStreamDirection(op []string) types.StreamDirection
 	// GenerateStreamEndpoint generates endpoint configuration for stream manager
 	GenerateStreamEndpoint() (map[string]interface{}, error)
+	// GenerateConfig generates the protocol-specific configuration for a form,
+	// now requiring a logger for internal logging.
+	GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error)
 }
 
 // ConvertFormToStreamEndpoint converts a WoT form to a stream endpoint configuration
@@ -37,8 +40,13 @@ func ConvertFormToStreamEndpoint(form wot.Form) (map[string]interface{}, error) 
 	// Note: The types.Form interface was extended by EnhancedForm, but wot.Form is the base.
 	// The GenerateConfig method is part of the protocol-specific forms (KafkaForm, etc.)
 	// which are expected to implement wot.Form.
-	if configGen, ok := form.(interface{ GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) }); ok {
-		formConfig, err := configGen.GenerateConfig(nil) // Pass empty security for now
+	// For this call, we pass a default logger. A more sophisticated approach might involve
+	// threading a logger through, but for now, a new entry is acceptable for this utility.
+	if configGen, ok := form.(interface{ GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) }); ok {
+		// Create a default logger entry if no specific logger is available in this context.
+		// Consider making logger a mandatory pass-through in all relevant call chains if detailed context is always needed.
+		defaultLogger := logrus.NewEntry(logrus.StandardLogger())
+		formConfig, err := configGen.GenerateConfig(defaultLogger, nil) // Pass default logger and empty security for now
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate form config: %w", err)
 		}

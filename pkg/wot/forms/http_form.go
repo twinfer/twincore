@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -52,10 +53,11 @@ func (f *HTTPForm) GetStreamDirection(op []string) types.StreamDirection {
 }
 
 func (f *HTTPForm) GenerateStreamEndpoint() (map[string]interface{}, error) {
-	return f.GenerateConfig(nil)
+	return f.GenerateConfig(logrus.NewEntry(logrus.StandardLogger()), nil) // Pass default logger if called directly
 }
 
-func (f *HTTPForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
+func (f *HTTPForm) GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
+	logger.WithFields(logrus.Fields{"form_href": f.Href, "protocol": f.GetProtocol()}).Debug("Generating config for HTTP form")
 	// Determine if this is client or server based on operations
 	isServer := false
 	for _, op := range f.Op {
@@ -66,9 +68,16 @@ func (f *HTTPForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	}
 
 	// Select template
-	tmplStr := httpClientTemplate
+	var tmplStr string
+	var templateName string
 	if isServer {
 		tmplStr = httpServerTemplate
+		templateName = "httpServerTemplate"
+		logger.WithField("template_name", templateName).Debug("Selected HTTP server template")
+	} else {
+		tmplStr = httpClientTemplate
+		templateName = "httpClientTemplate"
+		logger.WithField("template_name", templateName).Debug("Selected HTTP client template")
 	}
 
 	// Determine HTTP method
@@ -85,7 +94,7 @@ func (f *HTTPForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	}
 
 	// Add security config
-	if auth := f.extractAuthHeaders(securityDefs); auth != nil {
+	if auth := f.extractAuthHeaders(logger, securityDefs); auth != nil { // Pass logger here
 		if config["headers"] == nil {
 			config["headers"] = make(map[string]string)
 		}
@@ -96,8 +105,9 @@ func (f *HTTPForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	}
 
 	// Execute template
-	yamlOutput, err := executeTemplate("http", tmplStr, config) // Assumes executeTemplate is in the same package
+	yamlOutput, err := executeTemplate("http", tmplStr, config)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"form_href": f.Href, "template_name": templateName}).Error("Failed to execute HTTP form template")
 		return nil, fmt.Errorf("failed to execute http template: %w", err)
 	}
 
@@ -122,7 +132,7 @@ func (f *HTTPForm) inferHTTPMethod() string {
 	return "GET" // Default
 }
 
-func (f *HTTPForm) extractAuthHeaders(securityDefs map[string]wot.SecurityScheme) map[string]string {
+func (f *HTTPForm) extractAuthHeaders(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) map[string]string {
 	headers := make(map[string]string)
 
 	for _, schemeDef := range securityDefs {
@@ -140,11 +150,13 @@ func (f *HTTPForm) extractAuthHeaders(securityDefs map[string]wot.SecurityScheme
 			// Encode credentials for HTTP Basic Auth
 			authVal := base64.StdEncoding.EncodeToString([]byte(authUsername + ":" + authPassword))
 			headers["Authorization"] = "Basic " + authVal
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying basic auth security scheme to HTTP form config")
 
 		case "bearer":
 			// W3C WoT: token (optional string for direct token), format (e.g. "jwt"), alg, authorization (URL)
 			bearerToken := "${TWINEDGE_BEARER_TOKEN}"
 			headers["Authorization"] = "Bearer " + bearerToken
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying bearer auth security scheme to HTTP form config")
 
 		case "apikey":
 			// W3C WoT: in ("header", "query", "cookie"), name (header/query/cookie name)
@@ -152,12 +164,14 @@ func (f *HTTPForm) extractAuthHeaders(securityDefs map[string]wot.SecurityScheme
 			if schemeDef.In == "header" && schemeDef.Name != "" {
 				apiKey := fmt.Sprintf("${TWINEDGE_APIKEY_%s}", schemeDef.Name) // Placeholder by default
 				headers[schemeDef.Name] = apiKey
+				logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href, "key_name": schemeDef.Name}).Debug("Applying apikey security scheme to HTTP form config")
 			}
 
 		case "oauth2":
 			// W3C WoT: authorization (URL), token (URL), refresh (URL), scopes, flow
 			// For forms, indicate intent with a placeholder - actual token must be fetched externally
 			headers["Authorization"] = "Bearer ${TWINEDGE_OAUTH2_TOKEN}"
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying oauth2 placeholder security scheme to HTTP form config")
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -56,13 +57,15 @@ func (f *MQTTForm) GetStreamDirection(op []string) types.StreamDirection {
 }
 
 func (f *MQTTForm) GenerateStreamEndpoint() (map[string]interface{}, error) {
-	return f.GenerateConfig(nil)
+	return f.GenerateConfig(logrus.NewEntry(logrus.StandardLogger()), nil) // Pass default logger if called directly
 }
 
-func (f *MQTTForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
+func (f *MQTTForm) GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
+	logger.WithFields(logrus.Fields{"form_href": f.Href, "protocol": f.GetProtocol()}).Debug("Generating config for MQTT form")
 	// Parse MQTT URL to extract broker and topic
 	u, err := url.Parse(f.Href)
 	if err != nil {
+		logger.WithError(err).WithField("form_href", f.Href).Error("Invalid MQTT URL in form")
 		return nil, fmt.Errorf("invalid MQTT URL: %w", err)
 	}
 
@@ -88,7 +91,9 @@ func (f *MQTTForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	// Extract topic from path
 	topic := strings.TrimPrefix(u.Path, "/")
 	if topic == "" {
-		return nil, fmt.Errorf("MQTT topic not specified in URL")
+		err := fmt.Errorf("MQTT topic not specified in URL")
+		logger.WithError(err).WithField("form_href", f.Href).Error("Missing MQTT topic in form URL")
+		return nil, err
 	}
 
 	// Generate client ID
@@ -127,7 +132,7 @@ func (f *MQTTForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	}
 
 	// Add authentication configuration
-	if authConfig := f.extractAuthConfig(securityDefs); authConfig != nil {
+	if authConfig := f.extractAuthConfig(logger, securityDefs); authConfig != nil { // Pass logger
 		for k, v := range authConfig {
 			config[k] = v
 		}
@@ -154,14 +159,22 @@ func (f *MQTTForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	}
 
 	// Select template
-	tmplStr := mqttOutputTemplate
+	var tmplStr string
+	var templateName string
 	if isInput {
 		tmplStr = mqttInputTemplate
+		templateName = "mqttInputTemplate"
+		logger.WithField("template_name", templateName).Debug("Selected MQTT input template")
+	} else {
+		tmplStr = mqttOutputTemplate
+		templateName = "mqttOutputTemplate"
+		logger.WithField("template_name", templateName).Debug("Selected MQTT output template")
 	}
 
 	// Parse and execute template
-	yamlOutput, err := executeTemplate("mqtt", tmplStr, config) // Assumes executeTemplate is in the same package
+	yamlOutput, err := executeTemplate("mqtt", tmplStr, config)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"form_href": f.Href, "template_name": templateName}).Error("Failed to execute MQTT form template")
 		return nil, fmt.Errorf("failed to execute mqtt template: %w", err)
 	}
 
@@ -172,7 +185,7 @@ func (f *MQTTForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (m
 	}, nil
 }
 
-func (f *MQTTForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme) map[string]interface{} {
+func (f *MQTTForm) extractAuthConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) map[string]interface{} {
 	for _, schemeDef := range securityDefs {
 		if schemeDef.Scheme == "" {
 			continue
@@ -192,7 +205,7 @@ func (f *MQTTForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme)
 					password = pass
 				}
 			}
-
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying basic auth security scheme to MQTT form config")
 			return map[string]interface{}{
 				"username": username,
 				"password": password,
@@ -227,7 +240,7 @@ func (f *MQTTForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme)
 					tlsConfig["skip_verify"] = skipVerify
 				}
 			}
-
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying mTLS security scheme to MQTT form config")
 			return map[string]interface{}{
 				"tls": tlsConfig,
 			}
@@ -240,7 +253,7 @@ func (f *MQTTForm) extractAuthConfig(securityDefs map[string]wot.SecurityScheme)
 					token = t
 				}
 			}
-
+			logger.WithFields(logrus.Fields{"scheme": schemeDef.Scheme, "form_href": f.Href}).Debug("Applying JWT bearer security scheme to MQTT form config")
 			return map[string]interface{}{
 				"username": token,
 				"password": "", // Empty password for token auth
