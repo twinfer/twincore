@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"errors" // Added for errors.As
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
@@ -86,7 +87,7 @@ func (sm *SimpleBenthosStreamManager) initializeSchema() error {
 	`)
 	if err != nil {
 		sm.logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed")
-		return fmt.Errorf("failed to create stream_configs table: %w", err)
+		return &ErrBenthosDatabaseOperationFailed{Operation: "initialize_schema_create_table", WrappedErr: err}
 	}
 
 	sm.logger.Info("Initialized DuckDB schema for stream configuration persistence")
@@ -111,7 +112,7 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 	rows, err := sm.db.Query(query)
 	if err != nil {
 		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Query"}).Error("Dependency call failed")
-		return fmt.Errorf("failed to query stream configs: %w", err)
+		return &ErrBenthosDatabaseOperationFailed{Operation: "load_streams_query", WrappedErr: err}
 	}
 	defer rows.Close()
 
@@ -138,30 +139,31 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 		// Deserialize configurations
 		var inputConfig StreamEndpointConfig
 		if err := json.Unmarshal([]byte(inputConfigJSON), &inputConfig); err != nil {
-			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal input config")
+			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal input config for loaded stream")
+			// Log and continue, this stream might be corrupted
 			errorCount++
 			continue
 		}
 
 		var outputConfig StreamEndpointConfig
 		if err := json.Unmarshal([]byte(outputConfigJSON), &outputConfig); err != nil {
-			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal output config")
+			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal output config for loaded stream")
 			errorCount++
 			continue
 		}
 
 		var processorChain []ProcessorConfig
 		if err := json.Unmarshal([]byte(processorChainJSON), &processorChain); err != nil {
-			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal processor chain")
+			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal processor chain for loaded stream")
 			errorCount++
 			continue
 		}
 
 		var metadata map[string]interface{}
-		if metadataJSON != "" {
+		if metadataJSON != "" { // metadata can be null
 			if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
-				logger.WithError(err).WithField("stream_id", streamID).Warn("Failed to unmarshal metadata, using empty")
-				metadata = make(map[string]interface{})
+				logger.WithError(err).WithField("stream_id", streamID).Warn("Failed to unmarshal metadata for loaded stream, using empty")
+				metadata = make(map[string]interface{}) // Default to empty map if unmarshalling fails
 			}
 		}
 
@@ -183,16 +185,16 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 
 		// Generate Benthos configuration using StreamBuilder
 		logger.WithField("stream_id", streamID).Debug("Generating Benthos stream builder for loaded stream")
-		benthosConfig, err := sm.generateBenthosStreamBuilder(streamInfo) // generateBenthosStreamBuilder uses sm.logger
+		benthosConfig, err := sm.generateBenthosStreamBuilder(streamInfo)
 		if err != nil {
-			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to generate Benthos config during startup")
+			// Log error and update validation_error in DB for this stream
+			errMsg := fmt.Sprintf("Failed to generate Benthos stream builder for loaded stream %s: %v", streamID, err)
+			logger.WithError(err).WithField("stream_id", streamID).Error(errMsg)
 			sm.updateValidationError(logger, streamID, err.Error()) // Pass logger
 			errorCount++
 			continue
 		}
-
-		// Note: StreamBuilder doesn't have a Lint() method - validation happens during SetYAML()
-		// If we reach here, the configuration is already validated
+		sm.updateValidationError(logger, streamID, "") // Clear any previous validation error
 
 		// Store in memory
 		sm.streams[streamID] = streamInfo
@@ -210,7 +212,7 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 
 	if err := rows.Err(); err != nil {
 		logger.WithError(err).Error("Error iterating stream config rows")
-		return fmt.Errorf("error iterating stream config rows: %w", err)
+		return &ErrBenthosDatabaseOperationFailed{Operation: "load_streams_rows_iteration", WrappedErr: err}
 	}
 
 	logger.WithFields(logrus.Fields{
@@ -252,8 +254,9 @@ func (sm *SimpleBenthosStreamManager) updateStreamStatusInDatabase(logger logrus
 	`, status, time.Now().UTC().Format(time.RFC3339), streamID)
 
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (updateStreamStatusInDatabase)")
-		return fmt.Errorf("failed to update stream status in database: %w", err)
+		dbErr := &ErrBenthosDatabaseOperationFailed{Operation: "update_stream_status", WrappedErr: err}
+		logger.WithError(dbErr).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (updateStreamStatusInDatabase)")
+		return dbErr
 	}
 	logger.WithFields(logrus.Fields{"stream_id": streamID, "status": status}).Debug("Stream status updated in DB")
 	return nil
@@ -301,20 +304,20 @@ func (sm *SimpleBenthosStreamManager) CreateStream(ctx context.Context, request 
 
 	// Generate Benthos stream configuration using StreamBuilder
 	logger.Debug("Generating Benthos stream builder")
-	streamBuilder, err := sm.generateBenthosStreamBuilder(stream) // Uses sm.logger internally
+	streamBuilder, err := sm.generateBenthosStreamBuilder(stream)
 	if err != nil {
 		logger.WithError(err).Error("Failed to generate Benthos stream builder")
-		return nil, fmt.Errorf("failed to generate Benthos stream builder: %w", err)
+		// err from generateBenthosStreamBuilder is already a custom error type
+		return nil, err
 	}
-
-	// StreamBuilder validates configuration during SetYAML() call
 	logger.Debug("Benthos stream builder generated and validated")
 
 	// Persist to DuckDB
 	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "persistStreamToDatabase"}).Debug("Calling internal method")
 	if err := sm.persistStreamToDatabase(logger, stream); err != nil { // Pass logger
 		logger.WithError(err).Error("Failed to persist stream to database")
-		return nil, fmt.Errorf("failed to persist stream to database: %w", err)
+		// err from persistStreamToDatabase is already a custom error type
+		return nil, err
 	}
 
 	// Store in memory
@@ -341,29 +344,30 @@ func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.Fiel
 	logger.Debug("Persisting stream to database")
 	// Serialize configurations to JSON
 	inputConfigJSON, err := json.Marshal(stream.Input)
+	inputConfigJSON, err := json.Marshal(stream.Input)
 	if err != nil {
-		logger.WithError(err).Error("Failed to marshal input config")
-		return fmt.Errorf("failed to marshal input config: %w", err)
+		logger.WithError(err).Error("Failed to marshal input config for DB persistence")
+		return fmt.Errorf("internal error: failed to marshal input config: %w", err)
 	}
 
 	outputConfigJSON, err := json.Marshal(stream.Output)
 	if err != nil {
-		logger.WithError(err).Error("Failed to marshal output config")
-		return fmt.Errorf("failed to marshal output config: %w", err)
+		logger.WithError(err).Error("Failed to marshal output config for DB persistence")
+		return fmt.Errorf("internal error: failed to marshal output config: %w", err)
 	}
 
 	processorChainJSON, err := json.Marshal(stream.ProcessorChain)
 	if err != nil {
-		logger.WithError(err).Error("Failed to marshal processor chain")
-		return fmt.Errorf("failed to marshal processor chain: %w", err)
+		logger.WithError(err).Error("Failed to marshal processor chain for DB persistence")
+		return fmt.Errorf("internal error: failed to marshal processor chain: %w", err)
 	}
 
 	var metadataJSON []byte
-	if stream.Metadata != nil {
+	if stream.Metadata != nil { // metadata can be nil
 		metadataJSON, err = json.Marshal(stream.Metadata)
 		if err != nil {
-			logger.WithError(err).Error("Failed to marshal metadata")
-			return fmt.Errorf("failed to marshal metadata: %w", err)
+			logger.WithError(err).Error("Failed to marshal metadata for DB persistence")
+			return fmt.Errorf("internal error: failed to marshal metadata: %w", err)
 		}
 	}
 
@@ -382,8 +386,9 @@ func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.Fiel
 	)
 
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (persistStreamToDatabase)")
-		return fmt.Errorf("failed to insert stream config into database: %w", err)
+		dbErr := &ErrBenthosDatabaseOperationFailed{Operation: "persist_stream_insert", WrappedErr: err}
+		logger.WithError(dbErr).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (persistStreamToDatabase)")
+		return dbErr
 	}
 
 	logger.Debug("Persisted stream configuration to DuckDB successfully")
@@ -401,8 +406,9 @@ func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID
 
 	stream, exists := sm.streams[streamID]
 	if !exists {
-		logger.Warn("Stream not found for update")
-		return nil, fmt.Errorf("stream not found: %s", streamID)
+		errNotFound := &ErrBenthosStreamNotFound{StreamID: streamID}
+		logger.Warn(errNotFound.Error())
+		return nil, errNotFound
 	}
 	logger.Debug("Found stream for update")
 
@@ -432,10 +438,11 @@ func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID
 
 	// Regenerate Benthos configuration using StreamBuilder
 	logger.Debug("Regenerating Benthos stream builder")
-	streamBuilder, err := sm.generateBenthosStreamBuilder(stream) // Uses sm.logger
+	streamBuilder, err := sm.generateBenthosStreamBuilder(stream)
 	if err != nil {
 		logger.WithError(err).Error("Failed to generate updated Benthos stream builder")
-		return nil, fmt.Errorf("failed to generate updated Benthos stream builder: %w", err)
+		// err from generateBenthosStreamBuilder is already a custom error type
+		return nil, &ErrBenthosStreamUpdateFailed{StreamID: streamID, WrappedErr: err}
 	}
 	logger.Debug("Benthos stream builder regenerated and validated")
 
@@ -443,7 +450,8 @@ func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID
 	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "updateStreamInDatabase"}).Debug("Calling internal method")
 	if err := sm.updateStreamInDatabase(logger, stream); err != nil { // Pass logger
 		logger.WithError(err).Error("Failed to update stream in database")
-		return nil, fmt.Errorf("failed to update stream in database: %w", err)
+		// err from updateStreamInDatabase is already a custom error type
+		return nil, &ErrBenthosStreamUpdateFailed{StreamID: streamID, WrappedErr: err}
 	}
 
 	// Update in memory
@@ -463,27 +471,27 @@ func (sm *SimpleBenthosStreamManager) updateStreamInDatabase(logger logrus.Field
 	inputConfigJSON, err := json.Marshal(stream.Input)
 	if err != nil {
 		logger.WithError(err).Error("Failed to marshal input config for DB update")
-		return fmt.Errorf("failed to marshal input config: %w", err)
+		return fmt.Errorf("internal error: failed to marshal input config for update: %w", err)
 	}
 
 	outputConfigJSON, err := json.Marshal(stream.Output)
 	if err != nil {
 		logger.WithError(err).Error("Failed to marshal output config for DB update")
-		return fmt.Errorf("failed to marshal output config: %w", err)
+		return fmt.Errorf("internal error: failed to marshal output config for update: %w", err)
 	}
 
 	processorChainJSON, err := json.Marshal(stream.ProcessorChain)
 	if err != nil {
 		logger.WithError(err).Error("Failed to marshal processor chain for DB update")
-		return fmt.Errorf("failed to marshal processor chain: %w", err)
+		return fmt.Errorf("internal error: failed to marshal processor chain for update: %w", err)
 	}
 
 	var metadataJSON []byte
-	if stream.Metadata != nil {
+	if stream.Metadata != nil { // metadata can be nil
 		metadataJSON, err = json.Marshal(stream.Metadata)
 		if err != nil {
 			logger.WithError(err).Error("Failed to marshal metadata for DB update")
-			return fmt.Errorf("failed to marshal metadata: %w", err)
+			return fmt.Errorf("internal error: failed to marshal metadata for update: %w", err)
 		}
 	}
 
@@ -501,8 +509,9 @@ func (sm *SimpleBenthosStreamManager) updateStreamInDatabase(logger logrus.Field
 	)
 
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (updateStreamInDatabase)")
-		return fmt.Errorf("failed to update stream config in database: %w", err)
+		dbErr := &ErrBenthosDatabaseOperationFailed{Operation: "update_stream_in_db_exec", WrappedErr: err}
+		logger.WithError(dbErr).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (updateStreamInDatabase)")
+		return dbErr
 	}
 
 	logger.Debug("Updated stream configuration in DuckDB successfully")
@@ -520,8 +529,9 @@ func (sm *SimpleBenthosStreamManager) DeleteStream(ctx context.Context, streamID
 
 	stream, exists := sm.streams[streamID]
 	if !exists {
-		logger.Warn("Stream not found for deletion")
-		return fmt.Errorf("stream not found: %s", streamID)
+		errNotFound := &ErrBenthosStreamNotFound{StreamID: streamID}
+		logger.Warn(errNotFound.Error())
+		return errNotFound
 	}
 	logger = logger.WithField("thing_id", stream.ThingID) // Add thing_id to logger context
 	logger.Debug("Found stream for deletion")
@@ -535,8 +545,9 @@ func (sm *SimpleBenthosStreamManager) DeleteStream(ctx context.Context, streamID
 	`, time.Now().Format(time.RFC3339), streamID)
 
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (mark as deleted)")
-		return fmt.Errorf("failed to mark stream as deleted in database: %w", err)
+		dbErr := &ErrBenthosDatabaseOperationFailed{Operation: "delete_stream_mark_deleted", WrappedErr: err}
+		logger.WithError(dbErr).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (mark as deleted)")
+		return dbErr
 	}
 	logger.Debug("Stream marked as deleted in DB")
 
@@ -549,7 +560,9 @@ func (sm *SimpleBenthosStreamManager) DeleteStream(ctx context.Context, streamID
 	if activeStream, exists := sm.activeStreams[streamID]; exists {
 		logger.Info("Stopping active stream during deletion")
 		if err := activeStream.Stop(ctx); err != nil {
-			logger.WithError(err).Warn("Failed to stop stream during deletion (non-fatal)")
+			// Log non-fatal error, but continue deletion process
+			stopErr := &ErrBenthosStreamStopFailed{StreamID: streamID, WrappedErr: err}
+			logger.WithError(stopErr).Warn("Failed to stop stream during deletion (non-fatal)")
 		}
 		delete(sm.activeStreams, streamID)
 		logger.Debug("Active stream instance removed from map")
@@ -579,8 +592,9 @@ func (sm *SimpleBenthosStreamManager) GetStream(ctx context.Context, streamID st
 
 	stream, exists := sm.streams[streamID]
 	if !exists {
-		logger.Warn("Stream not found")
-		return nil, fmt.Errorf("stream not found: %s", streamID)
+		errNotFound := &ErrBenthosStreamNotFound{StreamID: streamID}
+		logger.Warn(errNotFound.Error())
+		return nil, errNotFound
 	}
 	logger.WithField("thing_id", stream.ThingID).Debug("Stream found")
 	return stream, nil
@@ -628,51 +642,71 @@ func (sm *SimpleBenthosStreamManager) StartStream(ctx context.Context, streamID 
 
 	stream, exists := sm.streams[streamID]
 	if !exists {
-		logger.Warn("Stream not found to start")
-		return fmt.Errorf("stream not found: %s", streamID)
+		errNotFound := &ErrBenthosStreamNotFound{StreamID: streamID}
+		logger.Warn(errNotFound.Error())
+		return errNotFound
 	}
 	logger = logger.WithField("thing_id", stream.ThingID) // Add context
 
-	// Check if stream is already running
 	if _, isRunning := sm.activeStreams[streamID]; isRunning {
 		logger.Warn("Stream is already running")
-		return fmt.Errorf("stream %s is already running", streamID)
+		// Not an error per se, but an idempotent check might return nil or a specific status
+		return nil // Or return a specific error e.g. ErrBenthosStreamAlreadyRunning
 	}
 
-	// Get the stream builder
 	builder, exists := sm.streamBuilders[streamID]
 	if !exists {
-		logger.Error("Stream builder not found for stream")
-		return fmt.Errorf("stream builder not found for stream: %s", streamID)
+		// This indicates an inconsistency if sm.streams[streamID] exists but sm.streamBuilders[streamID] doesn't
+		errInternal := fmt.Errorf("internal inconsistency: stream info exists but builder not found for stream ID %s", streamID)
+		logger.Error(errInternal.Error())
+		return &ErrBenthosStreamStartFailed{StreamID: streamID, WrappedErr: errInternal}
 	}
 	logger.Debug("Retrieved stream builder")
 
-	// Build the stream
 	logger.Debug("Building Benthos stream from builder")
 	benthosStream, err := builder.Build()
 	if err != nil {
-		logger.WithError(err).Error("Failed to build Benthos stream")
-		return fmt.Errorf("failed to build Benthos stream: %w", err)
+		startErr := &ErrBenthosStreamCreateFailed{StreamID: streamID, WrappedErr: err} // Could be create or build, using CreateFailed as more general
+		logger.WithError(startErr).Error("Failed to build Benthos stream")
+		return startErr
 	}
 	logger.Debug("Benthos stream built successfully")
 
 	// Start the stream in a goroutine
 	go func() {
-		goroutineLogger := logger.WithField("goroutine", "benthos_stream_run")
+		goroutineLogger := logger.WithField("goroutine", "benthos_stream_run") // Use the request-scoped logger
 		goroutineLogger.Info("Starting Benthos stream run loop")
-		if err := benthosStream.Run(context.Background()); err != nil {
-			goroutineLogger.WithError(err).Error("Benthos stream stopped with error")
-			// Update status to stopped
+		runErr := benthosStream.Run(context.Background()) // Use a new context for the stream's lifecycle
+		if runErr != nil {
+			// This error is logged from within the goroutine.
+			// The main StartStream function has already returned success if it reached this point.
+			// We need a mechanism to report this async error if necessary (e.g., via a status update and event).
+			goroutineLogger.WithError(runErr).Error("Benthos stream stopped with error")
 			sm.mu.Lock()
+			// Update status only if the stream entry still exists (it might have been deleted concurrently)
 			if s, ok := sm.streams[streamID]; ok {
-				s.Status = "stopped"
+				s.Status = "error" // Or a more specific error status
 				s.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-				sm.updateStreamStatusInDatabase(goroutineLogger, streamID, "stopped") // Pass logger
+				// Log error from DB update but don't let it panic the goroutine
+				if dbUpdateErr := sm.updateStreamStatusInDatabase(goroutineLogger, streamID, "error"); dbUpdateErr != nil {
+					goroutineLogger.WithError(dbUpdateErr).Error("Failed to update stream status to 'error' in DB")
+				}
 			}
-			delete(sm.activeStreams, streamID)
+			delete(sm.activeStreams, streamID) // Remove from active streams map
 			sm.mu.Unlock()
 		} else {
 			goroutineLogger.Info("Benthos stream run loop finished cleanly")
+			// Stream might have been stopped externally, update status if it's still "running"
+			sm.mu.Lock()
+			if s, ok := sm.streams[streamID]; ok && s.Status == "running" {
+				s.Status = "stopped"
+				s.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+				if dbUpdateErr := sm.updateStreamStatusInDatabase(goroutineLogger, streamID, "stopped"); dbUpdateErr != nil {
+					goroutineLogger.WithError(dbUpdateErr).Error("Failed to update stream status to 'stopped' in DB")
+				}
+			}
+			delete(sm.activeStreams, streamID)
+			sm.mu.Unlock()
 		}
 	}()
 
@@ -704,23 +738,33 @@ func (sm *SimpleBenthosStreamManager) StopStream(ctx context.Context, streamID s
 
 	stream, exists := sm.streams[streamID]
 	if !exists {
-		logger.Warn("Stream not found to stop")
-		return fmt.Errorf("stream not found: %s", streamID)
+		errNotFound := &ErrBenthosStreamNotFound{StreamID: streamID}
+		logger.Warn(errNotFound.Error())
+		return errNotFound
 	}
 	logger = logger.WithField("thing_id", stream.ThingID)
 
-	// Check if stream is running
 	activeStream, isRunning := sm.activeStreams[streamID]
 	if !isRunning {
-		logger.Warn("Stream is not running, cannot stop")
-		return fmt.Errorf("stream %s is not running", streamID)
+		logger.Warn("Stream is not running, cannot stop (idempotent)")
+		// If already stopped, this is not an error.
+		// If it was supposed to be running but isn't, that's an inconsistency.
+		// For now, treat as success if not in activeStreams.
+		if stream.Status == "running" { // If DB says running but not in active map
+			stream.Status = "stopped" // Correct the status
+			stream.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			if errDb := sm.updateStreamStatusInDatabase(logger, streamID, "stopped"); errDb != nil {
+				logger.WithError(errDb).Warn("Failed to update inconsistent stream status to 'stopped' in DB")
+			}
+		}
+		return nil
 	}
 
-	// Stop the stream
 	logger.Info("Stopping Benthos stream")
 	if err := activeStream.Stop(ctx); err != nil {
-		logger.WithError(err).Error("Failed to stop Benthos stream")
-		return fmt.Errorf("failed to stop Benthos stream: %w", err)
+		stopErr := &ErrBenthosStreamStopFailed{StreamID: streamID, WrappedErr: err}
+		logger.WithError(stopErr).Error("Failed to stop Benthos stream")
+		return stopErr
 	}
 
 	// Remove from active streams
@@ -751,8 +795,9 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 
 	stream, exists := sm.streams[streamID]
 	if !exists {
-		logger.Warn("Stream not found for status check")
-		return nil, fmt.Errorf("stream not found: %s", streamID)
+		errNotFound := &ErrBenthosStreamNotFound{StreamID: streamID}
+		logger.Warn(errNotFound.Error())
+		return nil, errNotFound
 	}
 	logger = logger.WithField("thing_id", stream.ThingID)
 
@@ -832,8 +877,9 @@ func (sm *SimpleBenthosStreamManager) GetProcessorCollection(ctx context.Context
 
 	collection, exists := sm.processorCollections[collectionID]
 	if !exists {
-		logger.Warn("Processor collection not found")
-		return nil, fmt.Errorf("processor collection not found: %s", collectionID)
+		errNotFound := &ErrBenthosProcessorCollectionNotFound{CollectionID: collectionID}
+		logger.Warn(errNotFound.Error())
+		return nil, errNotFound
 	}
 	logger.WithField("collection_name", collection.Name).Debug("Processor collection found")
 	return collection, nil
@@ -881,15 +927,17 @@ func (sm *SimpleBenthosStreamManager) generateBenthosStreamBuilder(stream *Strea
 		logger.Warn("Stream metadata is nil, cannot retrieve yaml_config for stream_builder")
 	}
 
-	if yamlConfig == "" { // Check if yamlConfig is still empty
-	    logger.Error("No YAML configuration provided to StreamBuilder after checking metadata")
-	    return nil, fmt.Errorf("no YAML configuration available for stream %s to build StreamBuilder", stream.ID)
+	if yamlConfig == "" {
+		errConf := &ErrBenthosStreamConfigInvalid{StreamID: stream.ID, Details: "No YAML configuration provided in metadata"}
+		logger.Error(errConf.Error())
+		return nil, errConf
 	}
 
 	// Set complete configuration using YAML
 	if err := builder.SetYAML(yamlConfig); err != nil {
-		logger.WithError(err).Error("Failed to set YAML config for StreamBuilder via SetYAML")
-		return nil, fmt.Errorf("failed to set YAML config for StreamBuilder: %w", err)
+		confErr := &ErrBenthosStreamConfigInvalid{StreamID: stream.ID, Details: "Benthos SetYAML failed", WrappedErr: err}
+		logger.WithError(confErr).Error("Failed to set YAML config for StreamBuilder via SetYAML")
+		return nil, confErr
 	}
 
 	logger.WithFields(logrus.Fields{

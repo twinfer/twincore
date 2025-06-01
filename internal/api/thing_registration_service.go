@@ -48,6 +48,7 @@ type ThingWithStreams struct {
 type DefaultThingRegistrationService struct {
 	thingRegistry  ThingRegistryExt           // Interface from interfaces.go
 	streamComposer TDStreamCompositionService // Interface from interfaces.go
+	configManager  ConfigurationManager       // Added ConfigurationManager
 	logger         logrus.FieldLogger
 }
 
@@ -57,11 +58,13 @@ type DefaultThingRegistrationService struct {
 func NewDefaultThingRegistrationService(
 	thingRegistry ThingRegistryExt,
 	streamComposer TDStreamCompositionService,
+	configManager ConfigurationManager, // Added configManager parameter
 	logger logrus.FieldLogger,
 ) *DefaultThingRegistrationService {
 	return &DefaultThingRegistrationService{
 		thingRegistry:  thingRegistry,
 		streamComposer: streamComposer,
+		configManager:  configManager, // Assign configManager
 		logger:         logger,
 	}
 }
@@ -213,24 +216,49 @@ func (s *DefaultThingRegistrationService) UnregisterThing(logger logrus.FieldLog
 	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
 	logger = logger.WithField("thing_id", thingID)
-	logger.Info("Starting Thing unregistration with stream cleanup")
+	logger.Info("Starting Thing unregistration with stream and route cleanup")
 
-	// Remove streams first
-	logger.WithFields(logrus.Fields{"dependency_name": "TDStreamCompositionService", "operation": "RemoveStreamsForThing"}).Debug("Calling dependency")
-	// Pass the logger to streamComposer methods
+	var errors []string
+
+	// Step 1: Remove streams
+	logger.WithFields(logrus.Fields{"dependency_name": "TDStreamCompositionService", "operation": "RemoveStreamsForThing"}).Info("Attempting to remove streams")
 	if err := s.streamComposer.RemoveStreamsForThing(logger, ctx, thingID); err != nil {
-		logger.WithError(err).Error("Failed to remove streams for Thing (dependency call failed)")
-		// Continue with TD removal even if stream cleanup fails
+		errMsg := fmt.Sprintf("failed to remove streams for Thing %s: %v", thingID, err)
+		logger.WithError(err).Error(errMsg)
+		errors = append(errors, errMsg)
+		// Continue with other cleanup steps
+	} else {
+		logger.Info("Successfully removed streams")
 	}
 
-	// Remove Thing Description
-	logger.WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "DeleteThing"}).Debug("Calling dependency")
-	if err := s.thingRegistry.DeleteThing(thingID); err != nil { // Assuming ThingRegistryExt methods don't need logger yet
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "DeleteThing"}).Error("Dependency call failed")
-		return fmt.Errorf("failed to delete Thing Description: %w", err)
+	// Step 2: Remove Caddy routes
+	logger.WithFields(logrus.Fields{"dependency_name": "ConfigurationManager", "operation": "RemoveThingRoutes"}).Info("Attempting to remove Caddy routes")
+	if err := s.configManager.RemoveThingRoutes(logger, thingID); err != nil {
+		errMsg := fmt.Sprintf("failed to remove Caddy routes for Thing %s: %v", thingID, err)
+		logger.WithError(err).Error(errMsg)
+		errors = append(errors, errMsg)
+		// Continue with other cleanup steps
+	} else {
+		logger.Info("Successfully removed Caddy routes (or placeholder executed)")
 	}
 
-	logger.Info("Thing unregistration completed")
+	// Step 3: Remove Thing Description from registry
+	logger.WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "DeleteThing"}).Info("Attempting to delete Thing Description from registry")
+	if err := s.thingRegistry.DeleteThing(thingID); err != nil {
+		errMsg := fmt.Sprintf("failed to delete Thing Description %s: %v", thingID, err)
+		logger.WithError(err).Error(errMsg)
+		errors = append(errors, errMsg)
+	} else {
+		logger.Info("Successfully deleted Thing Description from registry")
+	}
+
+	if len(errors) > 0 {
+		compositeError := fmt.Errorf("unregisterThing for %s encountered errors: %s", thingID, strings.Join(errors, "; "))
+		logger.WithField("errors_count", len(errors)).Error("Thing unregistration completed with errors.")
+		return compositeError
+	}
+
+	logger.Info("Thing unregistration completed successfully")
 	return nil
 }
 

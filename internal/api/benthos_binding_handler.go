@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"errors" // Added for errors.As
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -284,8 +285,13 @@ func (h *BenthosBindingHandler) handleGetStream(logger *logrus.Entry, w http.Res
 	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetStream", "stream_id": streamID}).Debug("Calling service")
 	stream, err := h.streamManager.GetStream(r.Context(), streamID)
 	if err != nil {
+		var streamNotFoundErr *ErrBenthosStreamNotFound
+		if errors.As(err, &streamNotFoundErr) {
+			logger.WithError(err).WithFields(logrus.Fields{"stream_id": streamID}).Warn("Stream not found")
+			return caddyhttp.Error(http.StatusNotFound, streamNotFoundErr)
+		}
 		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetStream"}).Error("Service call returned error")
-		return caddyhttp.Error(http.StatusNotFound, err)
+		return caddyhttp.Error(http.StatusInternalServerError, err) // Generic error for other cases
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -459,8 +465,13 @@ func (h *BenthosBindingHandler) handleGetProcessorCollection(logger *logrus.Entr
 	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetProcessorCollection", "collection_id": collectionID}).Debug("Calling service")
 	collection, err := h.streamManager.GetProcessorCollection(r.Context(), collectionID)
 	if err != nil {
+		var notFoundErr *ErrBenthosProcessorCollectionNotFound
+		if errors.As(err, &notFoundErr) {
+			logger.WithError(err).WithFields(logrus.Fields{"collection_id": collectionID}).Warn("Processor collection not found")
+			return caddyhttp.Error(http.StatusNotFound, notFoundErr)
+		}
 		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetProcessorCollection"}).Error("Service call returned error")
-		return caddyhttp.Error(http.StatusNotFound, err)
+		return caddyhttp.Error(http.StatusInternalServerError, err) // Generic error
 	}
 
 	w.Header().Set("Content-Type", "application/json")

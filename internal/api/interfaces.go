@@ -18,6 +18,7 @@ type ConfigurationManager interface {
 	ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error
 	GetConfiguration(logger logrus.FieldLogger) (map[string]interface{}, error)
 	UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]interface{}) error
+	RemoveThingRoutes(logger logrus.FieldLogger, thingID string) error
 }
 
 // License defines the interface for license feature checks.

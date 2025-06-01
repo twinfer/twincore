@@ -12,6 +12,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Ensure ConfigManager implements ConfigurationManager interface
+var _ ConfigurationManager = (*ConfigManager)(nil)
+
 // ConfigManager provides a unified API for managing all TwinCore configurations
 // It wraps Caddy Admin API and other service configurations
 type ConfigManager struct {
@@ -34,6 +37,33 @@ func NewConfigManager(logger logrus.FieldLogger) *ConfigManager {
 		logger:        logger,
 		authTemplates: loadAuthTemplates(),
 	}
+}
+
+// RemoveThingRoutes removes Caddy routes associated with a specific Thing.
+// TODO: Implement the logic to find and remove Caddy routes.
+func (cm *ConfigManager) RemoveThingRoutes(logger logrus.FieldLogger, thingID string) error {
+	entryLogger := logger.WithFields(logrus.Fields{
+		"service_method": "RemoveThingRoutes",
+		"thing_id":       thingID,
+	})
+	entryLogger.Info("Attempting to remove Caddy routes for Thing")
+
+	// TODO: Implement the logic to find and remove Caddy routes.
+	// This is a complex operation and requires careful manipulation of Caddy's JSON config.
+	// For now, this function is a placeholder.
+	// Example steps:
+	// 1. Fetch current Caddy config: currentConfig, err := cm.getCaddyConfig(logger, "/config")
+	//    If err, return &ErrCaddyAdminAPIAccess{WrappedErr: err, URL: cm.caddyAdminURL + "/config", HTTPMethod: "GET"}
+	// 2. Navigate to http server routes: e.g., currentConfig["apps"]["http"]["servers"]["srv0"]["routes"]
+	// 3. Iterate and filter routes: remove routes matching thingID. This needs a robust way to identify these routes.
+	//    If a route to be removed is not found, this might be okay or an ErrCaddyResourceNotFound.
+	// 4. Update Caddy config: err = cm.updateCaddyConfig(logger, "/config", currentConfig)
+	//    If err, it could be ErrCaddyAdminAPIAccess or ErrCaddyConfigLoadFailed depending on the cause.
+
+	entryLogger.Warn("RemoveThingRoutes is not fully implemented. Placeholder success.")
+	// Simulate not finding any routes for this thingID to avoid accidental success logging for an empty operation.
+	// return &ErrCaddyResourceNotFound{ResourceType: "route", ResourceID: thingID, CaddyPath: "/config/apps/http/servers/srv0/routes"}
+	return nil // Returning nil for now to avoid breaking existing flows.
 }
 
 // IsSetupComplete checks if initial setup has been completed
@@ -346,13 +376,14 @@ func (cm *ConfigManager) updateCaddyConfig(logger logrus.FieldLogger, path strin
 	data, err := json.Marshal(config)
 	if err != nil {
 		logger.WithError(err).Error("Failed to marshal Caddy config for update")
-		return err
+		return fmt.Errorf("failed to marshal config to JSON: %w", err) // Should not happen with valid input
 	}
 
 	req, err := http.NewRequest(http.MethodPut, cm.caddyAdminURL+path, bytes.NewReader(data))
 	if err != nil {
 		logger.WithError(err).Error("Failed to create new HTTP request for Caddy admin API")
-		return err
+		// This is an internal error, not a Caddy API access error yet.
+		return fmt.Errorf("failed to create HTTP request for Caddy: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -360,40 +391,62 @@ func (cm *ConfigManager) updateCaddyConfig(logger logrus.FieldLogger, path strin
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("Caddy admin API request failed")
-		return err
+		return &ErrCaddyAdminAPIAccess{URL: req.URL.String(), HTTPMethod: http.MethodPut, WrappedErr: err}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		err := fmt.Errorf("caddy admin API error (%d): %s", resp.StatusCode, string(body))
-		logger.WithError(err).WithField("caddy_response_body", string(body)).Error("Caddy admin API returned error status")
-		return err
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		var bodyStr string
+		if readErr == nil {
+			bodyStr = string(bodyBytes)
+		} else {
+			bodyStr = "could not read error response body"
+		}
+
+		errWrapped := fmt.Errorf("caddy admin API error (%d): %s", resp.StatusCode, bodyStr)
+		logger.WithError(errWrapped).WithField("caddy_response_body", bodyStr).Error("Caddy admin API returned error status")
+
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
+			return &ErrCaddyConfigLoadFailed{CaddyPath: path, WrappedErr: errWrapped}
+		}
+		return &ErrCaddyConfigOperationFailed{CaddyPath: path, StatusCode: resp.StatusCode, WrappedErr: errWrapped}
 	}
 	logger.WithFields(logrus.Fields{"caddy_path": path, "status_code": resp.StatusCode}).Info("Caddy config updated successfully via admin API")
 	return nil
 }
 
 func (cm *ConfigManager) getCaddyConfig(logger logrus.FieldLogger, path string) (map[string]interface{}, error) {
-	logger.WithFields(logrus.Fields{"caddy_path": path, "http_method": "GET"}).Debug("Sending request to Caddy admin API to get config")
-	resp, err := http.Get(cm.caddyAdminURL + path)
+	targetURL := cm.caddyAdminURL + path
+	logger.WithFields(logrus.Fields{"caddy_path": path, "http_method": "GET", "url": targetURL}).Debug("Sending request to Caddy admin API to get config")
+	resp, err := http.Get(targetURL)
 	if err != nil {
 		logger.WithError(err).Error("Caddy admin API request failed (GET)")
-		return nil, err
+		return nil, &ErrCaddyAdminAPIAccess{URL: targetURL, HTTPMethod: http.MethodGet, WrappedErr: err}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		err := fmt.Errorf("caddy admin API error (%d) getting config: %s", resp.StatusCode, string(body))
-		logger.WithError(err).WithField("caddy_response_body", string(body)).Error("Caddy admin API returned error status (GET)")
-		return nil, err
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		var bodyStr string
+		if readErr == nil {
+			bodyStr = string(bodyBytes)
+		} else {
+			bodyStr = "could not read error response body"
+		}
+		errWrapped := fmt.Errorf("caddy admin API error (%d) getting config: %s", resp.StatusCode, bodyStr)
+		logger.WithError(errWrapped).WithField("caddy_response_body", bodyStr).Error("Caddy admin API returned error status (GET)")
+
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, &ErrCaddyResourceNotFound{CaddyPath: path, WrappedErr: errWrapped, ResourceType: "config_path"}
+		}
+		return nil, &ErrCaddyConfigOperationFailed{CaddyPath: path, StatusCode: resp.StatusCode, WrappedErr: errWrapped}
 	}
 
 	var config map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		logger.WithError(err).Error("Failed to decode Caddy config JSON response")
-		return nil, err
+		return nil, fmt.Errorf("failed to decode Caddy config JSON from %s: %w", path, err)
 	}
 	logger.WithField("caddy_path", path).Debug("Successfully retrieved Caddy config")
 	return config, nil

@@ -321,6 +321,7 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 	c.ThingRegistrationSvc = api.NewDefaultThingRegistrationService(
 		thingRegistryExt,
 		c.TDStreamComposition,
+		c.ConfigManager, // Pass ConfigurationManager
 		c.Logger,
 	)
 

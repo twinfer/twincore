@@ -27,6 +27,7 @@ type TwinCoreApp struct {
 	thingRegistry        api.ThingRegistry
 	eventBroker          *api.EventBroker
 	benthosStreamManager api.BenthosStreamManager
+	configurationManager api.ConfigurationManager // Added
 }
 
 // CaddyModule returns the Caddy module information.
@@ -48,6 +49,8 @@ func (tca *TwinCoreApp) Provision(ctx caddy.Context) error {
 	tca.thingRegistry = globalContainer.ThingRegistry
 	tca.eventBroker = globalContainer.EventBroker
 	tca.benthosStreamManager = globalContainer.BenthosStreamManager
+	// Assuming globalContainer.ConfigManager (*config.ConfigManager) implements api.ConfigurationManager
+	tca.configurationManager = globalContainer.ConfigManager
 
 	if tca.logger != nil {
 		tca.logger.Info("TwinCoreApp provisioned successfully")
@@ -87,6 +90,9 @@ func (tca *TwinCoreApp) GetEventBroker() *api.EventBroker    { return tca.eventB
 func (tca *TwinCoreApp) GetBenthosStreamManager() api.BenthosStreamManager {
 	return tca.benthosStreamManager
 }
+func (tca *TwinCoreApp) GetConfigurationManager() api.ConfigurationManager {
+	return tca.configurationManager
+}
 
 // Interface guards
 var (
@@ -99,7 +105,7 @@ var (
 	_ caddy.Validator = (*TwinCoreApp)(nil)
 )
 
-var _ api.CoreProvider = (*TwinCoreApp)(nil) // Ensure it implements the new interface
+var _ api.CoreProvider = (*TwinCoreApp)(nil) // Ensure it implements the CoreProvider interface from api package
 
 /*
 
