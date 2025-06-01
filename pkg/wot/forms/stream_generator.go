@@ -28,6 +28,8 @@ output:
 
 // executeGoTemplate executes a given Go template with provided data
 func executeGoTemplate(name, tmplStr string, data interface{}) (string, error) {
+	// This is a general utility, may not need specific contextual logger from caller.
+	// If it were to log, it would ideally use a base logger or be passed one if errors are critical.
 	tmpl, err := template.New(name).Parse(tmplStr)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template %s: %w", name, err)
@@ -40,9 +42,10 @@ func executeGoTemplate(name, tmplStr string, data interface{}) (string, error) {
 }
 
 // logStreamGeneration is a helper function for standardized logging.
+// It already accepts a logger.
 func logStreamGeneration(logger logrus.FieldLogger, streamIDBase, thingID, interactionType, interactionName, topic, purpose string) {
 	logger.WithFields(logrus.Fields{
-		"stream_id_base":   streamIDBase,
+		"stream_id_base":   streamIDBase, // This is more of a derived name/prefix
 		"thing_id":         thingID,
 		"interaction_type": interactionType,
 		"interaction_name": interactionName,
@@ -54,9 +57,9 @@ func logStreamGeneration(logger logrus.FieldLogger, streamIDBase, thingID, inter
 // buildProcessorChain creates and stores a processor chain.
 // Note: ProcessorConfig type here refers to the one defined in binding_generator.go (part of AllBindings).
 // types.ProcessorConfig is used for the StreamCreationRequest.
-func buildProcessorChain(bg *BindingGenerator, namePrefix, chainDisplayName, interactionType, purpose, thingID, interactionName string, dataSchema *wot.DataSchemaCore, customMappings ...ProcessorConfig) (ProcessorChain, error) {
-	baseChainID := namePrefix // Use namePrefix as the base for logging before the "_processors" suffix is added.
-	bg.logger.WithFields(logrus.Fields{"chain_id_base": baseChainID, "purpose": purpose, "thing_id": thingID, "interaction_name": interactionName}).Debug("Building processor chain")
+func buildProcessorChain(logger logrus.FieldLogger, bg *BindingGenerator, namePrefix, chainDisplayName, interactionType, purpose, thingID, interactionName string, dataSchema *wot.DataSchemaCore, customMappings ...ProcessorConfig) (ProcessorChain, error) {
+	opLogger := logger.WithFields(logrus.Fields{"chain_id_prefix": namePrefix, "purpose": purpose, "thing_id": thingID, "interaction_name": interactionName, "operation": "buildProcessorChain"})
+	opLogger.Debug("Building processor chain")
 
 	actualChainID := fmt.Sprintf("%s_processors", namePrefix)
 	chain := ProcessorChain{
@@ -86,25 +89,25 @@ func buildProcessorChain(bg *BindingGenerator, namePrefix, chainDisplayName, int
 			},
 			Description: fmt.Sprintf("Validate %s data against Thing Description schema", purpose),
 		}
-		// Insert schema validation before other processors if needed, or append.
-		// For now, appending. Consider if order matters critically for specific streams.
 		chain.Processors = append(chain.Processors, schemaValidationProcessor)
-		bg.logger.WithFields(logrus.Fields{"chain_id": actualChainID, "processor_type": string(schemaValidationProcessor.Type), "processor_label": schemaValidationProcessor.Label}).Debug("Added schema validation processor to chain")
+		opLogger.WithFields(logrus.Fields{"chain_id": actualChainID, "processor_type": string(schemaValidationProcessor.Type), "processor_label": schemaValidationProcessor.Label}).Debug("Added schema validation processor to chain")
 	}
 
 	for _, proc := range customMappings { // Log custom mappings added
-		bg.logger.WithFields(logrus.Fields{"chain_id": actualChainID, "processor_type": string(proc.Type), "processor_label": proc.Label}).Debug("Added custom mapping processor to chain")
+		opLogger.WithFields(logrus.Fields{"chain_id": actualChainID, "processor_type": string(proc.Type), "processor_label": proc.Label}).Debug("Added custom mapping processor to chain")
 	}
 
 	// Example: Add a common final processor if any (none for now)
-
-	bg.bindings.Processors[actualChainID] = chain // Assumes bg.bindings is the AllBindings struct
+	// This line assumes bg.bindings is accessible and meant to be mutated here.
+	// This pattern of direct mutation of bg.bindings from stream_generator.go might be revisited for clarity.
+	bg.bindings.Processors[actualChainID] = chain
 	return chain, nil
 }
 
 // createStreamRequest constructs the StreamCreationRequest object and generates YAML.
-func createStreamRequest(bg *BindingGenerator, thingID, interactionType, interactionName, direction string, inputConfig types.StreamEndpointConfig, outputConfig types.StreamEndpointConfig, processorChainConfigs []types.ProcessorConfig, purpose string) (types.StreamCreationRequest, error) {
-	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "interaction_name": interactionName, "purpose": purpose}).Debug("Creating stream request")
+func createStreamRequest(logger logrus.FieldLogger, bg *BindingGenerator, thingID, interactionType, interactionName, direction string, inputConfig types.StreamEndpointConfig, outputConfig types.StreamEndpointConfig, processorChainConfigs []types.ProcessorConfig, purpose string) (types.StreamCreationRequest, error) {
+	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "interaction_name": interactionName, "purpose": purpose, "operation": "createStreamRequest"})
+	opLogger.Debug("Creating stream request")
 	request := types.StreamCreationRequest{
 		ThingID:         thingID,
 		InteractionType: interactionType,
@@ -120,42 +123,35 @@ func createStreamRequest(bg *BindingGenerator, thingID, interactionType, interac
 		},
 	}
 
-	yamlConfig, err := generateStreamRequestYAML(bg, request)
+	yamlConfig, err := generateStreamRequestYAML(opLogger, bg, request) // Pass opLogger
 	if err != nil {
-		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "interaction_name": interactionName}).Error("Failed to generate stream YAML for request")
+		// Error already logged by generateStreamRequestYAML
 		return types.StreamCreationRequest{}, fmt.Errorf("failed to generate YAML for stream request: %w", err)
 	}
 	request.Metadata["yaml_config"] = yamlConfig
-
+	opLogger.Debug("Stream request YAML generated and added to metadata")
 	return request, nil
 }
 
 // registerStreamWithManager creates the stream via streamManager and stores its config.
-func registerStreamWithManager(bg *BindingGenerator, request types.StreamCreationRequest, streamType types.BenthosStreamType, streamDirection types.StreamDirection, processorChain ProcessorChain) (StreamConfig, error) {
-	streamID := request.Metadata["purpose"].(string) + "_" + request.InteractionName // Simplified ID, adjust as needed
-	if si, ok := request.Input.Config["topics"]; ok {
-		if topics, okCast := si.([]string); okCast && len(topics) > 0 {
-			streamID = strings.ReplaceAll(topics[0], ".", "_") // Example ID from topic
-		}
-	} else if si, ok := request.Input.Config["path"]; ok {
-		if path, okCast := si.(string); okCast {
-			streamID = strings.ReplaceAll(strings.Trim(path, "/"), "/", "_")
-		}
-	}
+func registerStreamWithManager(logger logrus.FieldLogger, bg *BindingGenerator, request types.StreamCreationRequest, streamType types.BenthosStreamType, streamDirection types.StreamDirection, processorChain ProcessorChain) (StreamConfig, error) {
+	opLogger := logger.WithFields(logrus.Fields{
+		"thing_id": request.ThingID,
+		"interaction_name": request.InteractionName,
+		"purpose": request.Metadata["purpose"],
+		"operation": "registerStreamWithManager",
+	})
+	opLogger.Debug("Registering stream with manager")
 
-
-	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
+	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request) // BenthosStreamManager.CreateStream does not take a logger
 	if err != nil {
-		bg.logger.WithFields(logrus.Fields{
-			"stream_id": streamID, // Use a generated/derived streamID for logging before streamInfo is available
-			"error":     err,
-			"purpose":   request.Metadata["purpose"],
-		}).Error("Failed to create stream with manager")
-		return StreamConfig{}, fmt.Errorf("failed to create stream %s with manager: %w", streamID, err)
+		opLogger.WithError(err).Error("Failed to create stream with BenthosStreamManager")
+		// The error from streamManager.CreateStream should be one of the custom errors.
+		return StreamConfig{}, err // Return the original error
 	}
 
 	createdStreamConfig := StreamConfig{
-		ID:        streamInfo.ID, // Use ID from stream manager response
+		ID:        streamInfo.ID,
 		Type:      streamType,
 		Direction: streamDirection,
 		Input: StreamEndpoint{
@@ -170,14 +166,13 @@ func registerStreamWithManager(bg *BindingGenerator, request types.StreamCreatio
 		YAML:           request.Metadata["yaml_config"].(string),
 	}
 
-	bg.bindings.Streams[streamInfo.ID] = createdStreamConfig // Store using the definitive ID from stream manager
+	bg.bindings.Streams[streamInfo.ID] = createdStreamConfig
 
-	bg.logger.WithFields(logrus.Fields{
-		"stream_id":       streamInfo.ID,
-		"benthos_id":      streamInfo.BenthosID,
+	opLogger.WithFields(logrus.Fields{
+		"stream_id":       streamInfo.ID, // This is the actual ID from stream manager
+		"benthos_id":      streamInfo.BenthosID, // Assuming StreamInfo has BenthosID
 		"status":          streamInfo.Status,
 		"processor_count": len(processorChain.Processors),
-		"purpose":         request.Metadata["purpose"],
 	}).Info("Stream registered successfully with manager")
 
 	return createdStreamConfig, nil
@@ -185,11 +180,12 @@ func registerStreamWithManager(bg *BindingGenerator, request types.StreamCreatio
 
 
 // generatePropertyObservationStream, generatePropertyCommandStream, etc.
-// These functions will take bg *BindingGenerator as an argument for now.
+// These functions now take a logger as the first argument.
 
-func generatePropertyObservationStream(bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance) error {
+func generatePropertyObservationStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance) error {
+	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "operation": "generatePropertyObservationStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("property_streaming") {
-		bg.logger.WithField("feature", "property_streaming").Debug("Property streaming not available in license")
+		opLogger.WithField("feature", "property_streaming").Debug("Property streaming not available in license")
 		return nil
 	}
 
@@ -197,10 +193,10 @@ func generatePropertyObservationStream(bg *BindingGenerator, thingID, propName s
 	topic := fmt.Sprintf("things.%s.properties.%s", thingID, propName)
 	purpose := "property_observation"
 
-	logStreamGeneration(bg.logger, streamIDBase, thingID, "property", propName, topic, purpose)
+	logStreamGeneration(opLogger, streamIDBase, thingID, "property", propName, topic, purpose)
 
 	observationMapping := ProcessorConfig{
-		Type:  types.ProcessorBloblangWoTProperty,
+		Type:  types.ProcessorBloblangWoTProperty, // This is internal forms.ProcessorConfig
 		Label: "property_observation_mapping",
 		Config: map[string]interface{}{
 			"mapping": generatePropertyObservationMapping(thingID, propName),
@@ -213,14 +209,14 @@ func generatePropertyObservationStream(bg *BindingGenerator, thingID, propName s
 		dataSchemaCore = &prop.DataSchemaCore
 	}
 
-	processorChain, err := buildProcessorChain(bg, streamIDBase,
+	processorChain, err := buildProcessorChain(opLogger, bg, streamIDBase, // Pass opLogger
 		fmt.Sprintf("Property %s observation processors", propName),
 		"property", purpose, thingID, propName, dataSchemaCore, observationMapping)
 	if err != nil {
 		return fmt.Errorf("failed to build processor chain for %s: %w", streamIDBase, err)
 	}
 
-	outputConfig, err := generateObservationOutputConfig(bg, thingID, propName, bg.licenseChecker.GetFeatureConfig("property_streaming"))
+	outputConfig, err := generateObservationOutputConfig(opLogger, bg, thingID, propName, bg.licenseChecker.GetFeatureConfig("property_streaming")) // Pass opLogger
 	if err != nil {
 		return fmt.Errorf("failed to generate observation output config for %s: %w", streamIDBase, err)
 	}
@@ -230,41 +226,39 @@ func generatePropertyObservationStream(bg *BindingGenerator, thingID, propName s
 		Config: map[string]interface{}{
 			"addresses":      bg.kafkaConfig.Brokers,
 			"topics":         []string{topic},
-			"consumer_group": fmt.Sprintf("twincore-property-observation-%s-%s", thingID, propName), // Ensure unique consumer group
+			"consumer_group": fmt.Sprintf("twincore-property-observation-%s-%s", thingID, propName),
 		},
 	}
 
-	// Convert []ProcessorConfig to []types.ProcessorConfig for the request
 	typedProcessorConfigs := bg.convertToTypesProcessorConfig(processorChain.Processors)
 
-	request, err := createStreamRequest(bg, thingID, "properties", propName, "output",
+	request, err := createStreamRequest(opLogger, bg, thingID, "properties", propName, "output", // Pass opLogger
 		inputConfig, outputConfig, typedProcessorConfigs, purpose)
 	if err != nil {
 		return fmt.Errorf("failed to create stream request for %s: %w", streamIDBase, err)
 	}
 
-	// Pass the constructed processorChain (which is stored in bg.bindings.Processors by buildProcessorChain)
-	_, err = registerStreamWithManager(bg, request, types.StreamTypePropertyOutput, types.StreamDirectionOutbound, processorChain)
+	_, err = registerStreamWithManager(opLogger, bg, request, types.StreamTypePropertyOutput, types.StreamDirectionOutbound, processorChain) // Pass opLogger
 	if err != nil {
-		bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "stream_purpose": purpose}).Error("Failed during property observation stream generation (registering)")
+		// Error already logged by registerStreamWithManager
 		return err
 	}
 
-	bg.logger.WithField("stream_id_base", streamIDBase).Info("Property observation stream processing complete")
+	opLogger.Info("Property observation stream processing complete")
 	return nil
 }
 
-func generatePropertyCommandStream(bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance) error {
+func generatePropertyCommandStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance) error {
+	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "operation": "generatePropertyCommandStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("property_commands") {
-		bg.logger.WithField("feature", "property_commands").Debug("Property commands not available in license")
+		opLogger.WithField("feature", "property_commands").Debug("Property commands not available in license")
 		return nil
 	}
 
 	streamIDBase := fmt.Sprintf("%s_property_%s_command", thingID, propName)
-	// Topic for commands might be different or not used if input is HTTP
 	purpose := "property_command"
 
-	logStreamGeneration(bg.logger, streamIDBase, thingID, "property", propName, "", purpose)
+	logStreamGeneration(opLogger, streamIDBase, thingID, "property", propName, "", purpose)
 
 	commandMapping := ProcessorConfig{
 		Type:  types.ProcessorBloblangWoTProperty,

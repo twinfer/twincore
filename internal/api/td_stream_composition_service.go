@@ -75,13 +75,11 @@ func (s *DefaultTDStreamCompositionService) ProcessThingDescription(logger logru
 	}
 
 	// Use centralized binding generator to create all bindings
-	// Pass the logger to bindingGenerator methods if they are updated to accept it.
-	// For now, assuming GenerateAllBindings uses its own internal logger or one set at instantiation.
-	// The interface BindingGenerationService.GenerateAllBindings does not take a logger.
-	logger.WithFields(logrus.Fields{"dependency_name": "BindingGenerationService", "operation": "GenerateAllBindings"}).Debug("Calling dependency")
-	bindings, err := s.bindingGenerator.GenerateAllBindings(td)
+	// The BindingGenerationService.GenerateAllBindings interface now expects a logger.
+	entryLogger.WithFields(logrus.Fields{"dependency_name": "BindingGenerationService", "operation": "GenerateAllBindings"}).Debug("Calling dependency")
+	bindings, err := s.bindingGenerator.GenerateAllBindings(entryLogger, td) // Pass the contextual logger
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BindingGenerationService", "operation": "GenerateAllBindings"}).Error("Dependency call failed")
+		entryLogger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BindingGenerationService", "operation": "GenerateAllBindings"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to generate bindings: %w", err)
 	}
 

@@ -52,8 +52,12 @@ func NewBindingGenerator(
 }
 
 // GenerateAllBindings generates all bindings (HTTP routes + Benthos streams) from a Thing Description
-func (bg *BindingGenerator) GenerateAllBindings(td *wot.ThingDescription) (*AllBindings, error) {
-	bg.logger.WithField("thing_id", td.ID).Info("Starting binding generation for Thing Description")
+func (bg *BindingGenerator) GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*AllBindings, error) {
+	methodLogger := logger.WithFields(logrus.Fields{
+		"component": "BindingGenerator",
+		"thing_id":  td.ID,
+	})
+	methodLogger.Info("Starting binding generation for Thing Description")
 	bindings := &AllBindings{
 		ThingID:     td.ID,
 		HTTPRoutes:  make(map[string]HTTPRoute),
@@ -64,29 +68,29 @@ func (bg *BindingGenerator) GenerateAllBindings(td *wot.ThingDescription) (*AllB
 
 	// Generate property bindings
 	for propName, prop := range td.Properties {
-		if err := bg.generatePropertyBindings(td.ID, propName, prop, bindings); err != nil {
-			bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": td.ID, "property_name": propName}).Error("Failed to generate property bindings")
+		if err := bg.generatePropertyBindings(methodLogger, td.ID, propName, prop, bindings); err != nil {
+			// generatePropertyBindings will log its own errors with the passed methodLogger
 			return nil, fmt.Errorf("failed to generate property bindings for %s: %w", propName, err)
 		}
 	}
 
 	// Generate action bindings
 	for actionName, action := range td.Actions {
-		if err := bg.generateActionBindings(td.ID, actionName, action, bindings); err != nil {
-			bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": td.ID, "action_name": actionName}).Error("Failed to generate action bindings")
+		if err := bg.generateActionBindings(methodLogger, td.ID, actionName, action, bindings); err != nil {
+			// generateActionBindings will log its own errors
 			return nil, fmt.Errorf("failed to generate action bindings for %s: %w", actionName, err)
 		}
 	}
 
 	// Generate event bindings
 	for eventName, event := range td.Events {
-		if err := bg.generateEventBindings(td.ID, eventName, event, bindings); err != nil {
-			bg.logger.WithError(err).WithFields(logrus.Fields{"thing_id": td.ID, "event_name": eventName}).Error("Failed to generate event bindings")
+		if err := bg.generateEventBindings(methodLogger, td.ID, eventName, event, bindings); err != nil {
+			// generateEventBindings will log its own errors
 			return nil, fmt.Errorf("failed to generate event bindings for %s: %w", eventName, err)
 		}
 	}
 
-	bg.logger.WithFields(logrus.Fields{
+	methodLogger.WithFields(logrus.Fields{
 		"thing_id":    td.ID,
 		"http_routes": len(bindings.HTTPRoutes),
 		"streams":     len(bindings.Streams),
@@ -148,8 +152,9 @@ type ProcessorConfig struct {
 }
 
 // generatePropertyBindings creates all bindings for a property affordance
-func (bg *BindingGenerator) generatePropertyBindings(thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
-	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName}).Debug("Generating bindings for property")
+func (bg *BindingGenerator) generatePropertyBindings(logger logrus.FieldLogger, thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+	opLogger := logger.WithFields(logrus.Fields{"property_name": propName, "operation": "generatePropertyBindings"})
+	opLogger.Debug("Generating bindings for property")
 	// Generate HTTP routes from forms
 	for i, form := range prop.Forms {
 		routeID := fmt.Sprintf("%s_property_%s_form_%d", thingID, propName, i)
@@ -163,21 +168,22 @@ func (bg *BindingGenerator) generatePropertyBindings(thingID, propName string, p
 
 	// Generate streams for observable properties
 	if prop.IsObservable() && bg.licenseChecker.IsFeatureAvailable("property_streaming") {
-		if err := generatePropertyObservationStream(bg, thingID, propName, prop, bindings); err != nil {
+		if err := generatePropertyObservationStream(opLogger, bg, thingID, propName, prop); err != nil { // Pass opLogger
+			// Error already logged by generatePropertyObservationStream if it's significant internally
 			return err
 		}
 	}
 
 	// Generate streams for writable properties
 	if !prop.IsReadOnly() && bg.licenseChecker.IsFeatureAvailable("property_commands") {
-		if err := generatePropertyCommandStream(bg, thingID, propName, prop, bindings); err != nil {
+		if err := generatePropertyCommandStream(opLogger, bg, thingID, propName, prop); err != nil { // Pass opLogger
 			return err
 		}
 	}
 
 	// Generate persistence stream if data persistence is enabled
 	if bg.licenseChecker.IsFeatureAvailable("data_persistence") {
-		if err := generatePropertyLoggingStream(bg, thingID, propName, prop, bindings); err != nil {
+		if err := generatePropertyLoggingStream(opLogger, bg, thingID, propName, prop); err != nil { // Pass opLogger
 			return err
 		}
 	}
@@ -186,8 +192,9 @@ func (bg *BindingGenerator) generatePropertyBindings(thingID, propName string, p
 }
 
 // generateActionBindings creates all bindings for an action affordance
-func (bg *BindingGenerator) generateActionBindings(thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
-	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName}).Debug("Generating bindings for action")
+func (bg *BindingGenerator) generateActionBindings(logger logrus.FieldLogger, thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
+	opLogger := logger.WithFields(logrus.Fields{"action_name": actionName, "operation": "generateActionBindings"})
+	opLogger.Debug("Generating bindings for action")
 	// Generate HTTP routes from forms
 	for i, form := range action.Forms {
 		routeID := fmt.Sprintf("%s_action_%s_form_%d", thingID, actionName, i)
@@ -201,14 +208,14 @@ func (bg *BindingGenerator) generateActionBindings(thingID, actionName string, a
 
 	// Generate action invocation stream
 	if bg.licenseChecker.IsFeatureAvailable("action_invocation") {
-		if err := generateActionInvocationStream(bg, thingID, actionName, action, bindings); err != nil {
+		if err := generateActionInvocationStream(opLogger, bg, thingID, actionName, action); err != nil { // Pass opLogger
 			return err
 		}
 	}
 
 	// Generate action persistence stream
 	if bg.licenseChecker.IsFeatureAvailable("data_persistence") {
-		if err := generateActionLoggingStream(bg, thingID, actionName, action, bindings); err != nil {
+		if err := generateActionLoggingStream(opLogger, bg, thingID, actionName, action); err != nil { // Pass opLogger
 			return err
 		}
 	}
@@ -217,8 +224,9 @@ func (bg *BindingGenerator) generateActionBindings(thingID, actionName string, a
 }
 
 // generateEventBindings creates all bindings for an event affordance
-func (bg *BindingGenerator) generateEventBindings(thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
-	bg.logger.WithFields(logrus.Fields{"thing_id": thingID, "event_name": eventName}).Debug("Generating bindings for event")
+func (bg *BindingGenerator) generateEventBindings(logger logrus.FieldLogger, thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
+	opLogger := logger.WithFields(logrus.Fields{"event_name": eventName, "operation": "generateEventBindings"})
+	opLogger.Debug("Generating bindings for event")
 	// Generate HTTP routes from forms (typically SSE endpoints)
 	for i, form := range event.Forms {
 		routeID := fmt.Sprintf("%s_event_%s_form_%d", thingID, eventName, i)
@@ -232,14 +240,14 @@ func (bg *BindingGenerator) generateEventBindings(thingID, eventName string, eve
 
 	// Generate event processing stream
 	if bg.licenseChecker.IsFeatureAvailable("event_processing") {
-		if err := generateEventProcessingStream(bg, thingID, eventName, event, bindings); err != nil {
+		if err := generateEventProcessingStream(opLogger, bg, thingID, eventName, event); err != nil { // Pass opLogger
 			return err
 		}
 	}
 
 	// Generate event persistence stream
 	if bg.licenseChecker.IsFeatureAvailable("data_persistence") {
-		if err := generateEventLoggingStream(bg, thingID, eventName, event, bindings); err != nil {
+		if err := generateEventLoggingStream(opLogger, bg, thingID, eventName, event); err != nil { // Pass opLogger
 			return err
 		}
 	}

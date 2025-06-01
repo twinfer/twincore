@@ -43,7 +43,7 @@ type BenthosStreamManager interface {
 
 // BindingGenerationService defines the interface for generating bindings from a Thing Description.
 type BindingGenerationService interface {
-	GenerateAllBindings(td *wot.ThingDescription) (*forms.AllBindings, error)
+	GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*forms.AllBindings, error)
 }
 
 // StateManager handles property state and synchronization
