@@ -68,39 +68,7 @@ type WoTHandler struct {
 	metrics MetricsCollector
 }
 
-// StateManager handles property state and synchronization
-type StateManager interface {
-	GetProperty(thingID, propertyName string) (interface{}, error) // Consider adding logger here in future if needed
-	SetProperty(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) error
-	SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value interface{}) error
-	SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) // Use models.PropertyUpdate
-	UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate)    // Use models.PropertyUpdate
-}
-
-// StreamBridge connects HTTP handlers to Benthos streams
-type StreamBridge interface {
-	PublishPropertyUpdate(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) error
-	PublishPropertyUpdateWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value interface{}) error
-	PublishActionInvocation(logger logrus.FieldLogger, thingID, actionName string, input interface{}) (string, error)
-	PublishEvent(logger logrus.FieldLogger, thingID, eventName string, data interface{}) error
-	GetActionResult(logger logrus.FieldLogger, actionID string, timeout time.Duration) (interface{}, error)
-	ProcessActionResult(logger logrus.FieldLogger, result map[string]interface{}) error // Added to match SimpleStreamBridge
-}
-
-// ThingRegistry provides access to Thing Descriptions
-type ThingRegistry interface {
-	GetThing(thingID string) (*wot.ThingDescription, error)
-	GetProperty(thingID, propertyName string) (wot.PropertyAffordance, error)
-	GetAction(thingID, actionName string) (wot.ActionAffordance, error)
-	GetEvent(thingID, eventName string) (wot.EventAffordance, error)
-}
-
-// SchemaValidator validates inputs against WoT schemas
-type SchemaValidator interface {
-	ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value interface{}) error
-	ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input interface{}) error
-	ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data interface{}) error
-}
+// StateManager, StreamBridge, ThingRegistry, SchemaValidator interfaces are now defined in interfaces.go
 
 // PropertyCache provides fast property access
 type PropertyCache struct {

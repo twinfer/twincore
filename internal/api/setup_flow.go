@@ -12,13 +12,13 @@ import (
 
 // SetupHandler provides first-time setup flow
 type SetupHandler struct {
-	configManager *ConfigManager
+	configManager ConfigurationManager // Changed to interface type
 	db            *sql.DB
 	logger        logrus.FieldLogger
 }
 
 // NewSetupHandler creates a new setup handler
-func NewSetupHandler(configManager *ConfigManager, db *sql.DB, logger logrus.FieldLogger) *SetupHandler {
+func NewSetupHandler(configManager ConfigurationManager, db *sql.DB, logger logrus.FieldLogger) *SetupHandler { // Changed parameter to interface type
 	return &SetupHandler{
 		configManager: configManager,
 		db:            db,

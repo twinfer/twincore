@@ -9,21 +9,7 @@ import (
 	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
-// TDStreamCompositionService orchestrates the complete flow from Thing Description to active streams
-// This is a thin orchestration layer that uses the centralized binding generator
-type TDStreamCompositionService interface {
-	// ProcessThingDescription analyzes a TD and creates all necessary streams
-	ProcessThingDescription(logger logrus.FieldLogger, ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error)
-
-	// UpdateStreamsForThing updates streams when a Thing Description changes
-	UpdateStreamsForThing(logger logrus.FieldLogger, ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error)
-
-	// RemoveStreamsForThing removes all streams associated with a Thing
-	RemoveStreamsForThing(logger logrus.FieldLogger, ctx context.Context, thingID string) error
-
-	// GetStreamCompositionStatus returns the current status of streams for a Thing
-	GetStreamCompositionStatus(logger logrus.FieldLogger, ctx context.Context, thingID string) (*StreamCompositionStatus, error)
-}
+// TDStreamCompositionService is defined in interfaces.go
 
 // StreamCompositionResult contains the result of TD stream composition
 type StreamCompositionResult struct {
@@ -54,14 +40,14 @@ type StreamCompositionSummary struct {
 // DefaultTDStreamCompositionService implements TDStreamCompositionService
 // Uses centralized binding generator instead of duplicating logic
 type DefaultTDStreamCompositionService struct {
-	bindingGenerator *forms.BindingGenerator
+	bindingGenerator BindingGenerationService // Changed to interface type
 	streamManager    BenthosStreamManager
 	logger           logrus.FieldLogger
 }
 
 // NewDefaultTDStreamCompositionService creates a new TD stream composition service
 func NewDefaultTDStreamCompositionService(
-	bindingGenerator *forms.BindingGenerator,
+	bindingGenerator BindingGenerationService, // Changed to interface type
 	streamManager BenthosStreamManager,
 	logger logrus.FieldLogger,
 ) *DefaultTDStreamCompositionService {
@@ -91,11 +77,11 @@ func (s *DefaultTDStreamCompositionService) ProcessThingDescription(logger logru
 	// Use centralized binding generator to create all bindings
 	// Pass the logger to bindingGenerator methods if they are updated to accept it.
 	// For now, assuming GenerateAllBindings uses its own internal logger or one set at instantiation.
-	// If GenerateAllBindings is modified to accept a logger, this call needs to change.
-	logger.WithFields(logrus.Fields{"dependency_name": "BindingGenerator", "operation": "GenerateAllBindings"}).Debug("Calling dependency")
+	// The interface BindingGenerationService.GenerateAllBindings does not take a logger.
+	logger.WithFields(logrus.Fields{"dependency_name": "BindingGenerationService", "operation": "GenerateAllBindings"}).Debug("Calling dependency")
 	bindings, err := s.bindingGenerator.GenerateAllBindings(td)
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BindingGenerator", "operation": "GenerateAllBindings"}).Error("Dependency call failed")
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BindingGenerationService", "operation": "GenerateAllBindings"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to generate bindings: %w", err)
 	}
 
@@ -284,4 +270,5 @@ type StreamCompositionStatus struct {
 }
 
 // Ensure DefaultTDStreamCompositionService implements TDStreamCompositionService interface
+// TDStreamCompositionService is defined in interfaces.go
 var _ TDStreamCompositionService = (*DefaultTDStreamCompositionService)(nil)

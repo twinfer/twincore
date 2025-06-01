@@ -9,20 +9,7 @@ import (
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
-// ThingRegistrationService orchestrates the complete Thing registration process including stream composition
-type ThingRegistrationService interface {
-	// RegisterThing registers a Thing Description and creates associated streams
-	RegisterThing(logger logrus.FieldLogger, ctx context.Context, tdJSONLD string) (*ThingRegistrationResult, error)
-
-	// UpdateThing updates a Thing Description and its associated streams
-	UpdateThing(logger logrus.FieldLogger, ctx context.Context, thingID string, tdJSONLD string) (*ThingRegistrationResult, error)
-
-	// UnregisterThing removes a Thing Description and all associated streams
-	UnregisterThing(logger logrus.FieldLogger, ctx context.Context, thingID string) error
-
-	// GetThingWithStreams gets a Thing Description along with its stream information
-	GetThingWithStreams(logger logrus.FieldLogger, ctx context.Context, thingID string) (*ThingWithStreams, error)
-}
+// ThingRegistrationService is defined in interfaces.go
 
 // ThingRegistrationResult contains the complete result of Thing registration
 type ThingRegistrationResult struct {
@@ -59,19 +46,12 @@ type ThingWithStreams struct {
 
 // DefaultThingRegistrationService implements ThingRegistrationService
 type DefaultThingRegistrationService struct {
-	thingRegistry  ThingRegistryExt // Extended interface
-	streamComposer TDStreamCompositionService
+	thingRegistry  ThingRegistryExt           // Interface from interfaces.go
+	streamComposer TDStreamCompositionService // Interface from interfaces.go
 	logger         logrus.FieldLogger
 }
 
-// ThingRegistryExt extends ThingRegistry with registration methods
-type ThingRegistryExt interface {
-	ThingRegistry
-	RegisterThing(tdJSONLD string) (*wot.ThingDescription, error)
-	UpdateThing(thingID string, tdJSONLD string) (*wot.ThingDescription, error)
-	DeleteThing(thingID string) error
-	ListThings() ([]*wot.ThingDescription, error)
-}
+// ThingRegistryExt is defined in interfaces.go
 
 // NewDefaultThingRegistrationService creates a new Thing registration service
 func NewDefaultThingRegistrationService(
@@ -292,4 +272,5 @@ func (s *DefaultThingRegistrationService) GetThingWithStreams(logger logrus.Fiel
 }
 
 // Ensure DefaultThingRegistrationService implements ThingRegistrationService interface
+// ThingRegistrationService is defined in interfaces.go
 var _ ThingRegistrationService = (*DefaultThingRegistrationService)(nil)

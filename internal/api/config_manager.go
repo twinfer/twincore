@@ -412,11 +412,7 @@ type AuthProviderInfo struct {
 type AuthConfigRequest struct {
 	Provider string                 `json:"provider"`
 	Config   map[string]interface{} `json:"config"`
-	License  License                `json:"-"`
-}
-
-type License interface {
-	HasFeature(feature string) bool
+	License  License                `json:"-"` // License interface is now in interfaces.go
 }
 
 // Missing helper methods
