@@ -10,10 +10,13 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
+
+const RequestIDHeader = "X-Request-ID" // Define if not already globally available
 
 // BenthosBindingHandler provides the Benthos streaming API at /wot/binding
 // This handler enables dynamic stream creation and management from Thing Descriptions
@@ -144,71 +147,93 @@ func (h *BenthosBindingHandler) Provision(ctx caddy.Context) error {
 
 // ServeHTTP handles Benthos binding requests
 func (h *BenthosBindingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	requestID := r.Header.Get(RequestIDHeader)
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	logger := h.logger.WithField("request_id", requestID)
+
+	logger.WithFields(logrus.Fields{"handler_name": "BenthosBindingHandler.ServeHTTP", "method": r.Method, "path": r.URL.Path}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "BenthosBindingHandler.ServeHTTP"}).Debug("Handler finished")
+
 	// Extract path from request URL
 	path := strings.TrimPrefix(r.URL.Path, "/wot/binding")
 
 	// Route based on path
 	switch {
 	case path == "/streams" && r.Method == http.MethodPost:
-		return h.handleCreateStream(w, r)
+		return h.handleCreateStream(logger, w, r)
 	case path == "/streams" && r.Method == http.MethodGet:
-		return h.handleListStreams(w, r)
+		return h.handleListStreams(logger, w, r)
 	case strings.HasPrefix(path, "/streams/") && r.Method == http.MethodGet:
 		streamID := strings.TrimPrefix(path, "/streams/")
-		return h.handleGetStream(w, r, streamID)
+		return h.handleGetStream(logger, w, r, streamID)
 	case strings.HasPrefix(path, "/streams/") && r.Method == http.MethodPut:
 		streamID := strings.TrimPrefix(path, "/streams/")
-		return h.handleUpdateStream(w, r, streamID)
+		return h.handleUpdateStream(logger, w, r, streamID)
 	case strings.HasPrefix(path, "/streams/") && r.Method == http.MethodDelete:
 		streamID := strings.TrimPrefix(path, "/streams/")
-		return h.handleDeleteStream(w, r, streamID)
+		return h.handleDeleteStream(logger, w, r, streamID)
 	case strings.HasSuffix(path, "/start") && r.Method == http.MethodPost:
 		streamID := strings.TrimSuffix(strings.TrimPrefix(path, "/streams/"), "/start")
-		return h.handleStartStream(w, r, streamID)
+		return h.handleStartStream(logger, w, r, streamID)
 	case strings.HasSuffix(path, "/stop") && r.Method == http.MethodPost:
 		streamID := strings.TrimSuffix(strings.TrimPrefix(path, "/streams/"), "/stop")
-		return h.handleStopStream(w, r, streamID)
+		return h.handleStopStream(logger, w, r, streamID)
 	case strings.HasSuffix(path, "/status") && r.Method == http.MethodGet:
 		streamID := strings.TrimSuffix(strings.TrimPrefix(path, "/streams/"), "/status")
-		return h.handleGetStreamStatus(w, r, streamID)
+		return h.handleGetStreamStatus(logger, w, r, streamID)
 	case path == "/processors" && r.Method == http.MethodPost:
-		return h.handleCreateProcessorCollection(w, r)
+		return h.handleCreateProcessorCollection(logger, w, r)
 	case path == "/processors" && r.Method == http.MethodGet:
-		return h.handleListProcessorCollections(w, r)
+		return h.handleListProcessorCollections(logger, w, r)
 	case strings.HasPrefix(path, "/processors/") && r.Method == http.MethodGet:
 		collectionID := strings.TrimPrefix(path, "/processors/")
-		return h.handleGetProcessorCollection(w, r, collectionID)
+		return h.handleGetProcessorCollection(logger, w, r, collectionID)
 	case path == "/generate" && r.Method == http.MethodPost:
-		return h.handleGenerateFromTD(w, r)
+		return h.handleGenerateFromTD(logger, w, r)
 	default:
+		logger.WithField("path", path).Warn("Endpoint not found")
 		return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("endpoint not found"))
 	}
 }
 
 // Stream management handlers
 
-func (h *BenthosBindingHandler) handleCreateStream(w http.ResponseWriter, r *http.Request) error {
+func (h *BenthosBindingHandler) handleCreateStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleCreateStream"}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleCreateStream"}).Debug("Handler finished")
+
 	var request StreamCreationRequest
 	if err := h.decodeJSON(r, &request); err != nil {
+		logger.WithError(err).Warn("Failed to decode JSON for create stream request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
+	logger = logger.WithFields(logrus.Fields{"thing_id": request.ThingID, "interaction_type": request.InteractionType, "interaction_name": request.InteractionName})
+
 
 	// Validate Thing exists
+	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetThing", "thing_id": request.ThingID}).Debug("Calling service")
 	if _, err := h.thingRegistry.GetThing(request.ThingID); err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetThing"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("thing not found: %s", request.ThingID))
 	}
 
 	// Validate interaction exists
 	if err := h.validateInteraction(request.ThingID, request.InteractionType, request.InteractionName); err != nil {
+		logger.WithError(err).Warn("Interaction validation failed")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "CreateStream"}).Debug("Calling service")
 	stream, err := h.streamManager.CreateStream(r.Context(), request)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "CreateStream"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -217,7 +242,10 @@ func (h *BenthosBindingHandler) handleCreateStream(w http.ResponseWriter, r *htt
 	return json.NewEncoder(w).Encode(stream)
 }
 
-func (h *BenthosBindingHandler) handleListStreams(w http.ResponseWriter, r *http.Request) error {
+func (h *BenthosBindingHandler) handleListStreams(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleListStreams"}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleListStreams"}).Debug("Handler finished")
+
 	// Parse query filters
 	filters := StreamFilters{
 		ThingID:         r.URL.Query().Get("thing_id"),
@@ -226,11 +254,14 @@ func (h *BenthosBindingHandler) handleListStreams(w http.ResponseWriter, r *http
 	}
 
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "ListStreams", "filters": filters}).Debug("Calling service")
 	streams, err := h.streamManager.ListStreams(r.Context(), filters)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "ListStreams"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -241,13 +272,19 @@ func (h *BenthosBindingHandler) handleListStreams(w http.ResponseWriter, r *http
 	})
 }
 
-func (h *BenthosBindingHandler) handleGetStream(w http.ResponseWriter, r *http.Request, streamID string) error {
+func (h *BenthosBindingHandler) handleGetStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, streamID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleGetStream", "stream_id": streamID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleGetStream"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetStream", "stream_id": streamID}).Debug("Calling service")
 	stream, err := h.streamManager.GetStream(r.Context(), streamID)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetStream"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
@@ -255,18 +292,25 @@ func (h *BenthosBindingHandler) handleGetStream(w http.ResponseWriter, r *http.R
 	return json.NewEncoder(w).Encode(stream)
 }
 
-func (h *BenthosBindingHandler) handleUpdateStream(w http.ResponseWriter, r *http.Request, streamID string) error {
+func (h *BenthosBindingHandler) handleUpdateStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, streamID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleUpdateStream", "stream_id": streamID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleUpdateStream"}).Debug("Handler finished")
+
 	var request StreamUpdateRequest
 	if err := h.decodeJSON(r, &request); err != nil {
+		logger.WithError(err).Warn("Failed to decode JSON for update stream request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "UpdateStream", "stream_id": streamID}).Debug("Calling service")
 	stream, err := h.streamManager.UpdateStream(r.Context(), streamID, request)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "UpdateStream"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -274,12 +318,18 @@ func (h *BenthosBindingHandler) handleUpdateStream(w http.ResponseWriter, r *htt
 	return json.NewEncoder(w).Encode(stream)
 }
 
-func (h *BenthosBindingHandler) handleDeleteStream(w http.ResponseWriter, r *http.Request, streamID string) error {
+func (h *BenthosBindingHandler) handleDeleteStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, streamID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleDeleteStream", "stream_id": streamID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleDeleteStream"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "DeleteStream", "stream_id": streamID}).Debug("Calling service")
 	if err := h.streamManager.DeleteStream(r.Context(), streamID); err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "DeleteStream"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -287,12 +337,18 @@ func (h *BenthosBindingHandler) handleDeleteStream(w http.ResponseWriter, r *htt
 	return nil
 }
 
-func (h *BenthosBindingHandler) handleStartStream(w http.ResponseWriter, r *http.Request, streamID string) error {
+func (h *BenthosBindingHandler) handleStartStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, streamID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleStartStream", "stream_id": streamID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleStartStream"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "StartStream", "stream_id": streamID}).Debug("Calling service")
 	if err := h.streamManager.StartStream(r.Context(), streamID); err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "StartStream"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -300,12 +356,18 @@ func (h *BenthosBindingHandler) handleStartStream(w http.ResponseWriter, r *http
 	return nil
 }
 
-func (h *BenthosBindingHandler) handleStopStream(w http.ResponseWriter, r *http.Request, streamID string) error {
+func (h *BenthosBindingHandler) handleStopStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, streamID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleStopStream", "stream_id": streamID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleStopStream"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "StopStream", "stream_id": streamID}).Debug("Calling service")
 	if err := h.streamManager.StopStream(r.Context(), streamID); err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "StopStream"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -313,13 +375,19 @@ func (h *BenthosBindingHandler) handleStopStream(w http.ResponseWriter, r *http.
 	return nil
 }
 
-func (h *BenthosBindingHandler) handleGetStreamStatus(w http.ResponseWriter, r *http.Request, streamID string) error {
+func (h *BenthosBindingHandler) handleGetStreamStatus(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, streamID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleGetStreamStatus", "stream_id": streamID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleGetStreamStatus"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetStreamStatus", "stream_id": streamID}).Debug("Calling service")
 	status, err := h.streamManager.GetStreamStatus(r.Context(), streamID)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetStreamStatus"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -329,18 +397,25 @@ func (h *BenthosBindingHandler) handleGetStreamStatus(w http.ResponseWriter, r *
 
 // Processor collection handlers
 
-func (h *BenthosBindingHandler) handleCreateProcessorCollection(w http.ResponseWriter, r *http.Request) error {
+func (h *BenthosBindingHandler) handleCreateProcessorCollection(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleCreateProcessorCollection"}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleCreateProcessorCollection"}).Debug("Handler finished")
+
 	var request ProcessorCollectionRequest
 	if err := h.decodeJSON(r, &request); err != nil {
+		logger.WithError(err).Warn("Failed to decode JSON for create processor collection request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "CreateProcessorCollection", "collection_name": request.Name}).Debug("Calling service")
 	collection, err := h.streamManager.CreateProcessorCollection(r.Context(), request)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "CreateProcessorCollection"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -349,13 +424,19 @@ func (h *BenthosBindingHandler) handleCreateProcessorCollection(w http.ResponseW
 	return json.NewEncoder(w).Encode(collection)
 }
 
-func (h *BenthosBindingHandler) handleListProcessorCollections(w http.ResponseWriter, r *http.Request) error {
+func (h *BenthosBindingHandler) handleListProcessorCollections(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleListProcessorCollections"}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleListProcessorCollections"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "ListProcessorCollections"}).Debug("Calling service")
 	collections, err := h.streamManager.ListProcessorCollections(r.Context())
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "ListProcessorCollections"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -366,13 +447,19 @@ func (h *BenthosBindingHandler) handleListProcessorCollections(w http.ResponseWr
 	})
 }
 
-func (h *BenthosBindingHandler) handleGetProcessorCollection(w http.ResponseWriter, r *http.Request, collectionID string) error {
+func (h *BenthosBindingHandler) handleGetProcessorCollection(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, collectionID string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleGetProcessorCollection", "collection_id": collectionID}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleGetProcessorCollection"}).Debug("Handler finished")
+
 	if h.streamManager == nil {
+		logger.Error("Stream manager not available")
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("stream manager not available"))
 	}
 
+	logger.WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetProcessorCollection", "collection_id": collectionID}).Debug("Calling service")
 	collection, err := h.streamManager.GetProcessorCollection(r.Context(), collectionID)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "BenthosStreamManager", "method_name": "GetProcessorCollection"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
@@ -382,22 +469,31 @@ func (h *BenthosBindingHandler) handleGetProcessorCollection(w http.ResponseWrit
 
 // Special handler for generating streams from Thing Description
 
-func (h *BenthosBindingHandler) handleGenerateFromTD(w http.ResponseWriter, r *http.Request) error {
+func (h *BenthosBindingHandler) handleGenerateFromTD(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleGenerateFromTD"}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleGenerateFromTD"}).Debug("Handler finished")
+
 	var request struct {
 		ThingID string `json:"thing_id"`
 	}
 	if err := h.decodeJSON(r, &request); err != nil {
+		logger.WithError(err).Warn("Failed to decode JSON for generate from TD request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
+	logger = logger.WithField("thing_id", request.ThingID)
+
 
 	// Get Thing Description
+	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetThing"}).Debug("Calling service")
 	td, err := h.thingRegistry.GetThing(request.ThingID)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetThing"}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("thing not found: %s", request.ThingID))
 	}
 
 	// Generate stream configurations from TD
-	streamConfigs := h.generateStreamsFromTD(td)
+	logger.Debug("Generating streams from TD")
+	streamConfigs := h.generateStreamsFromTD(td) // This internal method might need more logging if complex
 
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(map[string]interface{}{

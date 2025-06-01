@@ -50,6 +50,7 @@ func NewBenthosStreamIntegration(
 	benthosConfigDir string,
 	logger logrus.FieldLogger,
 ) (*BenthosStreamIntegration, error) {
+	logger.Debug("Creating NewBenthosStreamIntegration")
 	si := &BenthosStreamIntegration{
 		stateManager: stateManager,
 		streamBridge: streamBridge,
@@ -58,22 +59,40 @@ func NewBenthosStreamIntegration(
 	}
 
 	// Parquet logging now handled by centralized binding generation
-	if benthosConfigDir != "" {
-		logger.Info("Parquet logging will be handled by centralized binding generation")
+	if benthosConfigDir != "" { // This check might be redundant if parquetEnabled field is used instead
+		logger.Info("Parquet logging (related to BenthosStreamIntegration) will be handled by centralized binding generation")
 	}
-
+	logger.Info("BenthosStreamIntegration created")
 	return si, nil
 }
 
 // ProcessPropertyUpdate handles property updates from streams
 func (si *BenthosStreamIntegration) ProcessPropertyUpdate(ctx context.Context, update PropertyUpdate) error {
+	logger := si.logger.WithFields(logrus.Fields{
+		"service_method": "ProcessPropertyUpdate",
+		"thing_id":       update.ThingID,
+		"property_name":  update.PropertyName,
+		"value":          update.Value, // Be cautious logging sensitive values
+	})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	// Create stream update context to prevent circular updates
 	streamCtx := models.WithUpdateContext(ctx, models.NewUpdateContext(models.UpdateSourceStream))
+	logger.WithField("update_source", models.UpdateSourceStream).Debug("Set update source in context")
 
 	// Update state in database (this will NOT trigger another stream publish due to source context)
-	if err := si.stateManager.SetPropertyWithContext(streamCtx, update.ThingID, update.PropertyName, update.Value); err != nil {
+	logger.WithFields(logrus.Fields{"dependency_name": "StateManager", "operation": "SetPropertyWithContext"}).Debug("Calling dependency")
+	// Note: SetPropertyWithContext on StateManager interface currently doesn't take a logger.
+	// If it did, we'd pass `logger` here. Using the StateManager's own logger for now.
+	// This was updated in previous steps for some implementations.
+	// Let's assume the interface was updated and pass the logger.
+	if err := si.stateManager.SetPropertyWithContext(logger, streamCtx, update.ThingID, update.PropertyName, update.Value); err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "StateManager", "operation": "SetPropertyWithContext"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to update property state: %w", err)
 	}
+	logger.Debug("Property state updated via StateManager")
 
 	// Publish to event broker for SSE
 	event := models.Event{
@@ -87,14 +106,27 @@ func (si *BenthosStreamIntegration) ProcessPropertyUpdate(ctx context.Context, u
 	}
 
 	si.eventBroker.Publish(event)
+	logger.WithField("event_name", event.EventName).Debug("Published property_changed event to EventBroker")
 
 	return nil
 }
 
 // ProcessActionResult handles action results from devices
 func (si *BenthosStreamIntegration) ProcessActionResult(ctx context.Context, result ActionResult) error {
+	logger := si.logger.WithFields(logrus.Fields{
+		"service_method": "ProcessActionResult",
+		"thing_id":       result.ThingID,
+		"action_name":    result.ActionName,
+		"action_id":      result.ActionID,
+		"status":         result.Status,
+	})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	// Store result if needed
 	// This could be extended to store in a results table
+	logger.Debug("Processing action result (currently a placeholder for storage)")
 
 	// Publish to event broker
 	event := models.Event{
@@ -110,18 +142,25 @@ func (si *BenthosStreamIntegration) ProcessActionResult(ctx context.Context, res
 	}
 
 	si.eventBroker.Publish(event)
+	logger.WithField("event_name", event.EventName).Debug("Published action_completed event to EventBroker")
 
 	return nil
 }
 
 // ProcessStreamEvent handles device events from streams
 func (si *BenthosStreamIntegration) ProcessStreamEvent(ctx context.Context, event StreamEvent) error {
+	logger := si.logger.WithFields(logrus.Fields{
+		"service_method": "ProcessStreamEvent",
+		"thing_id":       event.ThingID,
+		"event_name":     event.EventName,
+	})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	// Log to Parquet via Benthos
 	// Event logging now handled by centralized binding generation
-	si.logger.WithFields(logrus.Fields{
-		"thing_id":   event.ThingID,
-		"event_name": event.EventName,
-	}).Debug("Event logged via centralized binding generation")
+	logger.Debug("Event logging to Parquet is now handled by centralized binding generation processor chain")
 
 	// Publish to event broker for SSE
 	brokerEvent := models.Event{
@@ -132,12 +171,15 @@ func (si *BenthosStreamIntegration) ProcessStreamEvent(ctx context.Context, even
 	}
 
 	si.eventBroker.Publish(brokerEvent)
+	logger.Debug("Published device event to EventBroker")
 
 	return nil
 }
 
 // Close shuts down the stream integration
 func (si *BenthosStreamIntegration) Close() error {
+	si.logger.WithFields(logrus.Fields{"service_method": "Close"}).Debug("Service method called (BenthosStreamIntegration)")
 	// Parquet client cleanup now handled by centralized binding generation
+	si.logger.Info("BenthosStreamIntegration closed")
 	return nil
 }

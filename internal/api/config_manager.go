@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -43,16 +44,24 @@ func (cm *ConfigManager) IsSetupComplete() bool {
 }
 
 // CompleteSetup marks the initial setup as complete
-func (cm *ConfigManager) CompleteSetup() error {
+func (cm *ConfigManager) CompleteSetup(logger logrus.FieldLogger) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "CompleteSetup"})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	cm.setupMu.Lock()
 	defer cm.setupMu.Unlock()
 
 	// Save setup completion to database
-	if err := cm.saveSetupStatus(true); err != nil {
+	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "saveSetupStatus"}).Debug("Calling dependency")
+	if err := cm.saveSetupStatus(true); err != nil { // Assuming saveSetupStatus is internal and uses cm.logger or passed logger
+		logger.WithError(err).Error("Failed to save setup status")
 		return err
 	}
 
 	cm.setupComplete = true
+	logger.Info("Initial setup marked as complete")
 	return nil
 }
 
@@ -95,24 +104,39 @@ func (cm *ConfigManager) GetAuthProviders(license License) []AuthProviderInfo {
 }
 
 // ConfigureAuth configures authentication based on user selection
-func (cm *ConfigManager) ConfigureAuth(req AuthConfigRequest) error {
+func (cm *ConfigManager) ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ConfigureAuth", "provider": req.Provider})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	// Validate provider is available
 	if !cm.isProviderAvailable(req.Provider, req.License) {
-		return fmt.Errorf("authentication provider %s not available with current license", req.Provider)
+		err := fmt.Errorf("authentication provider %s not available with current license", req.Provider)
+		logger.WithError(err).Warn("Auth provider availability check failed")
+		return err
 	}
+	logger.Debug("Auth provider is available")
 
 	// Build Caddy security configuration
-	securityConfig := cm.buildSecurityConfig(req)
+	logger.Debug("Building Caddy security configuration")
+	securityConfig := cm.buildSecurityConfig(req) // Assuming this is a pure function or uses its own logging if needed
 
 	// Apply to Caddy
-	if err := cm.updateCaddyConfig("/apps/security", securityConfig); err != nil {
+	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "updateCaddyConfig", "path": "/apps/security"}).Debug("Calling dependency")
+	if err := cm.updateCaddyConfig(logger, "/apps/security", securityConfig); err != nil {
+		logger.WithError(err).Error("Failed to update Caddy security config")
 		return fmt.Errorf("failed to update security config: %w", err)
 	}
+	logger.Info("Caddy security config updated")
 
 	// Update HTTP routes to use authentication
-	if err := cm.updateHTTPRoutes(req.Provider); err != nil {
+	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "updateHTTPRoutes"}).Debug("Calling internal method to update HTTP routes")
+	if err := cm.updateHTTPRoutes(logger, req.Provider); err != nil {
+		logger.WithError(err).Error("Failed to update HTTP routes for auth")
 		return fmt.Errorf("failed to update HTTP routes: %w", err)
 	}
+	logger.Info("HTTP routes updated for new auth provider")
 
 	return nil
 }
@@ -185,12 +209,20 @@ func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]i
 }
 
 // updateHTTPRoutes updates HTTP routes to use authentication
-func (cm *ConfigManager) updateHTTPRoutes(provider string) error {
+func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider string) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "updateHTTPRoutes", "provider": provider})
+	entryLogger.Debug("Service method called (internal)")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (internal)") }()
+
 	// Get current HTTP config
-	httpConfig, err := cm.getCaddyConfig("/apps/http")
+	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "getCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency")
+	httpConfig, err := cm.getCaddyConfig(logger, "/apps/http")
 	if err != nil {
+		logger.WithError(err).Error("Failed to get current Caddy HTTP config")
 		return err
 	}
+	logger.Debug("Successfully retrieved current Caddy HTTP config")
 
 	// Add authentication middleware to protected routes
 	routes := []map[string]interface{}{
@@ -248,84 +280,122 @@ func (cm *ConfigManager) updateHTTPRoutes(provider string) error {
 
 	// Update routes
 	httpConfig["servers"].(map[string]interface{})["srv0"].(map[string]interface{})["routes"] = routes
+	logger.Debug("Constructed new HTTP routes with auth")
 
-	return cm.updateCaddyConfig("/apps/http", httpConfig)
+	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "updateCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency to apply updated HTTP config")
+	return cm.updateCaddyConfig(logger, "/apps/http", httpConfig)
 }
 
 // Portal API endpoints
 
 // GetConfiguration returns the current configuration
-func (cm *ConfigManager) GetConfiguration() (map[string]interface{}, error) {
+func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string]interface{}, error) {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetConfiguration"})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	config := make(map[string]interface{})
 
 	// Get Caddy config
-	caddyConfig, err := cm.getCaddyConfig("/config")
+	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "getCaddyConfig", "path": "/config"}).Debug("Calling dependency")
+	caddyConfig, err := cm.getCaddyConfig(logger, "/config")
 	if err != nil {
+		logger.WithError(err).Error("Failed to get full Caddy config")
 		return nil, err
 	}
 
 	// Extract relevant parts
-	config["http"] = cm.extractHTTPConfig(caddyConfig)
-	config["security"] = cm.extractSecurityConfig(caddyConfig)
-	config["streams"] = cm.getStreamConfig()
+	config["http"] = cm.extractHTTPConfig(caddyConfig)       // Assuming pure function or self-logged if complex
+	config["security"] = cm.extractSecurityConfig(caddyConfig) // Assuming pure function
+	config["streams"] = cm.getStreamConfig()                 // Assuming pure function or self-logged
 
+	logger.Debug("Successfully retrieved and processed configuration")
 	return config, nil
 }
 
 // UpdateConfiguration updates configuration sections
-func (cm *ConfigManager) UpdateConfiguration(section string, config map[string]interface{}) error {
+func (cm *ConfigManager) UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]interface{}) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UpdateConfiguration", "section": section})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
+	logger = logger.WithField("config_section", section)
+
 	switch section {
 	case "http":
-		return cm.updateHTTPConfig(config)
+		logger.Info("Updating HTTP configuration")
+		return cm.updateHTTPConfig(logger, config)
 	case "security":
-		return cm.updateSecurityConfig(config)
+		logger.Info("Updating security configuration")
+		return cm.updateSecurityConfig(logger, config)
 	case "streams":
-		return cm.updateStreamConfig(config)
+		logger.Info("Updating streams configuration")
+		return cm.updateStreamConfig(logger, config) // Assuming updateStreamConfig will be updated to use logger
 	default:
-		return fmt.Errorf("unknown configuration section: %s", section)
+		err := fmt.Errorf("unknown configuration section: %s", section)
+		logger.WithError(err).Error("Attempt to update unknown configuration section")
+		return err
 	}
 }
 
 // Helper methods
 
-func (cm *ConfigManager) updateCaddyConfig(path string, config interface{}) error {
+func (cm *ConfigManager) updateCaddyConfig(logger logrus.FieldLogger, path string, config interface{}) error {
 	data, err := json.Marshal(config)
 	if err != nil {
+		logger.WithError(err).Error("Failed to marshal Caddy config for update")
 		return err
 	}
 
 	req, err := http.NewRequest(http.MethodPut, cm.caddyAdminURL+path, bytes.NewReader(data))
 	if err != nil {
+		logger.WithError(err).Error("Failed to create new HTTP request for Caddy admin API")
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	logger.WithFields(logrus.Fields{"caddy_path": path, "http_method": "PUT"}).Debug("Sending request to Caddy admin API")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		logger.WithError(err).Error("Caddy admin API request failed")
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy admin API error: %s", body)
+		err := fmt.Errorf("caddy admin API error (%d): %s", resp.StatusCode, string(body))
+		logger.WithError(err).WithField("caddy_response_body", string(body)).Error("Caddy admin API returned error status")
+		return err
 	}
-
+	logger.WithFields(logrus.Fields{"caddy_path": path, "status_code": resp.StatusCode}).Info("Caddy config updated successfully via admin API")
 	return nil
 }
 
-func (cm *ConfigManager) getCaddyConfig(path string) (map[string]interface{}, error) {
+func (cm *ConfigManager) getCaddyConfig(logger logrus.FieldLogger, path string) (map[string]interface{}, error) {
+	logger.WithFields(logrus.Fields{"caddy_path": path, "http_method": "GET"}).Debug("Sending request to Caddy admin API to get config")
 	resp, err := http.Get(cm.caddyAdminURL + path)
 	if err != nil {
+		logger.WithError(err).Error("Caddy admin API request failed (GET)")
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var config map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		err := fmt.Errorf("caddy admin API error (%d) getting config: %s", resp.StatusCode, string(body))
+		logger.WithError(err).WithField("caddy_response_body", string(body)).Error("Caddy admin API returned error status (GET)")
 		return nil, err
 	}
 
+	var config map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		logger.WithError(err).Error("Failed to decode Caddy config JSON response")
+		return nil, err
+	}
+	logger.WithField("caddy_path", path).Debug("Successfully retrieved Caddy config")
 	return config, nil
 }
 
@@ -351,13 +421,13 @@ type License interface {
 
 // Missing helper methods
 
-func (cm *ConfigManager) saveSetupStatus(complete bool) error {
+func (cm *ConfigManager) saveSetupStatus(complete bool) error { // Assuming this is internal or uses cm.logger
 	// Save to database - simplified for now
-	cm.logger.Info("Setup status saved")
+	cm.logger.WithField("status", complete).Info("Saving setup status")
 	return nil
 }
 
-func (cm *ConfigManager) isProviderAvailable(provider string, license License) bool {
+func (cm *ConfigManager) isProviderAvailable(provider string, license License) bool { // Pure function, no logger needed
 	switch provider {
 	case "local":
 		return true
@@ -389,7 +459,7 @@ func (cm *ConfigManager) buildSetupRoutes() []map[string]interface{} {
 	}
 }
 
-func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interface{} {
+func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interface{} { // Pure function
 	handlers := []map[string]interface{}{
 		{
 			"handler": "wot_handler", // Our custom WoT handler from caddy_app
@@ -409,7 +479,7 @@ func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interfac
 	return handlers
 }
 
-func (cm *ConfigManager) extractHTTPConfig(caddyConfig map[string]interface{}) map[string]interface{} {
+func (cm *ConfigManager) extractHTTPConfig(caddyConfig map[string]interface{}) map[string]interface{} { // Pure function
 	if apps, ok := caddyConfig["apps"].(map[string]interface{}); ok {
 		if http, ok := apps["http"].(map[string]interface{}); ok {
 			return http
@@ -418,7 +488,7 @@ func (cm *ConfigManager) extractHTTPConfig(caddyConfig map[string]interface{}) m
 	return map[string]interface{}{}
 }
 
-func (cm *ConfigManager) extractSecurityConfig(caddyConfig map[string]interface{}) map[string]interface{} {
+func (cm *ConfigManager) extractSecurityConfig(caddyConfig map[string]interface{}) map[string]interface{} { // Pure function
 	if apps, ok := caddyConfig["apps"].(map[string]interface{}); ok {
 		if security, ok := apps["security"].(map[string]interface{}); ok {
 			return security
@@ -427,24 +497,33 @@ func (cm *ConfigManager) extractSecurityConfig(caddyConfig map[string]interface{
 	return map[string]interface{}{}
 }
 
-func (cm *ConfigManager) getStreamConfig() map[string]interface{} {
+func (cm *ConfigManager) getStreamConfig() map[string]interface{} { // Pure function for this example (would log if it did I/O)
 	// Get stream configuration from database or other source
 	return map[string]interface{}{
 		"streams": []interface{}{},
 	}
 }
 
-func (cm *ConfigManager) updateHTTPConfig(config map[string]interface{}) error {
-	return cm.updateCaddyConfig("/apps/http", config)
+func (cm *ConfigManager) updateHTTPConfig(logger logrus.FieldLogger, config map[string]interface{}) error {
+	logger.Info("Applying HTTP configuration to Caddy")
+	return cm.updateCaddyConfig(logger, "/apps/http", config)
 }
 
-func (cm *ConfigManager) updateSecurityConfig(config map[string]interface{}) error {
-	return cm.updateCaddyConfig("/apps/security", config)
+func (cm *ConfigManager) updateSecurityConfig(logger logrus.FieldLogger, config map[string]interface{}) error {
+	logger.Info("Applying security configuration to Caddy")
+	return cm.updateCaddyConfig(logger, "/apps/security", config)
 }
 
-func (cm *ConfigManager) updateStreamConfig(config map[string]interface{}) error {
+func (cm *ConfigManager) updateStreamConfig(logger logrus.FieldLogger, config map[string]interface{}) error {
 	// Update stream configuration in database
-	cm.logger.Info("Stream config updated")
+	logger.Info("Stream config updated (mock - no actual DB interaction here)")
+	// In a real scenario:
+	// logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "SaveStreamConfig"}).Debug("Calling dependency")
+	// err := cm.db.SaveStreamConfig(config)
+	// if err != nil {
+	//    logger.WithError(err).Error("Failed to save stream config to DB")
+	//    return err
+	// }
 	return nil
 }
 

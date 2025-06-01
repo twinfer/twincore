@@ -12,16 +12,16 @@ import (
 // ThingRegistrationService orchestrates the complete Thing registration process including stream composition
 type ThingRegistrationService interface {
 	// RegisterThing registers a Thing Description and creates associated streams
-	RegisterThing(ctx context.Context, tdJSONLD string) (*ThingRegistrationResult, error)
+	RegisterThing(logger logrus.FieldLogger, ctx context.Context, tdJSONLD string) (*ThingRegistrationResult, error)
 
 	// UpdateThing updates a Thing Description and its associated streams
-	UpdateThing(ctx context.Context, thingID string, tdJSONLD string) (*ThingRegistrationResult, error)
+	UpdateThing(logger logrus.FieldLogger, ctx context.Context, thingID string, tdJSONLD string) (*ThingRegistrationResult, error)
 
 	// UnregisterThing removes a Thing Description and all associated streams
-	UnregisterThing(ctx context.Context, thingID string) error
+	UnregisterThing(logger logrus.FieldLogger, ctx context.Context, thingID string) error
 
 	// GetThingWithStreams gets a Thing Description along with its stream information
-	GetThingWithStreams(ctx context.Context, thingID string) (*ThingWithStreams, error)
+	GetThingWithStreams(logger logrus.FieldLogger, ctx context.Context, thingID string) (*ThingWithStreams, error)
 }
 
 // ThingRegistrationResult contains the complete result of Thing registration
@@ -87,8 +87,11 @@ func NewDefaultThingRegistrationService(
 }
 
 // RegisterThing registers a Thing Description and creates associated streams
-func (s *DefaultThingRegistrationService) RegisterThing(ctx context.Context, tdJSONLD string) (*ThingRegistrationResult, error) {
-	s.logger.Info("Starting Thing registration with stream composition")
+func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogger, ctx context.Context, tdJSONLD string) (*ThingRegistrationResult, error) {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "RegisterThing"})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
 	result := &ThingRegistrationResult{
 		Summary: ThingRegistrationSummary{
@@ -108,22 +111,27 @@ func (s *DefaultThingRegistrationService) RegisterThing(ctx context.Context, tdJ
 	}
 
 	result.Summary.ThingID = thingID
-	s.logger.WithField("thing_id", thingID).Info("Registering Thing Description")
+	logger = logger.WithField("thing_id", thingID) // Add thingID to logger context
+	logger.Info("Registering Thing Description")
 
 	// Register Thing Description first
-	td, err := s.thingRegistry.RegisterThing(tdJSONLD)
+	logger.WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "RegisterThing"}).Debug("Calling dependency")
+	td, err := s.thingRegistry.RegisterThing(tdJSONLD) // Assuming ThingRegistryExt methods don't need logger yet, or will be updated separately
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "RegisterThing"}).Error("Dependency call failed")
 		result.Summary.Error = err.Error()
 		return result, fmt.Errorf("failed to register Thing Description: %w", err)
 	}
 
 	result.ThingDescription = td
-	s.logger.WithField("thing_id", td.ID).Info("Thing Description registered successfully")
+	logger.Info("Thing Description registered successfully")
 
 	// Create streams from Thing Description
-	streamResult, err := s.streamComposer.ProcessThingDescription(ctx, td)
+	logger.WithFields(logrus.Fields{"dependency_name": "TDStreamCompositionService", "operation": "ProcessThingDescription"}).Debug("Calling dependency")
+	// Pass the logger to streamComposer methods
+	streamResult, err := s.streamComposer.ProcessThingDescription(logger, ctx, td)
 	if err != nil {
-		s.logger.WithError(err).WithField("thing_id", td.ID).Error("Failed to create streams for Thing Description")
+		logger.WithError(err).Error("Failed to create streams for Thing Description (dependency call failed)")
 		// Don't fail the entire registration for stream composition errors
 		// The TD is still valid and registered
 		result.Summary.Error = fmt.Sprintf("Thing registered but stream composition failed: %v", err)
@@ -151,8 +159,14 @@ func (s *DefaultThingRegistrationService) RegisterThing(ctx context.Context, tdJ
 }
 
 // UpdateThing updates a Thing Description and its associated streams
-func (s *DefaultThingRegistrationService) UpdateThing(ctx context.Context, thingID string, tdJSONLD string) (*ThingRegistrationResult, error) {
-	s.logger.WithField("thing_id", thingID).Info("Starting Thing update with stream composition")
+func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger, ctx context.Context, thingID string, tdJSONLD string) (*ThingRegistrationResult, error) {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UpdateThing", "thing_id": thingID})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
+	logger = logger.WithField("thing_id", thingID) // Add thingID to logger for subsequent logs
+	logger.Info("Starting Thing update with stream composition")
 
 	result := &ThingRegistrationResult{
 		Summary: ThingRegistrationSummary{
@@ -164,23 +178,28 @@ func (s *DefaultThingRegistrationService) UpdateThing(ctx context.Context, thing
 	// Parse TD for stream composition
 	var tdMap map[string]interface{}
 	if err := json.Unmarshal([]byte(tdJSONLD), &tdMap); err != nil {
+		logger.WithError(err).Error("Invalid JSON-LD for Thing update")
 		return nil, fmt.Errorf("invalid JSON-LD: %w", err)
 	}
 
 	// Update Thing Description
-	td, err := s.thingRegistry.UpdateThing(thingID, tdJSONLD)
+	logger.WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "UpdateThing"}).Debug("Calling dependency")
+	td, err := s.thingRegistry.UpdateThing(thingID, tdJSONLD) // Assuming ThingRegistryExt methods don't need logger yet
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "UpdateThing"}).Error("Dependency call failed")
 		result.Summary.Error = err.Error()
 		return result, fmt.Errorf("failed to update Thing Description: %w", err)
 	}
 
 	result.ThingDescription = td
-	s.logger.WithField("thing_id", td.ID).Info("Thing Description updated successfully")
+	logger.Info("Thing Description updated successfully")
 
 	// Update streams for Thing Description
-	streamResult, err := s.streamComposer.UpdateStreamsForThing(ctx, td)
+	logger.WithFields(logrus.Fields{"dependency_name": "TDStreamCompositionService", "operation": "UpdateStreamsForThing"}).Debug("Calling dependency")
+	// Pass the logger to streamComposer methods
+	streamResult, err := s.streamComposer.UpdateStreamsForThing(logger, ctx, td)
 	if err != nil {
-		s.logger.WithError(err).WithField("thing_id", td.ID).Error("Failed to update streams for Thing Description")
+		logger.WithError(err).Error("Failed to update streams for Thing Description (dependency call failed)")
 		result.Summary.Error = fmt.Sprintf("Thing updated but stream update failed: %v", err)
 	} else {
 		result.StreamComposition = streamResult
@@ -207,29 +226,48 @@ func (s *DefaultThingRegistrationService) UpdateThing(ctx context.Context, thing
 }
 
 // UnregisterThing removes a Thing Description and all associated streams
-func (s *DefaultThingRegistrationService) UnregisterThing(ctx context.Context, thingID string) error {
-	s.logger.WithField("thing_id", thingID).Info("Starting Thing unregistration with stream cleanup")
+func (s *DefaultThingRegistrationService) UnregisterThing(logger logrus.FieldLogger, ctx context.Context, thingID string) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UnregisterThing", "thing_id": thingID})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
+	logger = logger.WithField("thing_id", thingID)
+	logger.Info("Starting Thing unregistration with stream cleanup")
 
 	// Remove streams first
-	if err := s.streamComposer.RemoveStreamsForThing(ctx, thingID); err != nil {
-		s.logger.WithError(err).WithField("thing_id", thingID).Error("Failed to remove streams for Thing")
+	logger.WithFields(logrus.Fields{"dependency_name": "TDStreamCompositionService", "operation": "RemoveStreamsForThing"}).Debug("Calling dependency")
+	// Pass the logger to streamComposer methods
+	if err := s.streamComposer.RemoveStreamsForThing(logger, ctx, thingID); err != nil {
+		logger.WithError(err).Error("Failed to remove streams for Thing (dependency call failed)")
 		// Continue with TD removal even if stream cleanup fails
 	}
 
 	// Remove Thing Description
-	if err := s.thingRegistry.DeleteThing(thingID); err != nil {
+	logger.WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "DeleteThing"}).Debug("Calling dependency")
+	if err := s.thingRegistry.DeleteThing(thingID); err != nil { // Assuming ThingRegistryExt methods don't need logger yet
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ThingRegistryExt", "operation": "DeleteThing"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to delete Thing Description: %w", err)
 	}
 
-	s.logger.WithField("thing_id", thingID).Info("Thing unregistration completed")
+	logger.Info("Thing unregistration completed")
 	return nil
 }
 
 // GetThingWithStreams gets a Thing Description along with its stream information
-func (s *DefaultThingRegistrationService) GetThingWithStreams(ctx context.Context, thingID string) (*ThingWithStreams, error) {
+func (s *DefaultThingRegistrationService) GetThingWithStreams(logger logrus.FieldLogger, ctx context.Context, thingID string) (*ThingWithStreams, error) {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetThingWithStreams", "thing_id": thingID})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
+	logger = logger.WithField("thing_id", thingID)
+
 	// Get Thing Description
-	td, err := s.thingRegistry.GetThing(thingID)
+	logger.WithFields(logrus.Fields{"dependency_name": "ThingRegistry", "operation": "GetThing"}).Debug("Calling dependency")
+	td, err := s.thingRegistry.GetThing(thingID) // Assuming ThingRegistry methods don't need logger yet
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ThingRegistry", "operation": "GetThing"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to get Thing Description: %w", err)
 	}
 

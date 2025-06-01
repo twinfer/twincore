@@ -21,6 +21,7 @@ type BenthosStateManager struct {
 
 // NewBenthosStateManager creates a new state manager with Benthos Parquet logging
 func NewBenthosStateManager(db *sql.DB, benthosConfigDir, parquetLogPath string, logger logrus.FieldLogger) (*BenthosStateManager, error) {
+	logger.Debug("Creating Benthos state manager") // Entry log for constructor
 	sm := &BenthosStateManager{
 		db:     db,
 		logger: logger,
@@ -29,7 +30,9 @@ func NewBenthosStateManager(db *sql.DB, benthosConfigDir, parquetLogPath string,
 	// Parquet logging now handled by centralized binding generation
 	if benthosConfigDir != "" || parquetLogPath != "" {
 		sm.parquetEnabled = true
-		logger.Info("Parquet logging will be handled by centralized binding generation")
+		logger.Info("Parquet logging will be handled by centralized binding generation (via BenthosStateManager config)")
+	} else {
+		logger.Info("Parquet logging (via BenthosStateManager config) is disabled as paths are empty")
 	}
 
 	return sm, nil
@@ -37,11 +40,18 @@ func NewBenthosStateManager(db *sql.DB, benthosConfigDir, parquetLogPath string,
 
 // GetProperty retrieves a property value from the database
 func (sm *BenthosStateManager) GetProperty(thingID, name string) (interface{}, error) {
-	query := `SELECT value FROM property_state WHERE thing_id = ? AND property_name = ?`
+	// Using sm.logger as base, assuming request_id is not directly available or needed for this specific implementation's logging detail level
+	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetProperty", "thing_id": thingID, "property_name": name})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
+	query := `SELECT value FROM property_state WHERE thing_id = ? AND property_name = ?`
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Debug("Calling dependency")
 	var valueJSON string
 	err := sm.db.QueryRow(query, thingID, name).Scan(&valueJSON)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Error("Dependency call failed")
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("property %s not found for thing %s", name, thingID)
 		}
@@ -50,23 +60,35 @@ func (sm *BenthosStateManager) GetProperty(thingID, name string) (interface{}, e
 
 	var value interface{}
 	if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
+		logger.WithError(err).Error("Failed to unmarshal property value from DB")
 		return nil, fmt.Errorf("failed to unmarshal property value: %w", err)
 	}
-
+	logger.WithField("retrieved_value", value).Debug("Retrieved property successfully")
 	return value, nil
 }
 
 // SetProperty updates a property value in the database and logs to Parquet
-func (sm *BenthosStateManager) SetProperty(thingID, name string, value interface{}) error {
+func (sm *BenthosStateManager) SetProperty(logger logrus.FieldLogger, thingID, name string, value interface{}) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetProperty", "thing_id": thingID, "property_name": name, "value": value})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	// Use default HTTP source for backward compatibility
 	ctx := models.WithUpdateContext(context.Background(), models.NewUpdateContext(models.UpdateSourceHTTP))
-	return sm.SetPropertyWithContext(ctx, thingID, name, value)
+	return sm.SetPropertyWithContext(logger, ctx, thingID, name, value) // Pass the provided logger
 }
 
 // SetPropertyWithContext updates a property value with source context
-func (sm *BenthosStateManager) SetPropertyWithContext(ctx context.Context, thingID, name string, value interface{}) error {
+func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, name string, value interface{}) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetPropertyWithContext", "thing_id": thingID, "property_name": name, "value": value})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
+		logger.WithError(err).Error("Failed to marshal property value")
 		return fmt.Errorf("failed to marshal property value: %w", err)
 	}
 
@@ -78,27 +100,26 @@ func (sm *BenthosStateManager) SetPropertyWithContext(ctx context.Context, thing
 			value = excluded.value,
 			updated_at = excluded.updated_at
 	`
-
 	now := time.Now()
-	_, err = sm.db.Exec(query, thingID, name, string(valueJSON), now)
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to set property")
+	_, err = sm.db.ExecContext(ctx, query, thingID, name, string(valueJSON), now)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to update property: %w", err)
 	}
+	logger.Info("Property updated in DB")
 
 	// Log to Parquet via Benthos with source context
 	if sm.parquetEnabled {
-		// Extract source from context
 		source := "unknown"
 		if updateCtx, ok := models.GetUpdateContext(ctx); ok {
 			source = string(updateCtx.Source)
 		}
-
-		// Property logging now handled by centralized binding generation
-		sm.logger.WithFields(logrus.Fields{
-			"thing_id": thingID,
+		logger.WithFields(logrus.Fields{ // Use the passed-in logger which might have request_id
+			"thing_id": thingID, // Explicitly log identifiers for this specific message
 			"property": name,
 			"source":   source,
-		}).Debug("Property update logged via centralized binding generation")
+		}).Debug("Parquet logging for property update handled by centralized binding generation (BenthosStateManager)")
 	}
 
 	return nil
@@ -106,10 +127,17 @@ func (sm *BenthosStateManager) SetPropertyWithContext(ctx context.Context, thing
 
 // GetAllProperties retrieves all properties for a thing
 func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID string) (map[string]interface{}, error) {
-	query := `SELECT property_name, value FROM property_state WHERE thing_id = ?`
+	// Using sm.logger as base
+	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetAllProperties", "thing_id": thingID})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
+	query := `SELECT property_name, value FROM property_state WHERE thing_id = ?`
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryContext"}).Debug("Calling dependency")
 	rows, err := sm.db.QueryContext(ctx, query, thingID)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryContext"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to query properties: %w", err)
 	}
 	defer rows.Close()
@@ -118,55 +146,70 @@ func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID str
 	for rows.Next() {
 		var name, valueJSON string
 		if err := rows.Scan(&name, &valueJSON); err != nil {
+			logger.WithError(err).Error("Failed to scan property row from DB")
 			return nil, fmt.Errorf("failed to scan property row: %w", err)
 		}
 
 		var value interface{}
 		if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
-			sm.logger.WithError(err).Warnf("Failed to unmarshal property %s", name)
+			logger.WithError(err).WithField("property_name", name).Warn("Failed to unmarshal property value from DB")
 			continue
 		}
-
 		properties[name] = value
 	}
 
 	if err := rows.Err(); err != nil {
+		logger.WithError(err).Error("Error iterating over property rows from DB")
 		return nil, fmt.Errorf("error iterating properties: %w", err)
 	}
-
+	logger.WithField("property_count", len(properties)).Debug("Retrieved all properties successfully")
 	return properties, nil
 }
 
 // DeleteProperty removes a property from the database
 func (sm *BenthosStateManager) DeleteProperty(ctx context.Context, thingID, name string) error {
-	query := `DELETE FROM property_state WHERE thing_id = ? AND property_name = ?`
+	logger := sm.logger.WithFields(logrus.Fields{"service_method": "DeleteProperty", "thing_id": thingID, "property_name": name})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
+	query := `DELETE FROM property_state WHERE thing_id = ? AND property_name = ?`
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to delete property")
 	result, err := sm.db.ExecContext(ctx, query, thingID, name)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to delete property: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		logger.WithError(err).Error("Failed to get rows affected after delete")
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	if rowsAffected == 0 {
+		logger.Warn("Property not found for deletion")
 		return fmt.Errorf("property %s not found for thing %s", name, thingID)
 	}
-
+	logger.Info("Property deleted successfully")
 	return nil
 }
 
 // DeleteAllProperties removes all properties for a thing
 func (sm *BenthosStateManager) DeleteAllProperties(ctx context.Context, thingID string) error {
-	query := `DELETE FROM property_state WHERE thing_id = ?`
+	logger := sm.logger.WithFields(logrus.Fields{"service_method": "DeleteAllProperties", "thing_id": thingID})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
+	query := `DELETE FROM property_state WHERE thing_id = ?`
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to delete all properties")
 	_, err := sm.db.ExecContext(ctx, query, thingID)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to delete properties: %w", err)
 	}
-
+	logger.Info("All properties deleted for thing")
 	return nil
 }
 
