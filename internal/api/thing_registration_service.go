@@ -10,7 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types" // Added
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // ThingRegistrationService is defined in interfaces.go
@@ -53,7 +52,7 @@ type DefaultThingRegistrationService struct {
 	thingRegistry        ThingRegistryExt           // Interface from interfaces.go
 	streamComposer       TDStreamCompositionService // Interface from interfaces.go
 	configManager        ConfigurationManager       // Added ConfigurationManager
-	bindingGenerator     *forms.BindingGenerator    // Added
+	bindingGenerator     BindingGenerationService   // Changed to use interface
 	benthosStreamManager BenthosStreamManager       // Added
 	logger               logrus.FieldLogger
 }
@@ -65,7 +64,7 @@ func NewDefaultThingRegistrationService(
 	thingRegistry ThingRegistryExt,
 	streamComposer TDStreamCompositionService,
 	configManager ConfigurationManager, // Added configManager parameter
-	bindingGenerator *forms.BindingGenerator, // Added
+	bindingGenerator BindingGenerationService, // Added
 	benthosStreamManager BenthosStreamManager, // Added
 	logger logrus.FieldLogger,
 ) *DefaultThingRegistrationService {

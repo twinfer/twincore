@@ -59,7 +59,7 @@ type Container struct {
 	licenseIntegration *security.LicenseIntegration
 
 	// WoT Binding Generation
-	BindingGenerator *forms.BindingGenerator
+	BindingGenerator api.BindingGenerationService
 
 	// Initial configurations used to start services
 	InitialHTTPServiceConfig   types.ServiceConfig
@@ -286,15 +286,16 @@ func (c *Container) initBindingGenerator(cfg *Config) error {
 		QoS:    1,
 	}
 
-	// Initialize binding generator with existing dependencies
-	c.BindingGenerator = forms.NewBindingGenerator(
+	// Initialize binding generator with unified system
+	// Always use the new unified binding generator since legacy code has been removed
+	unifiedAdapter := forms.NewUnifiedBindingGeneratorAdapter(
 		c.Logger,
 		licenseAdapter,
-		c.BenthosStreamManager, // Use existing stream manager
-		parquetConfig,
-		kafkaConfig,
-		mqttConfig,
+		c.BenthosStreamManager,
 	)
+	unifiedAdapter.ConfigureFromLegacy(parquetConfig, kafkaConfig, mqttConfig)
+	c.BindingGenerator = unifiedAdapter
+	c.Logger.Info("Using unified binding generator")
 
 	c.Logger.Info("Centralized binding generator initialized")
 	return nil
