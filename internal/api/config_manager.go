@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/types"
 )
 
 // Ensure ConfigManager implements ConfigurationManager interface
@@ -63,6 +65,31 @@ func (cm *ConfigManager) RemoveThingRoutes(logger logrus.FieldLogger, thingID st
 	entryLogger.Warn("RemoveThingRoutes is not fully implemented. Placeholder success.")
 	// Simulate not finding any routes for this thingID to avoid accidental success logging for an empty operation.
 	// return &ErrCaddyResourceNotFound{ResourceType: "route", ResourceID: thingID, CaddyPath: "/config/apps/http/servers/srv0/routes"}
+	return nil // Returning nil for now to avoid breaking existing flows.
+}
+
+// AddRoute adds a new HTTP route to the Caddy configuration
+func (cm *ConfigManager) AddRoute(ctx context.Context, routeID string, route types.HTTPRoute) error {
+	cm.logger.WithFields(logrus.Fields{
+		"service_method": "AddRoute",
+		"route_id":       routeID,
+		"path":           route.Path,
+	}).Info("Adding HTTP route to Caddy configuration")
+
+	// TODO: Implement the logic to add the route to Caddy's configuration
+	// This is a complex operation and requires careful manipulation of Caddy's JSON config.
+	// For now, this function is a placeholder.
+	// Example steps:
+	// 1. Fetch current Caddy config: currentConfig, err := cm.getCaddyConfig(cm.logger, "/config")
+	// 2. Navigate to http server routes: e.g., currentConfig["apps"]["http"]["servers"]["srv0"]["routes"]
+	// 3. Add the new route in the appropriate format
+	// 4. Update Caddy config: err = cm.updateCaddyConfig(cm.logger, "/config", currentConfig)
+
+	cm.logger.WithFields(logrus.Fields{
+		"route_id": routeID,
+		"path":     route.Path,
+	}).Warn("AddRoute is not fully implemented. Placeholder success.")
+	
 	return nil // Returning nil for now to avoid breaking existing flows.
 }
 

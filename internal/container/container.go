@@ -324,9 +324,8 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 	// Create an adapter for ThingRegistry to match the extended interface
 	thingRegistryExt := &ThingRegistryAdapter{ThingRegistry: c.ThingRegistry}
 
-	// Replace with the correct constructor for ThingRegistrationService.
-	// For example, if the correct function is api.NewThingRegistrationService:
-	c.ThingRegistrationSvc = api.NewThingRegistrationService(
+	// Initialize Thing registration service with the correct constructor
+	c.ThingRegistrationSvc = api.NewDefaultThingRegistrationService(
 		thingRegistryExt,
 		c.TDStreamComposition,
 		c.ConfigurationMgr,     // Pass ConfigurationManager

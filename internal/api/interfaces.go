@@ -18,6 +18,7 @@ type ConfigurationManager interface {
 	ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error
 	GetConfiguration(logger logrus.FieldLogger) (map[string]interface{}, error)
 	UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]interface{}) error
+	AddRoute(ctx context.Context, routeID string, route types.HTTPRoute) error
 	RemoveThingRoutes(logger logrus.FieldLogger, thingID string) error
 }
 
