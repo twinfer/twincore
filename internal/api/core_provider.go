@@ -16,4 +16,5 @@ type CoreProvider interface {
 	GetThingRegistry() ThingRegistry
 	GetEventBroker() *EventBroker
 	GetBenthosStreamManager() BenthosStreamManager
+	GetConfigurationManager() ConfigurationManager
 }

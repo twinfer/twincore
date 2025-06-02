@@ -13,6 +13,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	// Import the caddy_app package
@@ -67,38 +68,7 @@ type WoTHandler struct {
 	metrics MetricsCollector
 }
 
-// StateManager handles property state and synchronization
-type StateManager interface {
-	GetProperty(thingID, propertyName string) (interface{}, error)
-	SetProperty(thingID, propertyName string, value interface{}) error
-	SetPropertyWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error
-	SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) // Use models.PropertyUpdate
-	UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate)    // Use models.PropertyUpdate
-}
-
-// StreamBridge connects HTTP handlers to Benthos streams
-type StreamBridge interface {
-	PublishPropertyUpdate(thingID, propertyName string, value interface{}) error
-	PublishPropertyUpdateWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error
-	PublishActionInvocation(thingID, actionName string, input interface{}) (string, error)
-	PublishEvent(thingID, eventName string, data interface{}) error
-	GetActionResult(actionID string, timeout time.Duration) (interface{}, error)
-}
-
-// ThingRegistry provides access to Thing Descriptions
-type ThingRegistry interface {
-	GetThing(thingID string) (*wot.ThingDescription, error)
-	GetProperty(thingID, propertyName string) (wot.PropertyAffordance, error)
-	GetAction(thingID, actionName string) (wot.ActionAffordance, error)
-	GetEvent(thingID, eventName string) (wot.EventAffordance, error)
-}
-
-// SchemaValidator validates inputs against WoT schemas
-type SchemaValidator interface {
-	ValidateProperty(propertyName string, propertySchema wot.DataSchema, value interface{}) error
-	ValidateActionInput(schema wot.DataSchema, input interface{}) error
-	ValidateEventData(schema wot.DataSchema, data interface{}) error
-}
+// StateManager, StreamBridge, ThingRegistry, SchemaValidator interfaces are now defined in interfaces.go
 
 // PropertyCache provides fast property access
 type PropertyCache struct {
@@ -302,56 +272,79 @@ func (h *WoTHandler) Provision(ctx caddy.Context) error {
 
 // ServeHTTP handles WoT requests
 func (h *WoTHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	requestID := r.Header.Get(RequestIDHeader)
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	handlerLogger := h.logger.WithField("request_id", requestID)
+
+	handlerLogger.WithFields(logrus.Fields{"handler_name": "WoTHandler.ServeHTTP", "method": r.Method, "path": r.URL.Path}).Debug("Handler called")
+	defer handlerLogger.WithFields(logrus.Fields{"handler_name": "WoTHandler.ServeHTTP"}).Debug("Handler finished")
+
 	// Extract path parameters using Caddy's mechanism
 	vars, ok := r.Context().Value(caddyhttp.VarsCtxKey).(map[string]string)
 	if !ok {
+		handlerLogger.Error("Path variables not available in request context")
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("path variables not available"))
 	}
 	thingID := vars["id"]           // Key "id" as per WoTMapper pattern /things/{id}/...
 	interactionType := vars["type"] // Key "type" as per WoTMapper pattern /things/{id}/{type}/...
 	name := vars["name"]            // Key "name" as per WoTMapper pattern /things/{id}/{type}/{name}
 
+	// Pass the request-specific logger down
 	// Route based on interaction type
 	switch interactionType {
 	case interactionTypeProperties:
-		return h.handleProperty(w, r, thingID, name)
+		return h.handleProperty(handlerLogger, w, r, thingID, name)
 	case interactionTypeActions:
-		return h.handleAction(w, r, thingID, name)
+		return h.handleAction(handlerLogger, w, r, thingID, name)
 	case interactionTypeEvents:
-		return h.handleEvent(w, r, thingID, name)
+		return h.handleEvent(handlerLogger, w, r, thingID, name)
 	default:
+		handlerLogger.WithField("interaction_type", interactionType).Warn("Unknown interaction type requested")
 		return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("unknown interaction type: %s", interactionType))
 	}
 }
 
 // handleProperty handles property read/write operations
-func (h *WoTHandler) handleProperty(w http.ResponseWriter, r *http.Request, thingID, propertyName string) error {
+func (h *WoTHandler) handleProperty(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, propertyName string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleProperty", "thing_id": thingID, "property_name": propertyName, "method": r.Method}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleProperty"}).Debug("Handler finished")
+
 	// Get property definition
+	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetProperty", "thing_id": thingID, "property_name": propertyName}).Debug("Calling service")
 	property, err := h.thingRegistry.GetProperty(thingID, propertyName)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetProperty", "thing_id": thingID, "property_name": propertyName}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		return h.handlePropertyRead(w, r, thingID, propertyName, property)
+		return h.handlePropertyRead(logger, w, r, thingID, propertyName, property)
 	case http.MethodPut:
-		return h.handlePropertyWrite(w, r, thingID, propertyName, property)
+		return h.handlePropertyWrite(logger, w, r, thingID, propertyName, property)
 	default:
+		logger.WithField("method", r.Method).Warn("Method not allowed for property interaction")
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
 }
 
 // handlePropertyRead handles GET requests for properties
-func (h *WoTHandler) handlePropertyRead(w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
+func (h *WoTHandler) handlePropertyRead(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handlePropertyRead", "thing_id": thingID, "property_name": propertyName}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handlePropertyRead"}).Debug("Handler finished")
+
 	// Check if observable and client wants SSE
 	if property.IsObservable() && r.Header.Get(headerAccept) == contentTypeEventStream {
-		return h.handlePropertyObserve(w, r, thingID, propertyName)
+		return h.handlePropertyObserve(logger, w, r, thingID, propertyName)
 	}
 
 	// Get property value from cache or state manager
-	value, err := h.getPropertyValue(thingID, propertyName)
+	logger.WithFields(logrus.Fields{"method_name": "getPropertyValue", "thing_id": thingID, "property_name": propertyName}).Debug("Calling internal method")
+	value, err := h.getPropertyValue(thingID, propertyName) // Assuming getPropertyValue doesn't need request-scoped logger for now
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"method_name": "getPropertyValue", "thing_id": thingID, "property_name": propertyName}).Error("Internal method call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
@@ -375,21 +368,27 @@ func (h *WoTHandler) handlePropertyRead(w http.ResponseWriter, r *http.Request, 
 }
 
 // handlePropertyWrite handles PUT requests for properties
-func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
+func (h *WoTHandler) handlePropertyWrite(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handlePropertyWrite", "thing_id": thingID, "property_name": propertyName}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handlePropertyWrite"}).Debug("Handler finished")
+
 	// Check if property is writable
 	if property.IsReadOnly() {
+		logger.Warn("Attempt to write to read-only property")
 		return caddyhttp.Error(http.StatusForbidden, fmt.Errorf("property is read-only"))
 	}
 
 	// Parse request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		logger.WithError(err).Warn("Failed to read request body for property write")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 
 	// Deserialize value
 	var value interface{}
 	if err := json.Unmarshal(body, &value); err != nil {
+		logger.WithError(err).Warn("Failed to unmarshal JSON for property write")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 
@@ -410,23 +409,29 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 		Descriptions:   property.InteractionAffordance.Descriptions,
 		Comment:        property.InteractionAffordance.Comment,
 	}
-
-	if err := h.validator.ValidateProperty(propertyName, propertySchemaForValidation, value); err != nil {
-		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
+	logger.WithField("property_name_for_validation", propertyName).Debug("Validating property against schema")
+	if err := h.validator.ValidateProperty(logger, propertyName, propertySchemaForValidation, value); err != nil {
+		// Logger inside ValidateProperty already logs details of validation_errors at Warn level
+		// Here we log that the validation step failed at a higher level if needed, or just return.
+		// The logger passed to ValidateProperty will contain request_id.
+		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed for property %s: %w", propertyName, err))
 	}
 
 	// Create update context to track source
 	updateCtx := models.WithUpdateContext(r.Context(), models.NewUpdateContext(models.UpdateSourceHTTP))
 
 	// Update property value with context
-	if err := h.stateManager.SetPropertyWithContext(updateCtx, thingID, propertyName, value); err != nil {
+	logger.WithFields(logrus.Fields{"service_name": "StateManager", "method_name": "SetPropertyWithContext", "thing_id": thingID, "property_name": propertyName}).Debug("Calling service")
+	if err := h.stateManager.SetPropertyWithContext(logger, updateCtx, thingID, propertyName, value); err != nil { // Pass logger
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "StateManager", "method_name": "SetPropertyWithContext", "thing_id": thingID, "property_name": propertyName}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 
 	// Publish update to stream (only if source is HTTP to prevent circular updates)
-	if err := h.streamBridge.PublishPropertyUpdateWithContext(updateCtx, thingID, propertyName, value); err != nil {
+	logger.WithFields(logrus.Fields{"service_name": "StreamBridge", "method_name": "PublishPropertyUpdateWithContext", "thing_id": thingID, "property_name": propertyName}).Debug("Calling service")
+	if err := h.streamBridge.PublishPropertyUpdateWithContext(logger, updateCtx, thingID, propertyName, value); err != nil {
 		// Log but don't fail the request
-		h.logError("failed to publish property update", err)
+		h.logError(logger, "failed to publish property update", err) // Pass logger
 	}
 
 	// Clear cache
@@ -437,15 +442,21 @@ func (h *WoTHandler) handlePropertyWrite(w http.ResponseWriter, r *http.Request,
 }
 
 // handlePropertyObserve handles SSE subscriptions for observable properties
-func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Request, thingID, propertyName string) error {
+func (h *WoTHandler) handlePropertyObserve(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, propertyName string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handlePropertyObserve", "thing_id": thingID, "property_name": propertyName}).Debug("Handler called")
+	// Deferring finish log here might be tricky due to long-lived SSE connection.
+	// Consider logging when connection closes if possible, or just entry.
+
 	// Set SSE headers
 	w.Header().Set(headerContentType, contentTypeEventStream)
 	w.Header().Set(headerCacheControl, cacheControlNoCache)
 	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	// Subscribe to property updates
+	logger.WithFields(logrus.Fields{"service_name": "StateManager", "method_name": "SubscribeProperty", "thing_id": thingID, "property_name": propertyName}).Debug("Calling service")
 	updates, err := h.stateManager.SubscribeProperty(thingID, propertyName)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "StateManager", "method_name": "SubscribeProperty", "thing_id": thingID, "property_name": propertyName}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
 	defer h.stateManager.UnsubscribeProperty(thingID, propertyName, updates)
@@ -453,16 +464,21 @@ func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Reques
 	// Create SSE encoder
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		logger.Error("Streaming not supported by ResponseWriter")
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("streaming not supported"))
 	}
 
 	// Send initial value
-	if value, err := h.getPropertyValue(thingID, propertyName); err == nil {
+	logger.WithFields(logrus.Fields{"method_name": "getPropertyValue", "thing_id": thingID, "property_name": propertyName}).Debug("Calling internal method for initial SSE value")
+	if value, err := h.getPropertyValue(thingID, propertyName); err == nil { // Assuming getPropertyValue doesn't need request-scoped logger
+		logger.Debug("Sending initial property value for SSE")
 		fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
 			"value":     value,
 			"timestamp": time.Now().UTC(),
 		}), sseDoubleNewline)
 		flusher.Flush()
+	} else {
+		logger.WithError(err).WithFields(logrus.Fields{"method_name": "getPropertyValue", "thing_id": thingID, "property_name": propertyName}).Warn("Failed to get initial property value for SSE")
 	}
 
 	// Stream updates
@@ -475,20 +491,27 @@ func (h *WoTHandler) handlePropertyObserve(w http.ResponseWriter, r *http.Reques
 			}), sseDoubleNewline)
 			flusher.Flush()
 		case <-r.Context().Done():
+			logger.Debug("SSE connection closed by client")
 			return nil
 		}
 	}
 }
 
 // handleAction handles action invocations
-func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingID, actionName string) error {
+func (h *WoTHandler) handleAction(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, actionName string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleAction", "thing_id": thingID, "action_name": actionName, "method": r.Method}).Debug("Handler called")
+	defer logger.WithFields(logrus.Fields{"handler_name": "handleAction"}).Debug("Handler finished")
+
 	if r.Method != http.MethodPost {
+		logger.WithField("method", r.Method).Warn("Method not allowed for action invocation")
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
 
 	// Get action definition
+	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetAction", "thing_id": thingID, "action_name": actionName}).Debug("Calling service")
 	action, err := h.thingRegistry.GetAction(thingID, actionName)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetAction", "thing_id": thingID, "action_name": actionName}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
@@ -503,27 +526,34 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 	if r.ContentLength > 0 {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			logger.WithError(err).Warn("Failed to read request body for action invocation")
 			return caddyhttp.Error(http.StatusBadRequest, err)
 		}
 		defer r.Body.Close()
 
 		if len(body) > 0 { // Only unmarshal if body is not empty
 			if err := json.Unmarshal(body, &input); err != nil {
-				h.logError(fmt.Sprintf("Failed to unmarshal action input for %s/%s", thingID, actionName), err)
+				logger.WithError(err).WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName}).Warn("Failed to unmarshal JSON for action input")
 				return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("invalid JSON input: %w", err))
 			}
 		}
 	} // If ContentLength is 0 or body was empty, `input` remains `nil`.
 
 	// Validate input. `inputSchema` is wot.DataSchema. If it's a zero struct, validator is permissive.
-	if err := h.validator.ValidateActionInput(inputSchema, input); err != nil {
-		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed: %w", err))
+	logger.WithField("action_name_for_validation", actionName).Debug("Validating action input against schema")
+	if err := h.validator.ValidateActionInput(logger, inputSchema, input); err != nil {
+		// Logger inside ValidateActionInput already logs details
+		return caddyhttp.Error(http.StatusBadRequest, fmt.Errorf("validation failed for action %s input: %w", actionName, err))
 	}
+
 	// Publish action invocation
-	actionID, err := h.streamBridge.PublishActionInvocation(thingID, actionName, input)
+	logger.WithFields(logrus.Fields{"service_name": "StreamBridge", "method_name": "PublishActionInvocation", "thing_id": thingID, "action_name": actionName}).Debug("Calling service")
+	actionID, err := h.streamBridge.PublishActionInvocation(logger, thingID, actionName, input)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "StreamBridge", "method_name": "PublishActionInvocation", "thing_id": thingID, "action_name": actionName}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
 	}
+	logger = logger.WithField("action_id", actionID) // Add actionID to subsequent logs for this request
 
 	// Check if client wants async response
 	if r.Header.Get(headerPrefer) == preferRespondAsync {
@@ -537,15 +567,20 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 	}
 
 	// Wait for result (with timeout)
-	timeout := 30 * time.Second
+	timeout := 30 * time.Second // Default timeout
 	if t := r.Header.Get(headerXActionTimeout); t != "" {
-		if parsed, err := time.ParseDuration(t); err == nil {
+		if parsed, err := time.ParseDuration(t); err == nil { // Corrected: check err before using parsed
 			timeout = parsed
+			logger.WithField("timeout", timeout.String()).Debug("Using client-provided action timeout")
+		} else {
+			logger.WithError(err).WithField("header_value", t).Warn("Failed to parse X-Action-Timeout header")
 		}
 	}
 
-	result, err := h.streamBridge.GetActionResult(actionID, timeout)
+	logger.WithFields(logrus.Fields{"service_name": "StreamBridge", "method_name": "GetActionResult", "action_id": actionID, "timeout": timeout.String()}).Debug("Calling service to get action result")
+	result, err := h.streamBridge.GetActionResult(logger, actionID, timeout)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "StreamBridge", "method_name": "GetActionResult", "action_id": actionID}).Error("Service call for action result returned error")
 		return caddyhttp.Error(http.StatusGatewayTimeout, err)
 	}
 
@@ -561,14 +596,20 @@ func (h *WoTHandler) handleAction(w http.ResponseWriter, r *http.Request, thingI
 }
 
 // handleEvent handles event subscriptions
-func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID, eventName string) error {
+func (h *WoTHandler) handleEvent(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, eventName string) error {
+	logger.WithFields(logrus.Fields{"handler_name": "handleEvent", "thing_id": thingID, "event_name": eventName, "method": r.Method}).Debug("Handler called")
+	// Deferring finish log here might be tricky due to long-lived SSE connection.
+
 	if r.Method != http.MethodGet {
+		logger.WithField("method", r.Method).Warn("Method not allowed for event subscription")
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
 
 	// Get event definition
+	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetEvent", "thing_id": thingID, "event_name": eventName}).Debug("Calling service")
 	_, err := h.thingRegistry.GetEvent(thingID, eventName)
 	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetEvent", "thing_id": thingID, "event_name": eventName}).Error("Service call returned error")
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
@@ -578,13 +619,19 @@ func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID
 	w.Header().Set(headerConnection, connectionKeepAlive)
 
 	// Subscribe to events
+	logger.WithFields(logrus.Fields{"service_name": "EventBroker", "method_name": "Subscribe", "thing_id": thingID, "event_name": eventName}).Debug("Calling service")
 	eventChan := h.eventBroker.Subscribe(thingID, eventName)
-	defer h.eventBroker.Unsubscribe(thingID, eventName, eventChan)
+	defer func() {
+		logger.Debug("Unsubscribing from event stream")
+		h.eventBroker.Unsubscribe(thingID, eventName, eventChan)
+	}()
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		logger.Error("Streaming not supported by ResponseWriter for event stream")
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("streaming not supported"))
 	}
+	logger.Debug("SSE connection established for event stream")
 
 	// Stream events
 	for {
@@ -595,6 +642,7 @@ func (h *WoTHandler) handleEvent(w http.ResponseWriter, r *http.Request, thingID
 
 			flusher.Flush()
 		case <-r.Context().Done():
+			logger.Debug("SSE connection closed by client for event stream")
 			return nil
 		}
 	}
@@ -678,10 +726,15 @@ func (h *WoTHandler) encodeSSEData(data interface{}) string {
 	return string(encoded)
 }
 
-func (h *WoTHandler) logError(msg string, err error) {
-	if h.logger != nil {
+// logError is a local helper, now takes logger to ensure request_id context is kept if possible
+func (h *WoTHandler) logError(logger *logrus.Entry, msg string, err error) {
+	// If a specific request logger is passed, use it. Otherwise, fall back to handler's general logger.
+	if logger != nil {
+		logger.WithError(err).Error(msg)
+	} else if h.logger != nil {
 		h.logger.WithError(err).Error(msg)
 	} else {
+		// Fallback if no logger is available at all (should be rare after provisioning)
 		fmt.Printf("WoT Handler Error (logger not initialized): %s: %v\n", msg, err)
 	}
 }

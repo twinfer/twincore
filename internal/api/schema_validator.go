@@ -7,15 +7,19 @@ import (
 	"sync/atomic"
 
 	"github.com/twinfer/twincore/pkg/wot"
+	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/wot"
 	"github.com/xeipuuv/gojsonschema"
 )
 
 // JSONSchemaValidator implements SchemaValidator using JSON Schema
 type JSONSchemaValidator struct {
 	schemaCache map[string]*gojsonschema.Schema
+	// logger logrus.FieldLogger // No longer storing logger in struct, passed via methods
 }
 
 func NewJSONSchemaValidator() *JSONSchemaValidator {
+	// Logger is no longer initialized here
 	return &JSONSchemaValidator{
 		schemaCache: make(map[string]*gojsonschema.Schema),
 	}
@@ -24,121 +28,135 @@ func NewJSONSchemaValidator() *JSONSchemaValidator {
 // getCachedOrCompile attempts to retrieve a compiled schema from cache.
 // If not found, it compiles the provided dataSchema, caches it, and returns it.
 // The cacheKey must uniquely identify the schema.
-func (v *JSONSchemaValidator) getCachedOrCompile(cacheKey string, dataSchema wot.DataSchema) (*gojsonschema.Schema, error) {
+func (v *JSONSchemaValidator) getCachedOrCompile(logger logrus.FieldLogger, cacheKey string, dataSchema wot.DataSchema) (*gojsonschema.Schema, error) {
+	logger = logger.WithFields(logrus.Fields{"internal_method": "getCachedOrCompile", "cache_key": cacheKey})
+
 	if compiled, ok := v.schemaCache[cacheKey]; ok {
+		logger.Debug("Schema found in cache")
 		return compiled, nil
 	}
+	logger.Debug("Schema not in cache, compiling")
 
 	schemaJSON, err := json.Marshal(dataSchema)
 	if err != nil {
+		logger.WithError(err).Error("Failed to marshal schema to JSON for cache key")
 		return nil, fmt.Errorf("failed to marshal schema to JSON for key '%s': %w", cacheKey, err)
 	}
 
 	schemaLoader := gojsonschema.NewStringLoader(string(schemaJSON))
 	compiledSchema, err := gojsonschema.NewSchema(schemaLoader)
 	if err != nil {
+		logger.WithError(err).Error("Failed to compile schema from loader")
 		return nil, fmt.Errorf("failed to compile schema for key '%s': %w", cacheKey, err)
 	}
 
 	v.schemaCache[cacheKey] = compiledSchema
+	logger.Debug("Schema compiled and cached successfully")
 	return compiledSchema, nil
 }
 
-func (v *JSONSchemaValidator) ValidateProperty(propertyName string, propertySchema wot.DataSchema, value interface{}) error {
-	// Note: propertyName as a cache key might not be globally unique if the validator
-	// is shared across different Things with potentially colliding property names.
-	// A more robust key might involve a ThingID if available at this layer.
-	// For now, we use propertyName, assuming it's unique enough in the validator's context.
-	compiledSchema, err := v.getCachedOrCompile(propertyName, propertySchema)
+func (v *JSONSchemaValidator) ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value interface{}) error {
+	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateProperty", "property_name": propertyName})
+	logger.Debug("Performing schema validation for property")
+
+	// Note: propertyName as a cache key might not be globally unique. Consider ThingID if available.
+	compiledSchema, err := v.getCachedOrCompile(logger, propertyName, propertySchema)
 	if err != nil {
-		// This error means schema compilation failed.
+		// Error already logged by getCachedOrCompile if it's from there
 		return fmt.Errorf("schema compilation/retrieval error for property '%s': %w", propertyName, err)
 	}
-	if compiledSchema == nil {
-		return nil // No schema defined, accept any value
-	}
+	// A nil compiledSchema is not expected from getCachedOrCompile if err is nil.
+	// If propertySchema was empty, it would compile to a permissive schema.
 
 	documentLoader := gojsonschema.NewGoLoader(value)
 	result, err := compiledSchema.Validate(documentLoader)
-	if err != nil {
+	if err != nil { // This is an error during the validation process itself, not validation failure
+		logger.WithError(err).Error("Error during schema validation process")
 		return fmt.Errorf("validation error: %w", err)
 	}
 
 	if !result.Valid() {
-		errors := ""
-		for _, err := range result.Errors() {
-			errors += fmt.Sprintf("- %s\n", err)
+		var errors []string
+		for _, desc := range result.Errors() {
+			errors = append(errors, fmt.Sprintf("- %s", desc))
 		}
-		return fmt.Errorf("value does not match schema:\n%s", errors)
+		logger.WithField("validation_errors", errors).Warn("Schema validation failed for property")
+		return fmt.Errorf("value does not match schema: %s", strings.Join(errors, "; "))
 	}
 
+	logger.Debug("Schema validation successful for property")
 	return nil
 }
 
-func (v *JSONSchemaValidator) ValidateActionInput(schema wot.DataSchema, input interface{}) error {
-	// If schema is a zero-value struct, json.Marshal will likely produce "{}".
-	// gojsonschema will compile "{}" into a permissive schema.
-	// This effectively skips strict validation if no specific schema is provided,
-	// which matches the original intent of "if schema == nil { return nil }".
+func (v *JSONSchemaValidator) ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input interface{}) error {
+	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateActionInput"})
+	logger.Debug("Performing schema validation for action input")
 
-	// Generate a cache key from the schema itself by marshalling it.
 	schemaKeyBytes, err := json.Marshal(schema)
 	if err != nil {
+		logger.WithError(err).Error("Failed to marshal action input schema for cache key generation")
 		return fmt.Errorf("failed to marshal action input schema for cache key generation: %w", err)
 	}
 	cacheKey := string(schemaKeyBytes)
+	logger = logger.WithField("schema_cache_key_hash", cacheKey) // Log hash or part of it if too long
 
-	compiledSchema, err := v.getCachedOrCompile(cacheKey, schema)
+	compiledSchema, err := v.getCachedOrCompile(logger, cacheKey, schema)
 	if err != nil {
 		return fmt.Errorf("schema compilation/retrieval error for action input: %w", err)
 	}
 	documentLoader := gojsonschema.NewGoLoader(input)
 	result, err := compiledSchema.Validate(documentLoader)
 	if err != nil {
+		logger.WithError(err).Error("Error during schema validation process for action input")
 		return fmt.Errorf("validation error: %w", err)
 	}
 
 	if !result.Valid() {
-		errors := ""
-		for _, err := range result.Errors() {
-			errors += fmt.Sprintf("- %s\n", err)
+		var errors []string
+		for _, desc := range result.Errors() {
+			errors = append(errors, fmt.Sprintf("- %s", desc))
 		}
-		return fmt.Errorf("input does not match schema:\n%s", errors)
+		logger.WithField("validation_errors", errors).Warn("Schema validation failed for action input")
+		return fmt.Errorf("input does not match schema: %s", strings.Join(errors, "; "))
 	}
 
+	logger.Debug("Schema validation successful for action input")
 	return nil
 }
 
-func (v *JSONSchemaValidator) ValidateEventData(schema wot.DataSchema, data interface{}) error {
-	// Similar to ValidateActionInput, a zero-value schema struct will lead to
-	// a permissive validation after being marshalled (likely to "{}") and compiled.
-	// This replaces the direct "if schema == nil" check which caused the error.
+func (v *JSONSchemaValidator) ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data interface{}) error {
+	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateEventData"})
+	logger.Debug("Performing schema validation for event data")
 
-	// Generate a cache key from the schema itself
 	schemaKeyBytes, err := json.Marshal(schema)
 	if err != nil {
+		logger.WithError(err).Error("Failed to marshal event data schema for cache key generation")
 		return fmt.Errorf("failed to marshal event data schema for cache key generation: %w", err)
 	}
 	cacheKey := string(schemaKeyBytes)
+	logger = logger.WithField("schema_cache_key_hash", cacheKey)
 
-	compiledSchema, err := v.getCachedOrCompile(cacheKey, schema)
+	compiledSchema, err := v.getCachedOrCompile(logger, cacheKey, schema)
 	if err != nil {
 		return fmt.Errorf("schema compilation/retrieval error for event data: %w", err)
 	}
 	documentLoader := gojsonschema.NewGoLoader(data)
 	result, err := compiledSchema.Validate(documentLoader)
 	if err != nil {
+		logger.WithError(err).Error("Error during schema validation process for event data")
 		return fmt.Errorf("validation error: %w", err)
 	}
 
 	if !result.Valid() {
-		errors := ""
-		for _, err := range result.Errors() {
-			errors += fmt.Sprintf("- %s\n", err)
+		var errors []string
+		for _, desc := range result.Errors() {
+			errors = append(errors, fmt.Sprintf("- %s", desc))
 		}
-		return fmt.Errorf("event data does not match schema:\n%s", errors)
+		logger.WithField("validation_errors", errors).Warn("Schema validation failed for event data")
+		return fmt.Errorf("event data does not match schema: %s", strings.Join(errors, "; "))
 	}
 
+	logger.Debug("Schema validation successful for event data")
 	return nil
 }
 

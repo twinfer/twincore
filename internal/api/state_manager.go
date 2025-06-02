@@ -28,13 +28,13 @@ import (
 // DuckDBStateManager implements StateManager using DuckDB
 type DuckDBStateManager struct {
 	db             *sql.DB
-	logger         *logrus.Logger
-	subscribers    sync.Map     // map[string][]chan PropertyUpdate
-	mu             sync.RWMutex // Protects subscribers map
+	logger         logrus.FieldLogger // Changed to FieldLogger for consistency, though *logrus.Logger also works
+	subscribers    sync.Map           // map[string][]chan PropertyUpdate
+	mu             sync.RWMutex       // Protects subscribers map
 	parquetLogPath string
 }
 
-func NewDuckDBStateManager(db *sql.DB, logger *logrus.Logger, parquetLogPath string) (*DuckDBStateManager, error) {
+func NewDuckDBStateManager(db *sql.DB, logger logrus.FieldLogger, parquetLogPath string) (*DuckDBStateManager, error) { // Changed logger type
 	logger.Debug("Creating DuckDB state manager")
 	if parquetLogPath == "" {
 		logger.Warn("Parquet logging path is empty, Parquet logging will be disabled.")
@@ -54,13 +54,19 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 	if m.parquetLogPath == "" {
 		return nil // Parquet logging is disabled
 	}
+	entryLogger := m.logger.WithFields(logrus.Fields{"service_method": "logPropertyToParquet", "thing_id": record.ThingID, "property_name": record.PropertyName})
+	entryLogger.Debug("Service method called (internal)")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (internal)") }()
 
 	today := time.Now().Format("2006-01-02")
 	dirPath := filepath.Join(m.parquetLogPath, "properties")
 	filePath := filepath.Join(dirPath, fmt.Sprintf("props_%s.parquet", today))
 
+	entryLogger.WithField("parquet_file_path", filePath).Debug("Attempting to log property to parquet")
+
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
-		m.logger.WithError(err).Errorf("Failed to create Parquet log directory: %s", dirPath)
+		entryLogger.WithError(err).Errorf("Failed to create Parquet log directory: %s", dirPath)
 		return err
 	}
 
@@ -110,10 +116,10 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 
 		err = pqarrow.WriteTable(tableFromRecord, f, tableFromRecord.NumRows(), props, pqarrow.ArrowWriterProperties{})
 		if err != nil {
-			m.logger.WithError(err).Errorf("Failed to write new Parquet table to file: %s", filePath)
+			entryLogger.WithError(err).Errorf("Failed to write new Parquet table to file: %s", filePath)
 			return err
 		}
-		m.logger.Debugf("Successfully wrote initial record to new Parquet file: %s", filePath)
+		entryLogger.Debugf("Successfully wrote initial record to new Parquet file: %s", filePath)
 	} else if statErr == nil { // File exists and stat was successful
 		// File exists, attempt to append. This is complex with WriteTable.
 		// A robust append involves reading, merging, and rewriting, or using lower-level Parquet APIs.
@@ -235,53 +241,62 @@ func (m *DuckDBStateManager) logPropertyToParquet(record models.PropertyStatePar
 		props := parquet.NewWriterProperties(parquet.WithCompression(compress.Codecs.Snappy))
 		err = pqarrow.WriteTable(tableToWrite, f, tableToWrite.NumRows(), props, pqarrow.ArrowWriterProperties{})
 		if err != nil {
-			m.logger.WithError(err).Errorf("Failed to write appended Parquet table to file: %s", filePath)
+			entryLogger.WithError(err).Errorf("Failed to write appended Parquet table to file: %s", filePath)
 			return err
 		}
-		m.logger.Debugf("Successfully wrote/appended record to Parquet file: %s", filePath)
+		entryLogger.Debugf("Successfully wrote/appended record to Parquet file: %s", filePath)
 	} else { // statErr is not nil and not os.IsNotExist (i.e., another error occurred during stat)
-		m.logger.WithError(statErr).Errorf("Failed to stat Parquet file: %s", filePath)
+		entryLogger.WithError(statErr).Errorf("Failed to stat Parquet file: %s", filePath)
 		return statErr
 	}
 	return nil
 }
 
 func (m *DuckDBStateManager) GetProperty(thingID, propertyName string) (interface{}, error) {
-	m.logger.Debugf("Getting property: %s/%s", thingID, propertyName)
+	logger := m.logger.WithFields(logrus.Fields{"service_method": "GetProperty", "thing_id": thingID, "property_name": propertyName})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
 	var valueJSON string
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Debug("Calling dependency")
 	err := m.db.QueryRow(`
         SELECT value FROM property_state 
         WHERE thing_id = ? AND property_name = ?
     `, thingID, propertyName).Scan(&valueJSON)
 
 	if err == sql.ErrNoRows {
-		m.logger.Debugf("Property not found: %s/%s", thingID, propertyName)
+		logger.Debug("Property not found in DB")
 		return nil, fmt.Errorf("property not found")
 	}
 	if err != nil {
-		m.logger.Errorf("Database error getting property: %v", err)
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Error("Dependency call failed")
 		return nil, err
 	}
 
 	var value interface{}
 	if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
-		m.logger.Errorf("Failed to unmarshal property value: %v", err)
+		logger.WithError(err).Error("Failed to unmarshal property value from DB")
 		return nil, err
 	}
 
-	m.logger.Debugf("Retrieved property %s/%s: %v", thingID, propertyName, value)
+	logger.WithField("retrieved_value", value).Debug("Retrieved property successfully")
 	return value, nil
 }
 
 func (m *DuckDBStateManager) SetProperty(thingID, propertyName string, value interface{}) error {
-	// Use default HTTP source for backward compatibility
+	// Use default HTTP source for backward compatibility and a base logger
 	ctx := models.WithUpdateContext(context.Background(), models.NewUpdateContext(models.UpdateSourceHTTP))
-	return m.SetPropertyWithContext(ctx, thingID, propertyName, value)
+	// If request_id is needed here, it should be passed or m.logger should be request-scoped.
+	// For now, using m.logger directly.
+	return m.SetPropertyWithContext(m.logger, ctx, thingID, propertyName, value)
 }
 
-func (m *DuckDBStateManager) SetPropertyWithContext(ctx context.Context, thingID, propertyName string, value interface{}) error {
-	m.logger.Debugf("Setting property: %s/%s = %v", thingID, propertyName, value)
+func (m *DuckDBStateManager) SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value interface{}) error {
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetPropertyWithContext", "thing_id": thingID, "property_name": propertyName, "value": value})
+	entryLogger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
 	// Extract source from context
 	source := "unknown"
@@ -289,134 +304,156 @@ func (m *DuckDBStateManager) SetPropertyWithContext(ctx context.Context, thingID
 		source = string(updateCtx.Source)
 	}
 
+	if updateCtx, ok := models.GetUpdateContext(ctx); ok {
+		source = string(updateCtx.Source)
+	}
+	logger = logger.WithField("source", source)
+
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
-		m.logger.Errorf("Failed to marshal property value: %v", err)
+		logger.WithError(err).Error("Failed to marshal property value")
 		return err
 	}
 
-	_, err = m.db.Exec(`
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to set property")
+	_, err = m.db.ExecContext(ctx, `
         INSERT OR REPLACE INTO property_state 
         (thing_id, property_name, value, updated_at)
         VALUES (?, ?, ?, ?)
     `, thingID, propertyName, string(valueJSON), time.Now())
 
 	if err != nil {
-		m.logger.Errorf("Database error setting property: %v", err)
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
 		return err
 	}
 
-	m.logger.Infof("Property updated in DB: %s/%s", thingID, propertyName)
+	logger.Info("Property updated in DB")
 
 	// Log to Parquet with source context
 	if m.parquetLogPath != "" {
 		parquetRecord := models.PropertyStateParquetRecord{
 			ThingID:      thingID,
 			PropertyName: propertyName,
-			Value:        string(valueJSON), // Already marshaled
+			Value:        string(valueJSON),
 			Timestamp:    time.Now().UnixNano(),
-			Source:       source, // Use source from context
+			Source:       source,
 		}
-		if err := m.logPropertyToParquet(parquetRecord); err != nil {
-			// Log error but do not fail the SetProperty operation
-			m.logger.WithError(err).Error("Failed to log property update to Parquet")
+		logger.WithField("record", parquetRecord).Debug("Logging property update to Parquet")
+		if errLTP := m.logPropertyToParquet(parquetRecord); errLTP != nil { // logPropertyToParquet uses m.logger internally
+			logger.WithError(errLTP).Error("Failed to log property update to Parquet")
 		}
 	}
 
 	// Notify subscribers
-	m.notifySubscribers(thingID, propertyName, value)
+	m.notifySubscribers(logger, thingID, propertyName, value) // Pass logger
 
 	return nil
 }
 
 func (m *DuckDBStateManager) SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) {
-	ch := make(chan models.PropertyUpdate, 10) // Use models.PropertyUpdate
-	key := fmt.Sprintf("%s/%s", thingID, propertyName)
+	// This method's logging can use m.logger as it's not directly in a request path needing a request_id from handler.
+	// If request_id were important here, the signature would need to change.
+	logger := m.logger.WithFields(logrus.Fields{"service_method": "SubscribeProperty", "thing_id": thingID, "property_name": propertyName})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
-	m.logger.Debugf("New subscription for property: %s", key)
+	ch := make(chan models.PropertyUpdate, 10)
+	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if subs, ok := m.subscribers.Load(key); ok {
-		channels := subs.([]chan models.PropertyUpdate) // Use models.PropertyUpdate
+		channels := subs.([]chan models.PropertyUpdate)
 		channels = append(channels, ch)
 		m.subscribers.Store(key, channels)
-		m.logger.Debugf("Added subscriber to existing list (total: %d)", len(channels))
+		logger.WithField("total_subscribers", len(channels)).Debug("Added subscriber to existing list")
 	} else {
-		m.subscribers.Store(key, []chan models.PropertyUpdate{ch}) // Use models.PropertyUpdate
-		m.logger.Debugf("Created new subscriber list for %s", key)
+		m.subscribers.Store(key, []chan models.PropertyUpdate{ch})
+		logger.Debug("Created new subscriber list")
 	}
 
 	return ch, nil
 }
 
 func (m *DuckDBStateManager) UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate) {
-	key := fmt.Sprintf("%s/%s", thingID, propertyName)
+	logger := m.logger.WithFields(logrus.Fields{"service_method": "UnsubscribeProperty", "thing_id": thingID, "property_name": propertyName})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
-	m.logger.Debugf("Removing subscription for property: %s", key)
+	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if subs, ok := m.subscribers.Load(key); ok {
-		channels := subs.([]chan models.PropertyUpdate) // Use models.PropertyUpdate
+		channels := subs.([]chan models.PropertyUpdate)
 		for i, c := range channels {
 			if c == ch {
 				channels = append(channels[:i], channels[i+1:]...)
 				if len(channels) == 0 {
 					m.subscribers.Delete(key)
-					m.logger.Debugf("Removed last subscriber for %s", key)
+					logger.Debug("Removed last subscriber, deleting list")
 				} else {
 					m.subscribers.Store(key, channels)
-					m.logger.Debugf("Removed subscriber (remaining: %d)", len(channels))
+					logger.WithField("remaining_subscribers", len(channels)).Debug("Removed subscriber")
 				}
-				close(c) // No need to cast if ch is already of the correct specific type
-				return   // Exit after finding and removing the channel
+				close(c)
+				return
 			}
 		}
+		logger.Warn("Channel not found in subscriber list for key")
+	} else {
+		logger.Warn("No subscriber list found for key during unsubscribe")
 	}
 }
 
-func (m *DuckDBStateManager) notifySubscribers(thingID, propertyName string, value interface{}) {
+func (m *DuckDBStateManager) notifySubscribers(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) {
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
+	logger = logger.WithFields(logrus.Fields{"internal_method": "notifySubscribers", "key": key})
+	logger.Debug("Notifying subscribers")
 
 	if subs, ok := m.subscribers.Load(key); ok {
-		channels := subs.([]chan models.PropertyUpdate) // Use models.PropertyUpdate
+		channels := subs.([]chan models.PropertyUpdate)
+		logger.WithField("subscriber_count", len(channels)).Debug("Found subscribers to notify")
 
-		m.logger.Debugf("Notifying %d subscribers for %s", len(channels), key)
-
-		update := models.PropertyUpdate{ // Use models.PropertyUpdate
+		update := models.PropertyUpdate{
 			ThingID:      thingID,
 			PropertyName: propertyName,
 			Value:        value,
 			Timestamp:    time.Now(),
-			Source:       "http",
+			Source:       "http", // TODO: This source might not always be accurate if SetProperty is called internally
 		}
 
 		for i, ch := range channels {
 			select {
 			case ch <- update:
-				m.logger.Debugf("Notified subscriber %d", i)
+				logger.WithField("subscriber_index", i).Debug("Notified subscriber")
 			default:
-				m.logger.Warnf("Subscriber %d channel full, skipping", i)
+				logger.WithField("subscriber_index", i).Warn("Subscriber channel full, skipping notification")
 			}
 		}
 	} else {
-		m.logger.Debugf("No subscribers for %s", key)
+		logger.Debug("No subscribers for property")
 	}
 }
 
 // GetAllProperties returns all properties for a thing
 func (m *DuckDBStateManager) GetAllProperties(thingID string) (map[string]interface{}, error) {
-	m.logger.Debugf("Getting all properties for thing: %s", thingID)
+	logger := m.logger.WithFields(logrus.Fields{"service_method": "GetAllProperties", "thing_id": thingID})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
 
+	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Query"}).Debug("Calling dependency")
 	rows, err := m.db.Query(`
         SELECT property_name, value FROM property_state
         WHERE thing_id = ?
     `, thingID)
 	if err != nil {
-		m.logger.Errorf("Database error getting properties: %v", err)
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Query"}).Error("Dependency call failed")
 		return nil, err
 	}
 	defer rows.Close()
@@ -425,19 +462,23 @@ func (m *DuckDBStateManager) GetAllProperties(thingID string) (map[string]interf
 	for rows.Next() {
 		var name, valueJSON string
 		if err := rows.Scan(&name, &valueJSON); err != nil {
-			m.logger.Errorf("Failed to scan property row: %v", err)
-			continue
+			logger.WithError(err).Error("Failed to scan property row from DB")
+			continue // Or handle more gracefully
 		}
 
 		var value interface{}
 		if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
-			m.logger.Errorf("Failed to unmarshal property %s: %v", name, err)
+			logger.WithError(err).WithField("property_name", name).Error("Failed to unmarshal property value from DB")
 			continue
 		}
 
 		properties[name] = value
 	}
+	if err = rows.Err(); err != nil { // Check for errors during iteration
+		logger.WithError(err).Error("Error iterating over property rows from DB")
+		return properties, err // Return what was processed so far, along with the error
+	}
 
-	m.logger.Debugf("Retrieved %d properties for thing %s", len(properties), thingID)
+	logger.WithField("property_count", len(properties)).Debug("Retrieved properties successfully")
 	return properties, nil
 }
