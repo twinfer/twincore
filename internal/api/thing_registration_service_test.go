@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time" // Required for ThingRegistrationResult and other time-related fields in actual code
 
+	// Required for ThingRegistrationResult and other time-related fields in actual code
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -204,8 +204,8 @@ func (suite *ThingRegistrationServiceTestSuite) TestRegisterThing_Success() {
 	loggerWithCtx := suite.logger.WithContext(ctx)
 
 	mockTd := &wot.ThingDescription{
-		ID:    expectedThingID,
-		Title: "Test Thing 1",
+		ID:      expectedThingID,
+		Title:   "Test Thing 1",
 		Context: []string{"https://www.w3.org/2022/wot/td/v1.1"},
 		// Populate other fields if necessary for ProcessThingDescription
 	}

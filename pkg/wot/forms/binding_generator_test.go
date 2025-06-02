@@ -166,7 +166,7 @@ func TestBindingGenerator_PropertyLoggingStream(t *testing.T) {
 	}
 
 	// Test
-	bindings, err := bindingGenerator.GenerateAllBindings(td)
+	bindings, err := bindingGenerator.GenerateAllBindings(logger, td)
 
 	// Assertions
 	assert.NoError(t, err)
@@ -225,7 +225,7 @@ func TestBindingGenerator_LicenseFeatureGating(t *testing.T) {
 	}
 
 	// Test
-	bindings, err := bindingGenerator.GenerateAllBindings(td)
+	bindings, err := bindingGenerator.GenerateAllBindings(logger, td)
 
 	// Assertions
 	assert.NoError(t, err)

@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -51,11 +50,6 @@ type MockLicense struct {
 func (m *MockLicense) HasFeature(feature string) bool {
 	args := m.Called(feature)
 	return args.Bool(0)
-}
-
-// MockBenthosStreamManager is a mock implementation of the BenthosStreamManager interface.
-type MockBenthosStreamManager struct {
-	mock.Mock
 }
 
 func (m *MockBenthosStreamManager) CreateStream(ctx context.Context, request StreamCreationRequest) (*StreamInfo, error) {
@@ -301,7 +295,6 @@ func (suite *ConfigManagerTestSuite) TestConfigureAuth_Success_LocalProvider() {
 	suite.mockHttpClient.On("Do", mock.MatchedBy(func(r *http.Request) bool {
 		return r.URL.Path == "/config/apps/http" && r.Method == http.MethodGet
 	})).Return(mockGetHTTPConfigResp, nil).Once()
-
 
 	err := suite.configManager.ConfigureAuth(suite.logger, req)
 	assert.NoError(suite.T(), err)

@@ -2,24 +2,10 @@ package forms
 
 import (
 	"fmt"
+
 	"github.com/sirupsen/logrus"
-	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
-
-// EnhancedForm extends the basic Form interface with methods for stream configuration
-type EnhancedForm interface {
-	wot.Form
-	// GetStreamProtocol returns the protocol type for stream configuration
-	GetStreamProtocol() types.StreamProtocol
-	// GetStreamDirection returns the data flow direction
-	GetStreamDirection(op []string) types.StreamDirection
-	// GenerateStreamEndpoint generates endpoint configuration for stream manager
-	GenerateStreamEndpoint() (map[string]interface{}, error)
-	// GenerateConfig generates the protocol-specific configuration for a form,
-	// now requiring a logger for internal logging.
-	GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error)
-}
 
 // ConvertFormToStreamEndpoint converts a WoT form to a stream endpoint configuration
 func ConvertFormToStreamEndpoint(form wot.Form) (map[string]interface{}, error) {
@@ -27,7 +13,9 @@ func ConvertFormToStreamEndpoint(form wot.Form) (map[string]interface{}, error) 
 		"type": form.GetProtocol(),
 	}
 
-	if configGen, ok := form.(interface{ GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) }); ok {
+	if configGen, ok := form.(interface {
+		GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error)
+	}); ok {
 		defaultLogger := logrus.NewEntry(logrus.StandardLogger())
 		formConfig, err := configGen.GenerateConfig(defaultLogger, nil)
 		if err != nil {

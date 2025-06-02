@@ -72,8 +72,8 @@ func NewDefaultThingRegistrationService(
 	return &DefaultThingRegistrationService{
 		thingRegistry:        thingRegistry,
 		streamComposer:       streamComposer,
-		configManager:        configManager, // Assign configManager
-		bindingGenerator:     bindingGenerator, // Added
+		configManager:        configManager,        // Assign configManager
+		bindingGenerator:     bindingGenerator,     // Added
 		benthosStreamManager: benthosStreamManager, // Added
 		logger:               logger,
 	}
@@ -84,7 +84,9 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "RegisterThing"})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	result := &ThingRegistrationResult{
 		Summary: ThingRegistrationSummary{
@@ -164,7 +166,7 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 		// Start generated streams
 		// GenerateAllBindings already calls CreateStream. Now we need to start them.
 		streamsSuccessfullyStarted := 0
-		for streamIDFromBinding, streamConfig := range allBindings.Streams { // streamIDFromBinding to avoid conflict if streamID is in outer scope
+		for _, streamConfig := range allBindings.Streams { // streamIDFromBinding to avoid conflict if streamID is in outer scope
 			if err := s.benthosStreamManager.StartStream(ctx, streamConfig.ID); err != nil {
 				logger.WithError(err).WithFields(logrus.Fields{
 					"stream_id": streamConfig.ID,
@@ -258,7 +260,9 @@ func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger,
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UpdateThing", "thing_id": thingID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", thingID) // Add thingID to logger for subsequent logs
 	logger.Info("Starting Thing update with stream composition")
@@ -400,7 +404,9 @@ func (s *DefaultThingRegistrationService) UnregisterThing(logger logrus.FieldLog
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UnregisterThing", "thing_id": thingID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", thingID)
 	logger.Info("Starting Thing unregistration with stream and route cleanup")
@@ -454,7 +460,9 @@ func (s *DefaultThingRegistrationService) GetThingWithStreams(logger logrus.Fiel
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetThingWithStreams", "thing_id": thingID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", thingID)
 

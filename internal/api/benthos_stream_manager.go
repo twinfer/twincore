@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
-	"errors" // Added for errors.As
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
@@ -99,7 +99,9 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 	logger := sm.logger.WithFields(logrus.Fields{"internal_method": "loadStreamsFromDatabase"})
 	logger.Debug("Loading stream configurations from database")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Finished loading streams from database") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Finished loading streams from database")
+	}()
 
 	query := `
 		SELECT stream_id, thing_id, interaction_type, interaction_name, direction,
@@ -270,14 +272,15 @@ func (sm *SimpleBenthosStreamManager) CreateStream(ctx context.Context, request 
 	// For now, using sm.logger and adding specific fields from request.
 	logger := sm.logger.WithFields(logrus.Fields{
 		"service_method":   "CreateStream",
-		"stream_id_req":    request.ID, // This might be empty if not set by caller
 		"thing_id":         request.ThingID,
 		"interaction_name": request.InteractionName,
 		"interaction_type": request.InteractionType,
 	})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -344,7 +347,7 @@ func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.Fiel
 	logger.Debug("Persisting stream to database")
 	// Serialize configurations to JSON
 	inputConfigJSON, err := json.Marshal(stream.Input)
-	inputConfigJSON, err := json.Marshal(stream.Input)
+
 	if err != nil {
 		logger.WithError(err).Error("Failed to marshal input config for DB persistence")
 		return fmt.Errorf("internal error: failed to marshal input config: %w", err)
@@ -399,7 +402,9 @@ func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "UpdateStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -522,7 +527,9 @@ func (sm *SimpleBenthosStreamManager) DeleteStream(ctx context.Context, streamID
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "DeleteStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -585,7 +592,9 @@ func (sm *SimpleBenthosStreamManager) GetStream(ctx context.Context, streamID st
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -604,7 +613,9 @@ func (sm *SimpleBenthosStreamManager) ListStreams(ctx context.Context, filters S
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "ListStreams", "filters": fmt.Sprintf("%+v", filters)})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -635,7 +646,9 @@ func (sm *SimpleBenthosStreamManager) StartStream(ctx context.Context, streamID 
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "StartStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -731,7 +744,9 @@ func (sm *SimpleBenthosStreamManager) StopStream(ctx context.Context, streamID s
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "StopStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -788,7 +803,9 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetStreamStatus", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -813,8 +830,8 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 
 	// Get metrics from running stream if available
 	metrics := map[string]interface{}{
-		"messages_processed": 0, // Placeholder
-		"errors":             0, // Placeholder
+		"messages_processed": 0,    // Placeholder
+		"errors":             0,    // Placeholder
 		"uptime":             "0s", // Placeholder
 		"is_running":         isRunning,
 	}
@@ -839,7 +856,9 @@ func (sm *SimpleBenthosStreamManager) CreateProcessorCollection(ctx context.Cont
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "CreateProcessorCollection", "collection_name": request.Name})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -870,7 +889,9 @@ func (sm *SimpleBenthosStreamManager) GetProcessorCollection(ctx context.Context
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetProcessorCollection", "collection_id": collectionID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -889,7 +910,9 @@ func (sm *SimpleBenthosStreamManager) ListProcessorCollections(ctx context.Conte
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "ListProcessorCollections"})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -955,8 +978,9 @@ func (sm *SimpleBenthosStreamManager) writeBenthosStreamBuilder(configPath strin
 	logger := sm.logger.WithFields(logrus.Fields{"internal_method": "writeBenthosStreamBuilder", "config_path": configPath})
 	logger.Debug("Attempting to write Benthos stream builder config to file")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Finished writing Benthos stream builder config to file") }()
-
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Finished writing Benthos stream builder config to file")
+	}()
 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {

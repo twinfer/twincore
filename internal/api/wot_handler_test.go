@@ -1,14 +1,12 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -214,41 +212,54 @@ func (m *MockCoreProvider) GetLogger() *logrus.Logger { // Corrected to *logrus.
 }
 func (m *MockCoreProvider) GetThingRegistry() ThingRegistry {
 	args := m.Called()
-	if args.Get(0) == nil { return nil }
+	if args.Get(0) == nil {
+		return nil
+	}
 	return args.Get(0).(ThingRegistry)
 }
 func (m *MockCoreProvider) GetStateManager() StateManager {
 	args := m.Called()
-	if args.Get(0) == nil { return nil }
+	if args.Get(0) == nil {
+		return nil
+	}
 	return args.Get(0).(StateManager)
 }
+
 // GetSchemaValidator is not part of CoreProvider in interfaces.go, WoTHandler initializes its own.
-// func (m *MockCoreProvider) GetSchemaValidator() SchemaValidator {
-// 	args := m.Called()
-// 	if args.Get(0) == nil { return nil }
-// 	return args.Get(0).(SchemaValidator)
-// }
+//
+//	func (m *MockCoreProvider) GetSchemaValidator() SchemaValidator {
+//		args := m.Called()
+//		if args.Get(0) == nil { return nil }
+//		return args.Get(0).(SchemaValidator)
+//	}
 func (m *MockCoreProvider) GetStreamBridge() StreamBridge {
 	args := m.Called()
-	if args.Get(0) == nil { return nil }
+	if args.Get(0) == nil {
+		return nil
+	}
 	return args.Get(0).(StreamBridge)
 }
 func (m *MockCoreProvider) GetEventBroker() *EventBroker { // EventBroker is concrete
-    args := m.Called()
-    if args.Get(0) == nil { return nil }
-    return args.Get(0).(*EventBroker)
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*EventBroker)
 }
 func (m *MockCoreProvider) GetBenthosStreamManager() BenthosStreamManager {
 	args := m.Called()
-	if args.Get(0) == nil { return nil }
+	if args.Get(0) == nil {
+		return nil
+	}
 	return args.Get(0).(BenthosStreamManager)
 }
 func (m *MockCoreProvider) GetConfigurationManager() ConfigurationManager {
 	args := m.Called()
-	if args.Get(0) == nil { return nil }
+	if args.Get(0) == nil {
+		return nil
+	}
 	return args.Get(0).(ConfigurationManager)
 }
-
 
 // WoTHandlerTestSuite is the test suite for WoTHandler.
 type WoTHandlerTestSuite struct {
@@ -308,7 +319,6 @@ func contextWithCaddyPathVars(req *http.Request, vars map[string]string) *http.R
 	ctx := context.WithValue(req.Context(), caddyhttp.VarsCtxKey, vars)
 	return req.WithContext(ctx)
 }
-
 
 // --- Example Test Method ---
 func (suite *WoTHandlerTestSuite) TestHandlePropertyRead_GetProperty_Success() {
@@ -387,7 +397,6 @@ func (suite *WoTHandlerTestSuite) TestHandlePropertyRead_GetProperty_NotFound() 
 	suite.mockRegistry.AssertCalledOnce(suite.T(), "GetProperty", thingID, propName)
 	suite.mockStateManager.AssertNotCalled(suite.T(), "GetProperty", mock.Anything, mock.Anything)
 }
-
 
 // Add more tests for other WoTHandler scenarios, e.g.,
 // - Property Write (success, validation fail, read-only fail, state manager fail)
