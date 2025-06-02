@@ -62,6 +62,7 @@ type DataSchema struct {
 	Description  string            `json:"description,omitempty"`
 	Descriptions map[string]string `json:"descriptions,omitempty"`
 	Comment      string            `json:"$comment,omitempty"`
+	SemanticType []string          `json:"@type,omitempty"` // Added for W3C WoT TD 1.1
 }
 
 // Form is an interface that concrete protocol binding forms will implement.
@@ -104,6 +105,17 @@ type SecurityScheme struct {
 
 	In   string `json:"in,omitempty"`   // For apikey (location of security information), also used by some other schemes
 	Name string `json:"name,omitempty"` // For apikey (name of header/query param)
+
+	// Fields for specific security schemes as per TD 1.1
+	QOP             string   `json:"qop,omitempty"`              // For Digest
+	AuthorizationURI string   `json:"authorization,omitempty"`    // For Bearer, OAuth2
+	Alg             string   `json:"alg,omitempty"`              // For Bearer
+	Format          string   `json:"format,omitempty"`           // For Bearer
+	TokenURI        string   `json:"token,omitempty"`            // For OAuth2
+	RefreshURI      string   `json:"refresh,omitempty"`          // For OAuth2
+	Scopes          []string `json:"scopes,omitempty"`           // For OAuth2
+	Flow            string   `json:"flow,omitempty"`             // For OAuth2
+	Identity        string   `json:"identity,omitempty"`         // For PSK
 }
 
 // InteractionAffordance is a base type for Properties, Actions, and Events.
@@ -147,6 +159,7 @@ type ActionAffordance struct {
 	Output     *DataSchema `json:"output,omitempty"`
 	Safe       bool        `json:"safe,omitempty"`       // Default false
 	Idempotent bool        `json:"idempotent,omitempty"` // Default false
+	Synchronous bool       `json:"synchronous,omitempty"` // Added for W3C WoT TD 1.1
 }
 
 // GetForms returns the forms associated with the action affordance.
@@ -174,6 +187,7 @@ type EventAffordance struct {
 	Subscription *DataSchema `json:"subscription,omitempty"`
 	Data         *DataSchema `json:"data,omitempty"`
 	Cancellation *DataSchema `json:"cancellation,omitempty"`
+	DataResponse *DataSchema `json:"dataResponse,omitempty"` // Added for W3C WoT TD 1.1
 }
 
 // GetForms returns the forms associated with the event affordance.
@@ -193,6 +207,22 @@ type Link struct {
 	Type   string `json:"type,omitempty"` // Media type
 	Rel    string `json:"rel,omitempty"`
 	Anchor string `json:"anchor,omitempty"`
+	Sizes string  `json:"sizes,omitempty"` // Added for W3C WoT TD 1.1
+	Hreflang interface{} `json:"hreflang,omitempty"` // Added for W3C WoT TD 1.1
+}
+
+// VersionInfo provides detailed versioning for a Thing Description.
+type VersionInfo struct {
+	Instance string `json:"instance"`
+	Model    string `json:"model,omitempty"`
+}
+
+// AdditionalExpectedResponse defines requirements for responses beyond the primary one in a Form.
+// This is relevant for TD 1.1.
+type AdditionalExpectedResponse struct {
+	ContentType string      `json:"contentType"` // Making this non-omitempty as per spec's default handling described.
+	Schema      string      `json:"schema,omitempty"`
+	Success     bool        `json:"success,omitempty"`
 }
 
 // ThingDescription is the top-level structure for a W3C WoT Thing Description.
@@ -203,7 +233,7 @@ type ThingDescription struct {
 	Titles              map[string]string              `json:"titles,omitempty"`
 	Description         string                         `json:"description,omitempty"`
 	Descriptions        map[string]string              `json:"descriptions,omitempty"`
-	Version             map[string]string              `json:"version,omitempty"` // TD instance version info
+	Version             *VersionInfo                   `json:"version,omitempty"` // Updated for W3C WoT TD 1.1
 	Created             string                         `json:"created,omitempty"` // Timestamp (string ISO8601)
 	Modified            string                         `json:"modified"`          // Timestamp (string ISO8601)
 	Support             string                         `json:"support,omitempty"` // Contact information (URI)

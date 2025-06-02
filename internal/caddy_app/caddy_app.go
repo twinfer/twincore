@@ -60,7 +60,13 @@ func (tca *TwinCoreApp) Provision(ctx caddy.Context) error {
 
 // Validate ensures the module is configured correctly.
 func (tca *TwinCoreApp) Validate() error {
-	if tca.logger == nil || tca.stateManager == nil || tca.streamBridge == nil || tca.thingRegistry == nil || tca.eventBroker == nil || tca.benthosStreamManager == nil {
+	if tca.logger == nil || 
+       tca.stateManager == nil || 
+       tca.streamBridge == nil || 
+       tca.thingRegistry == nil || 
+       tca.eventBroker == nil || 
+       tca.benthosStreamManager == nil || 
+       tca.configurationManager == nil { // Added this check
 		return fmt.Errorf("twincore app: one or more core dependencies are nil")
 	}
 	return nil

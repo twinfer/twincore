@@ -236,3 +236,25 @@ func (cm *ConfigManager) GetAllBenthosConfigs() map[string]string {
 
 	return configs
 }
+
+// CompleteSetup marks the initial setup as complete.
+// TODO: Implement actual setup completion logic if needed.
+func (cm *ConfigManager) CompleteSetup(logger logrus.FieldLogger) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Here, you would typically set a flag in the database or in memory
+	// to indicate that the setup has been completed.
+	// For now, we just log it.
+	logger.Info("ConfigManager: Setup marked as complete.")
+
+	// Placeholder: In a real implementation, you might want to save this state.
+	// For example, by setting a specific record in the database:
+	// _, err := cm.db.Exec("INSERT OR REPLACE INTO system_flags (flag_name, flag_value) VALUES ('setup_complete', 'true')")
+	// if err != nil {
+	// 	logger.Errorf("Failed to mark setup as complete in DB: %v", err)
+	// 	return fmt.Errorf("failed to save setup completion status: %w", err)
+	// }
+
+	return nil
+}

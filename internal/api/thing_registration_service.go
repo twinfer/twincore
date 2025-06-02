@@ -41,13 +41,6 @@ type ThingRegistrationSummary struct {
 	Error            string `json:"error,omitempty"`
 }
 
-// ThingWithStreams combines Thing Description with stream information
-type ThingWithStreams struct {
-	ThingDescription *wot.ThingDescription    `json:"thing_description"`
-	Streams          []StreamInfo             `json:"streams"`
-	StreamStatus     *StreamCompositionStatus `json:"stream_status"`
-}
-
 // DefaultThingRegistrationService implements ThingRegistrationService
 type DefaultThingRegistrationService struct {
 	thingRegistry        ThingRegistryExt           // Interface from interfaces.go
