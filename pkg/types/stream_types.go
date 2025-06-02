@@ -42,14 +42,6 @@ type StreamInfo struct {
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// BenthosStreamManager interface for managing Benthos streams
-type BenthosStreamManager interface {
-	CreateStream(ctx context.Context, request StreamCreationRequest) (*StreamInfo, error)
-	GetStream(ctx context.Context, streamID string) (*StreamInfo, error)
-	DeleteStream(ctx context.Context, streamID string) error
-	ListStreams(ctx context.Context, filters StreamFilters) ([]StreamInfo, error)
-}
-
 // StreamFilters for querying streams
 type StreamFilters struct {
 	ThingID         string `json:"thing_id,omitempty"`

@@ -5,15 +5,6 @@ import (
 	"context"
 )
 
-// HTTPRoute represents a HTTP route configuration
-type HTTPRoute struct {
-	Path         string                 `json:"path"`
-	Methods      []string               `json:"methods"`
-	Handler      string                 `json:"handler"`
-	RequiresAuth bool                   `json:"requires_auth"`
-	Metadata     map[string]interface{} `json:"metadata"`
-}
-
 // StreamTopic represents a streaming topic configuration
 type StreamTopic struct {
 	Name   string                 `json:"name"`
@@ -28,24 +19,11 @@ type CommandStream struct {
 	Config map[string]interface{} `json:"config"`
 }
 
-// HTTPConfig with Security field
-type HTTPConfig struct {
-	Routes   []HTTPRoute            `json:"routes"`
-	Security map[string]interface{} `json:"security,omitempty"` // This might become redundant or change if HTTPConfig itself is part of SecurityConfig
-}
-
 // StreamConfig holds configurations for streaming topics and commands.
 // This is used for high-level configuration, not to be confused with Benthos StreamBuilder
 type StreamConfig struct {
 	Topics   []StreamTopic   `json:"topics"`
 	Commands []CommandStream `json:"commands"`
-}
-
-// UnifiedConfig represents the overall configuration generated from a Thing Description.
-type UnifiedConfig struct {
-	Version string       `json:"version"`
-	HTTP    HTTPConfig   `json:"http"`
-	Stream  StreamConfig `json:"stream"`
 }
 
 // ServiceConfig holds the generic configuration for a service.
@@ -88,3 +66,91 @@ type ServiceRegistry interface {
 	StartService(ctx context.Context, name string) error
 	StopService(ctx context.Context, name string) error
 }
+
+// Definitions moved from pkg/types/config_v2.go:
+
+// SimpleSecurityConfig is a lightweight security configuration
+// that uses Caddy's built-in features instead of go-authcrunch
+type SimpleSecurityConfig struct {
+	Enabled bool `json:"enabled"`
+
+	// Basic authentication
+	BasicAuth *BasicAuthConfig `json:"basic_auth,omitempty"`
+
+	// Bearer token authentication
+	BearerAuth *BearerAuthConfig `json:"bearer_auth,omitempty"`
+
+	// JWT validation
+	JWTAuth *JWTAuthConfig `json:"jwt_auth,omitempty"`
+}
+
+// BasicAuthConfig holds basic authentication configuration
+type BasicAuthConfig struct {
+	Users []BasicAuthUser `json:"users"`
+}
+
+// BasicAuthUser represents a user for basic authentication
+type BasicAuthUser struct {
+	Username string `json:"username"`
+	Password string `json:"password"` // Should be hashed in production
+}
+
+// BearerAuthConfig holds bearer token configuration
+type BearerAuthConfig struct {
+	Tokens []string `json:"tokens"`
+}
+
+// JWTAuthConfig holds JWT validation configuration
+type JWTAuthConfig struct {
+	PublicKey string `json:"public_key"` // PEM-encoded public key
+	Issuer    string `json:"issuer,omitempty"`
+	Audience  string `json:"audience,omitempty"`
+}
+
+// HTTPConfig is a simplified HTTP configuration
+type HTTPConfig struct {
+	Listen   []string             `json:"listen"`
+	Routes   []HTTPRoute        `json:"routes"`
+	Security SimpleSecurityConfig `json:"security"`
+}
+
+// HTTPRoute is a simplified route configuration
+type HTTPRoute struct {
+	Path         string                 `json:"path"`
+	Methods      []string               `json:"methods,omitempty"`
+	Handler      string                 `json:"handler"`
+	RequiresAuth bool                   `json:"requires_auth"`
+	Config       map[string]interface{} `json:"config,omitempty"`
+}
+
+// CaddyAdminClient provides methods to interact with Caddy Admin API
+type CaddyAdminClient struct {
+	BaseURL string
+}
+
+// NewCaddyAdminClient creates a new Caddy Admin API client
+func NewCaddyAdminClient(baseURL string) *CaddyAdminClient {
+	if baseURL == "" {
+		baseURL = "http://localhost:2019"
+	}
+	return &CaddyAdminClient{BaseURL: baseURL}
+}
+
+// RouteHandler defines common route handler configurations
+type RouteHandler string
+
+const (
+	HandlerReverseProxy   RouteHandler = "reverse_proxy"
+	HandlerStaticResponse RouteHandler = "static_response"
+	HandlerFileServer     RouteHandler = "file_server"
+	HandlerSubroute       RouteHandler = "subroute"
+)
+
+// AuthType defines authentication types
+type AuthType string
+
+const (
+	AuthTypeBasic  AuthType = "basic"
+	AuthTypeBearer AuthType = "bearer"
+	AuthTypeJWT    AuthType = "jwt"
+)

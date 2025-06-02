@@ -413,22 +413,40 @@ func (c *Container) Stop(ctx context.Context) error {
 // This is crucial for providing baseline settings, especially security configurations,
 // that are used when dynamically updating Caddy.
 func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceConfig {
-	// TODO: Load this from a static gateway configuration file or define robust defaults.
-	// For now, providing a minimal structure.
-	// The `security` part is essential for `main.go` when registering new Things.
-	// Create default security configuration as a map since SecurityConfig is commented out
-	defaultSecurityConfig := map[string]interface{}{
-		"enabled": true, // Or false, depending on default posture
-		// Initialize with empty slices for now to avoid compilation issues
-		// These can be populated from actual configuration when needed
+	// Default security configuration using the new SimpleSecurityConfig
+	// This can be further customized based on appCfg if needed.
+	secConfig := types.SimpleSecurityConfig{
+		Enabled: true, // Default to enabled, can be configurable
+		// BasicAuth, BearerAuth, JWTAuth will be nil by default.
+		// They can be configured via appCfg or dynamic configuration later.
+	}
+
+	// Initialize with the new HTTPConfig (formerly HTTPConfigV2)
+	// Note: types.HTTPConfig and types.HTTPRoute now refer to the
+	// structs defined in pkg/types/config.go.
+	httpCfg := types.HTTPConfig{
+		Listen:   []string{":8080"}, // Default listen address, can be from appCfg
+		Routes:   []types.HTTPRoute{}, // Initialize with no routes
+		Security: secConfig,
 	}
 
 	return types.ServiceConfig{
 		Name: "http",
-		Type: "http_service", // Or a more descriptive type
+		Type: "http_service",
 		Config: map[string]interface{}{
-			"http":     types.HTTPConfig{Routes: []types.HTTPRoute{}}, // Initially no dynamic routes
-			"security": defaultSecurityConfig,
+			// The "http" key now holds the new types.HTTPConfig,
+			// which includes its own security settings.
+			"http": httpCfg,
+			// The old top-level "security" key might be deprecated or removed
+			// if all security config moves into httpCfg.Security.
+			// For now, let's keep it to see if other parts rely on it,
+			// but populate it from the new structure for consistency.
+			// Ideally, this would be refactored away later.
+			"security": map[string]interface{}{ // Reconstruct for potential legacy consumers
+				"enabled": secConfig.Enabled,
+				// Add other fields if necessary, e.g., from secConfig.BasicAuth etc.
+				// This is a transitional step.
+			},
 		},
 	}
 }

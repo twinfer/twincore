@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/api" // Added import
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -17,7 +18,7 @@ type BindingGenerator struct {
 	kafkaConfig    types.KafkaConfig
 	mqttConfig     types.MQTTConfig
 	licenseChecker LicenseChecker
-	streamManager  types.BenthosStreamManager
+	streamManager  api.BenthosStreamManager // Changed type
 }
 
 // LicenseChecker interface for checking feature availability
@@ -33,7 +34,7 @@ type LicenseChecker interface {
 func NewBindingGenerator(
 	logger logrus.FieldLogger,
 	licenseChecker LicenseChecker,
-	streamManager types.BenthosStreamManager,
+	streamManager api.BenthosStreamManager, // Changed type
 	parquetConfig types.ParquetConfig,
 	kafkaConfig types.KafkaConfig,
 	mqttConfig types.MQTTConfig,

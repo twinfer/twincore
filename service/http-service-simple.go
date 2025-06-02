@@ -157,10 +157,9 @@ func (h *HTTPServiceSimple) GenerateCaddyConfig(config types.ServiceConfig) (*ca
 	}
 
 	// Add simple authentication if configured
-	if securityMap, ok := config.Config["security"].(map[string]interface{}); ok {
-		if enabled, _ := securityMap["enabled"].(bool); enabled {
-			h.addSimpleAuth(server, securityMap)
-		}
+	// Uses httpConfig.Security which is types.SimpleSecurityConfig
+	if httpConfig.Security.Enabled {
+		h.addSimpleAuth(server, httpConfig.Security) // Pass the SimpleSecurityConfig struct
 	}
 
 	return cfg, nil
@@ -190,7 +189,8 @@ func (h *HTTPServiceSimple) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route
 	// Build handler based on route type
 	switch route.Handler {
 	case "reverse_proxy":
-		if upstream, ok := route.Metadata["upstream"].(string); ok {
+		// Assuming "upstream" is stored in the new route.Config map
+		if upstream, ok := route.Config["upstream"].(string); ok {
 			// Use raw JSON for reverse proxy configuration
 			reverseProxyConfig := map[string]interface{}{
 				"upstreams": []map[string]interface{}{
@@ -203,7 +203,8 @@ func (h *HTTPServiceSimple) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route
 			))
 		}
 	case "static":
-		body, _ := route.Metadata["body"].(string)
+		// Assuming "body" is stored in the new route.Config map
+		body, _ := route.Config["body"].(string)
 		handlers = append(handlers, caddyconfig.JSONModuleObject(
 			caddyhttp.StaticResponse{
 				Body: body,
@@ -227,15 +228,30 @@ func (h *HTTPServiceSimple) buildWoTRoute(route types.HTTPRoute) caddyhttp.Route
 }
 
 // addSimpleAuth adds basic authentication to the server
-func (h *HTTPServiceSimple) addSimpleAuth(server *caddyhttp.Server, securityConfig map[string]interface{}) {
-	// For now, we'll use a simple approach:
-	// 1. Check for bearer tokens in a middleware
-	// 2. Use Caddy's built-in basic auth if configured
+func (h *HTTPServiceSimple) addSimpleAuth(server *caddyhttp.Server, securityConfig types.SimpleSecurityConfig) {
+	// This function would configure Caddy's authentication handlers
+	// based on the provided securityConfig (types.SimpleSecurityConfig).
+	// For example, if securityConfig.BasicAuth is not nil, setup Caddy's basic_auth handler.
+	// If securityConfig.JWTAuth is not nil, setup Caddy's jwt handler.
+	// The actual implementation of Caddy JSON for these is complex and
+	// depends on how caddyhttp.Server routes and handlers are structured.
 
-	// This is a placeholder - in production, you'd want proper JWT validation
-	// or integration with your existing license/auth system
-
-	h.logger.Info("Security enabled - authentication will be enforced on protected routes")
+	// Placeholder logic:
+	if securityConfig.Enabled {
+		h.logger.Info("Security enabled via SimpleSecurityConfig. Detailed Caddy auth handlers need to be configured here.")
+		if securityConfig.BasicAuth != nil {
+			h.logger.Info("BasicAuth configuration found in SimpleSecurityConfig.")
+			// TODO: Add Caddy basic_auth handler configuration to server.Routes or a global auth route.
+		}
+		if securityConfig.BearerAuth != nil {
+			h.logger.Info("BearerAuth configuration found in SimpleSecurityConfig.")
+			// TODO: Add Caddy bearer token validation (e.g., using http.handlers.authentication and some token introspection).
+		}
+		if securityConfig.JWTAuth != nil {
+			h.logger.Info("JWTAuth configuration found in SimpleSecurityConfig.")
+			// TODO: Add Caddy jwt handler configuration.
+		}
+	}
 }
 
 // Interface guard

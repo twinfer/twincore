@@ -26,12 +26,13 @@ func TestHTTPServiceSimple(t *testing.T) {
 		Type: "http",
 		Config: map[string]interface{}{
 			"http": types.HTTPConfig{
+				Listen: []string{":8080"}, // Added Listen
 				Routes: []types.HTTPRoute{
 					{
 						Path:    "/health",
 						Methods: []string{"GET"},
 						Handler: "static",
-						Metadata: map[string]interface{}{
+						Config: map[string]interface{}{ // Changed Metadata to Config
 							"body": `{"status": "healthy"}`,
 						},
 					},
@@ -40,16 +41,19 @@ func TestHTTPServiceSimple(t *testing.T) {
 						Methods:      []string{"GET"},
 						Handler:      "static",
 						RequiresAuth: true,
-						Metadata: map[string]interface{}{
+						Config: map[string]interface{}{ // Changed Metadata to Config
 							"body": `{"message": "authenticated"}`,
 						},
 					},
 				},
+				Security: types.SimpleSecurityConfig{ // Added Security struct
+					Enabled: true,
+					BearerAuth: &types.BearerAuthConfig{
+						Tokens: []string{"test-token-123"},
+					},
+				},
 			},
-			"security": map[string]interface{}{
-				"enabled":       true,
-				"bearer_tokens": []string{"test-token-123"},
-			},
+			// Old top-level "security" map is removed as it's now part of HTTPConfig.Security
 		},
 	}
 
@@ -111,17 +115,19 @@ func TestHTTPServiceV2(t *testing.T) {
 		Type: "http",
 		Config: map[string]interface{}{
 			"http": types.HTTPConfig{
+				Listen: []string{":8080"}, // Added Listen
 				Routes: []types.HTTPRoute{
 					{
 						Path:    "/v2/health",
 						Methods: []string{"GET"},
 						Handler: "static_response",
-						Metadata: map[string]interface{}{
+						Config: map[string]interface{}{ // Changed Metadata to Config
 							"body":        `{"status": "healthy", "version": "v2"}`,
 							"status_code": 200.0,
 						},
 					},
 				},
+				Security: types.SimpleSecurityConfig{Enabled: false}, // Added default Security
 			},
 		},
 	}

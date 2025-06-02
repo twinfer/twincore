@@ -41,13 +41,6 @@ type ThingRegistrationSummary struct {
 	Error            string `json:"error,omitempty"`
 }
 
-// ThingWithStreams combines Thing Description with stream information
-type ThingWithStreams struct {
-	ThingDescription *wot.ThingDescription    `json:"thing_description"`
-	Streams          []StreamInfo             `json:"streams"`
-	StreamStatus     *StreamCompositionStatus `json:"stream_status"`
-}
-
 // DefaultThingRegistrationService implements ThingRegistrationService
 type DefaultThingRegistrationService struct {
 	thingRegistry        ThingRegistryExt           // Interface from interfaces.go
@@ -194,21 +187,23 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 		// Register HTTP routes
 		routesSuccessfullyAdded := 0
 		for generatedRouteKey, formRoute := range allBindings.HTTPRoutes { // Use generatedRouteKey as it's the map key
-			// Adapt forms.HTTPRoute to types.HTTPRoute
-			apiRoute := types.HTTPRoute{ // Ensure types package is imported
-				Path:          formRoute.Path,
-				Method:        formRoute.Method,
-				TargetService: "wot_handler", // Default assumption: routes are for WoT interactions
-				// Config:        make(map[string]interface{}), // Initialize if needed
-				// Security:      nil, // Initialize if needed
-			}
-			// Headers from formRoute.Headers could be mapped to apiRoute.Config if necessary
-			// Example: apiRoute.Config["headers"] = formRoute.Headers
-			// ContentType from formRoute.ContentType could also be mapped if needed by TargetService
-			// apiRoute.Config["content_type"] = formRoute.ContentType
-
-			if err := s.configManager.AddRoute(ctx, apiRoute.ID, apiRoute); err != nil {
 			routeID := fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey) // Generate unique route ID
+			// Adapt forms.HTTPRoute to the new types.HTTPRoute structure
+			apiRoute := types.HTTPRoute{
+				Path:    formRoute.Path,
+				Methods: []string{formRoute.Method}, // New HTTPRoute uses []string
+				Handler: "wot_handler",             // Mapped from old TargetService
+				// RequiresAuth needs to be determined, e.g., based on td.Security.
+				// Assuming true if security definitions exist, similar to wot_mapper.
+				RequiresAuth: len(td.Security) > 0,
+				Config: map[string]interface{}{
+					"id":          routeID, // Store original ID in Config
+					"contentType": formRoute.ContentType,
+					// Add other necessary fields from formRoute or td to Config if needed
+					// "headers": formRoute.Headers, // Example
+				},
+			}
+
 			if err := s.configManager.AddRoute(ctx, routeID, apiRoute); err != nil {
 				logger.WithError(err).WithFields(logrus.Fields{
 					"route_id": routeID,
@@ -346,21 +341,29 @@ func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger,
 
 		routesSuccessfullyAdded := 0
 		for generatedRouteKey, formRoute := range allBindings.HTTPRoutes {
+			routeID := fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey) // Generate unique route ID
+			// Adapt forms.HTTPRoute to the new types.HTTPRoute structure
 			apiRoute := types.HTTPRoute{
-				ID:            fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey),
-				Path:          formRoute.Path,
-				Method:        formRoute.Method,
-				TargetService: "wot_handler",
+				Path:    formRoute.Path,
+				Methods: []string{formRoute.Method}, // New HTTPRoute uses []string
+				Handler: "wot_handler",             // Mapped from old TargetService
+				// RequiresAuth needs to be determined, e.g., based on td.Security
+				RequiresAuth: len(td.Security) > 0,
+				Config: map[string]interface{}{
+					"id":          routeID, // Store original ID in Config
+					"contentType": formRoute.ContentType,
+					// Add other necessary fields from formRoute or td to Config if needed
+				},
 			}
 
-			if err := s.configManager.AddRoute(ctx, apiRoute.ID, apiRoute); err != nil {
+			if err := s.configManager.AddRoute(ctx, routeID, apiRoute); err != nil {
 				logger.WithError(err).WithFields(logrus.Fields{
-					"route_id": apiRoute.ID,
+					"route_id": routeID,
 					"path":     apiRoute.Path,
 				}).Error("Failed to register HTTP route from BindingGenerator during update")
 			} else {
 				logger.WithFields(logrus.Fields{
-					"route_id": apiRoute.ID,
+					"route_id": routeID,
 					"path":     apiRoute.Path,
 				}).Info("Successfully registered HTTP route from BindingGenerator during update")
 				routesSuccessfullyAdded++
