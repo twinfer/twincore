@@ -170,37 +170,6 @@ func (m *MockThingRegistrationService) GetThingWithStreams(logger logrus.FieldLo
 	return args.Get(0).(*ThingWithStreams), args.Error(1)
 }
 
-// MockTDStreamCompositionService is a mock for api.TDStreamCompositionService
-type MockTDStreamCompositionService struct {
-	mock.Mock
-}
-
-func (m *MockTDStreamCompositionService) ProcessThingDescription(logger logrus.FieldLogger, ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error) {
-	args := m.Called(logger, ctx, td)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*StreamCompositionResult), args.Error(1)
-}
-func (m *MockTDStreamCompositionService) UpdateStreamsForThing(logger logrus.FieldLogger, ctx context.Context, td *wot.ThingDescription) (*StreamCompositionResult, error) {
-	args := m.Called(logger, ctx, td)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*StreamCompositionResult), args.Error(1)
-}
-func (m *MockTDStreamCompositionService) RemoveStreamsForThing(logger logrus.FieldLogger, ctx context.Context, thingID string) error {
-	args := m.Called(logger, ctx, thingID)
-	return args.Error(0)
-}
-func (m *MockTDStreamCompositionService) GetStreamCompositionStatus(logger logrus.FieldLogger, ctx context.Context, thingID string) (*StreamCompositionStatus, error) {
-	args := m.Called(logger, ctx, thingID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*StreamCompositionStatus), args.Error(1)
-}
-
 // MockCoreProvider is a mock for api.CoreProvider
 type MockCoreProvider struct {
 	mock.Mock
