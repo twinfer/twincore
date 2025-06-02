@@ -22,7 +22,7 @@ type HTTPForm struct {
 	ContentType string            `json:"contentType"`
 	Method      string            `json:"htv:methodName,omitempty"` // W3C WoT compliant
 	Op          []string          `json:"op"`
-	Headers     map[string]string `json:"htv:headers,omitempty"`    // W3C WoT compliant
+	Headers     map[string]string `json:"htv:headers,omitempty"` // W3C WoT compliant
 }
 
 func (f *HTTPForm) GetProtocol() string {

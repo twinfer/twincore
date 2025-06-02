@@ -78,7 +78,9 @@ func (cm *ConfigManager) CompleteSetup(logger logrus.FieldLogger) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "CompleteSetup"})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	cm.setupMu.Lock()
 	defer cm.setupMu.Unlock()
@@ -138,7 +140,9 @@ func (cm *ConfigManager) ConfigureAuth(logger logrus.FieldLogger, req AuthConfig
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ConfigureAuth", "provider": req.Provider})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	// Validate provider is available
 	if !cm.isProviderAvailable(req.Provider, req.License) {
@@ -243,7 +247,9 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "updateHTTPRoutes", "provider": provider})
 	entryLogger.Debug("Service method called (internal)")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (internal)") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (internal)")
+	}()
 
 	// Get current HTTP config
 	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "getCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency")
@@ -323,7 +329,9 @@ func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetConfiguration"})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	config := make(map[string]interface{})
 
@@ -336,9 +344,9 @@ func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string
 	}
 
 	// Extract relevant parts
-	config["http"] = cm.extractHTTPConfig(caddyConfig)       // Assuming pure function or self-logged if complex
+	config["http"] = cm.extractHTTPConfig(caddyConfig)         // Assuming pure function or self-logged if complex
 	config["security"] = cm.extractSecurityConfig(caddyConfig) // Assuming pure function
-	config["streams"] = cm.getStreamConfig()                 // Assuming pure function or self-logged
+	config["streams"] = cm.getStreamConfig()                   // Assuming pure function or self-logged
 
 	logger.Debug("Successfully retrieved and processed configuration")
 	return config, nil
@@ -349,7 +357,9 @@ func (cm *ConfigManager) UpdateConfiguration(logger logrus.FieldLogger, section 
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UpdateConfiguration", "section": section})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("config_section", section)
 

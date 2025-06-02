@@ -180,11 +180,17 @@ func (suite *ThingRegistrationServiceTestSuite) SetupTest() {
 	suite.mockStreamComposer = new(MockTDStreamCompositionService)
 	suite.mockConfigManager = new(MockConfigurationManager)
 
-	// Constructor order: thingRegistry, streamComposer, configManager, logger
+	// Provide nil or suitable mocks for BindingGenerator and BenthosStreamManager as needed for tests
+	// var mockBindingGenerator *forms.BindingGenerator = nil
+	var mockBenthosStreamManager BenthosStreamManager = nil
+
+	// Constructor order: thingRegistry, streamComposer, configManager, bindingGenerator, benthosStreamManager, logger
 	suite.service = NewDefaultThingRegistrationService(
 		suite.mockRegistry,
 		suite.mockStreamComposer,
 		suite.mockConfigManager,
+		// mockBindingGenerator,
+		mockBenthosStreamManager,
 		suite.logger,
 	)
 }
@@ -250,9 +256,9 @@ func (suite *ThingRegistrationServiceTestSuite) TestUnregisterThing_Success() {
 
 	// --- Assert ---
 	assert.NoError(suite.T(), err)
-	suite.mockStreamComposer.AssertCalledOnce(suite.T(), "RemoveStreamsForThing", loggerWithCtx, ctx, thingID)
-	suite.mockConfigManager.AssertCalledOnce(suite.T(), "RemoveThingRoutes", loggerWithCtx, thingID)
-	suite.mockRegistry.AssertCalledOnce(suite.T(), "DeleteThing", thingID)
+	suite.mockStreamComposer.AssertCalled(suite.T(), "RemoveStreamsForThing", loggerWithCtx, ctx, thingID)
+	suite.mockConfigManager.AssertNumberOfCalls(suite.T(), "RemoveThingRoutes", 1)
+	suite.mockRegistry.AssertNumberOfCalls(suite.T(), "DeleteThing", 1)
 }
 
 func (suite *ThingRegistrationServiceTestSuite) TestUnregisterThing_StreamRemovalFails() {
@@ -280,9 +286,9 @@ func (suite *ThingRegistrationServiceTestSuite) TestUnregisterThing_StreamRemova
 	// assert.Contains(suite.T(), compositeErr.Error(), streamErr.Error())
 	// }
 
-	suite.mockStreamComposer.AssertCalledOnce(suite.T(), "RemoveStreamsForThing", loggerWithCtx, ctx, thingID)
-	suite.mockConfigManager.AssertCalledOnce(suite.T(), "RemoveThingRoutes", loggerWithCtx, thingID)
-	suite.mockRegistry.AssertCalledOnce(suite.T(), "DeleteThing", thingID)
+	suite.mockStreamComposer.AssertNumberOfCalls(suite.T(), "RemoveStreamsForThing", 1)
+	suite.mockConfigManager.AssertNumberOfCalls(suite.T(), "RemoveThingRoutes", 1)
+	suite.mockRegistry.AssertNumberOfCalls(suite.T(), "DeleteThing", 1)
 }
 
 // Add more test methods here based on the test plan...

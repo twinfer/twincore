@@ -76,7 +76,9 @@ func (si *BenthosStreamIntegration) ProcessPropertyUpdate(ctx context.Context, u
 	})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	// Create stream update context to prevent circular updates
 	streamCtx := models.WithUpdateContext(ctx, models.NewUpdateContext(models.UpdateSourceStream))
@@ -122,7 +124,9 @@ func (si *BenthosStreamIntegration) ProcessActionResult(ctx context.Context, res
 	})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	// Store result if needed
 	// This could be extended to store in a results table
@@ -156,7 +160,9 @@ func (si *BenthosStreamIntegration) ProcessStreamEvent(ctx context.Context, even
 	})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	// Log to Parquet via Benthos
 	// Event logging now handled by centralized binding generation

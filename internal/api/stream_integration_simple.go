@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
-	model "github.com/twinfer/twincore/internal/models"
 )
 
 // SimpleStreamBridge implements the StreamBridge interface with basic functionality
@@ -52,18 +51,18 @@ func (b *SimpleStreamBridge) PublishActionInvocation(logger logrus.FieldLogger, 
 	actionID := uuid.New().String()
 	entryLogger := logger.WithFields(logrus.Fields{
 		"service_method": "PublishActionInvocation",
-		"thing_id": thingID,
-		"action_name": actionName,
-		"input": input,
-		"action_id": actionID,
+		"thing_id":       thingID,
+		"action_name":    actionName,
+		"input":          input,
+		"action_id":      actionID,
 	})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
-	
+
 	// Create a channel for the result (basic implementation)
 	resultChan := make(chan interface{}, 1)
 	b.pendingActions.Store(actionID, resultChan)
 	entryLogger.Info("Action invocation received by bridge, created pending action (placeholder, actual send via Benthos config)")
-	
+
 	return actionID, nil
 }
 
@@ -71,9 +70,9 @@ func (b *SimpleStreamBridge) PublishActionInvocation(logger logrus.FieldLogger, 
 func (b *SimpleStreamBridge) PublishEvent(logger logrus.FieldLogger, thingID, eventName string, data interface{}) error {
 	entryLogger := logger.WithFields(logrus.Fields{
 		"service_method": "PublishEvent",
-		"thing_id": thingID,
-		"event_name": eventName,
-		"data": data,
+		"thing_id":       thingID,
+		"event_name":     eventName,
+		"data":           data,
 	})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
 	entryLogger.Info("Event received by bridge (placeholder, actual send via Benthos config)")
@@ -85,7 +84,9 @@ func (b *SimpleStreamBridge) GetActionResult(logger logrus.FieldLogger, actionID
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetActionResult", "action_id": actionID, "timeout": timeout.String()})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (SimpleStreamBridge)") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (SimpleStreamBridge)")
+	}()
 
 	val, ok := b.pendingActions.Load(actionID)
 	if !ok {
@@ -113,7 +114,9 @@ func (b *SimpleStreamBridge) ProcessActionResult(logger logrus.FieldLogger, resu
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ProcessActionResult", "action_id": actionID})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (SimpleStreamBridge)") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished (SimpleStreamBridge)")
+	}()
 
 	if !ok {
 		entryLogger.Error("Result missing actionId")

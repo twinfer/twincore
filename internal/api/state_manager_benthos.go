@@ -18,7 +18,7 @@ type BenthosStateManager struct {
 	db             *sql.DB
 	logger         logrus.FieldLogger
 	parquetEnabled bool
-	subscribers    sync.Map // map[string][]chan PropertyUpdate
+	subscribers    sync.Map     // map[string][]chan PropertyUpdate
 	mu             sync.RWMutex // Protects subscribers map
 }
 
@@ -47,7 +47,9 @@ func (sm *BenthosStateManager) GetProperty(thingID, name string) (interface{}, e
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetProperty", "thing_id": thingID, "property_name": name})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	query := `SELECT value FROM property_state WHERE thing_id = ? AND property_name = ?`
 	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Debug("Calling dependency")
@@ -75,7 +77,9 @@ func (sm *BenthosStateManager) SetProperty(logger logrus.FieldLogger, thingID, n
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetProperty", "thing_id": thingID, "property_name": name, "value": value})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	// Use default HTTP source for backward compatibility
 	ctx := models.WithUpdateContext(context.Background(), models.NewUpdateContext(models.UpdateSourceHTTP))
@@ -87,7 +91,9 @@ func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger,
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetPropertyWithContext", "thing_id": thingID, "property_name": name}) // Removed value from initial log for brevity
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
@@ -138,7 +144,9 @@ func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID str
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetAllProperties", "thing_id": thingID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	query := `SELECT property_name, value FROM property_state WHERE thing_id = ?`
 	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryContext"}).Debug("Calling dependency")
@@ -178,7 +186,9 @@ func (sm *BenthosStateManager) DeleteProperty(ctx context.Context, thingID, name
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "DeleteProperty", "thing_id": thingID, "property_name": name})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	query := `DELETE FROM property_state WHERE thing_id = ? AND property_name = ?`
 	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to delete property")
@@ -207,7 +217,9 @@ func (sm *BenthosStateManager) DeleteAllProperties(ctx context.Context, thingID 
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "DeleteAllProperties", "thing_id": thingID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	query := `DELETE FROM property_state WHERE thing_id = ?`
 	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to delete all properties")
@@ -250,7 +262,7 @@ func (sm *BenthosStateManager) notifySubscribers(logger logrus.FieldLogger, thin
 			PropertyName: propertyName,
 			Value:        value,
 			Timestamp:    time.Now(),
-			Source:       models.UpdateSource(source), // Ensure this matches the type if it's an enum/defined type
+			Source:       source, // Ensure this matches the type if it's an enum/defined type
 		}
 
 		for i, ch := range channels {
@@ -272,7 +284,9 @@ func (sm *BenthosStateManager) SubscribeProperty(thingID, propertyName string) (
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "SubscribeProperty", "thing_id": thingID, "property_name": propertyName})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	ch := make(chan models.PropertyUpdate, 10) // Buffer size 10
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
@@ -307,7 +321,9 @@ func (sm *BenthosStateManager) UnsubscribeProperty(thingID, propertyName string,
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "UnsubscribeProperty", "thing_id": thingID, "property_name": propertyName})
 	logger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 

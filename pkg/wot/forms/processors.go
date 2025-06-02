@@ -65,13 +65,13 @@ func GenerateProcessorChain(interactionType string, options map[string]interface
 				})
 			case "json":
 				processors = append(processors, map[string]interface{}{
-					"type": string(types.ProcessorJSONEncode),
+					"type":   string(types.ProcessorJSONEncode),
 					"config": map[string]interface{}{},
 				})
 			case "avro":
 				// Future: Add Avro encoding
 				processors = append(processors, map[string]interface{}{
-					"type": string(types.ProcessorJSONEncode), // Fallback to JSON for now
+					"type":   string(types.ProcessorJSONEncode), // Fallback to JSON for now
 					"config": map[string]interface{}{},
 				})
 			}

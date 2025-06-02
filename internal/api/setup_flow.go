@@ -43,7 +43,9 @@ func (h *SetupHandler) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 	logger := h.logger.WithFields(logrus.Fields{"request_id": requestID, "handler_name": "GetSetupStatus", "method": r.Method, "path": r.URL.Path})
 	logger.Debug("Handler called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Handler finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Handler finished")
+	}()
 
 	logger.WithFields(logrus.Fields{"dependency_name": "ConfigManager", "operation": "IsSetupComplete"}).Debug("Calling dependency")
 	isComplete := h.configManager.IsSetupComplete() // Assuming IsSetupComplete doesn't need a logger
@@ -81,7 +83,9 @@ func (h *SetupHandler) ProcessSetup(w http.ResponseWriter, r *http.Request) {
 	logger := h.logger.WithFields(logrus.Fields{"request_id": requestID, "handler_name": "ProcessSetup", "method": r.Method, "path": r.URL.Path})
 	logger.Debug("Handler called")
 	startTime := time.Now()
-	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Handler finished") }()
+	defer func() {
+		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Handler finished")
+	}()
 
 	if r.Method != http.MethodPost {
 		logger.Warn("Method not allowed for setup processing")

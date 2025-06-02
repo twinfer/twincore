@@ -299,12 +299,12 @@ func (bg *BindingGenerator) generateSSEObservationOutput(thingID, propName strin
 	return types.StreamEndpointConfig{
 		Type: "http_server",
 		Config: map[string]interface{}{
-			"address":           "${HTTP_ADDRESS:0.0.0.0:8080}",
-			"path":              path,
-			"allowed_verbs":     []string{"GET"},
-			"timeout":           "0",
-			"stream_response":   true,
-			"content_type":      "text/event-stream",
+			"address":         "${HTTP_ADDRESS:0.0.0.0:8080}",
+			"path":            path,
+			"allowed_verbs":   []string{"GET"},
+			"timeout":         "0",
+			"stream_response": true,
+			"content_type":    "text/event-stream",
 			"response_headers": map[string]string{
 				"Cache-Control": "no-cache",
 				"Connection":    "keep-alive",
@@ -425,11 +425,11 @@ func (bg *BindingGenerator) generateHTTPClientCommandOutput(thingID, propName st
 	return types.StreamEndpointConfig{
 		Type: "http_client",
 		Config: map[string]interface{}{
-			"url":     url,
-			"verb":    "PUT",
+			"url":  url,
+			"verb": "PUT",
 			"headers": map[string]string{
-				"Content-Type":    "application/json",
-				"X-Command-ID":    "${! this.command_id }",
+				"Content-Type":     "application/json",
+				"X-Command-ID":     "${! this.command_id }",
 				"X-Correlation-ID": "${! this.correlation_id }",
 			},
 			"timeout": "10s",
@@ -683,12 +683,12 @@ func (bg *BindingGenerator) generateSSEEventOutput(thingID, eventName string, co
 	return types.StreamEndpointConfig{
 		Type: "http_server",
 		Config: map[string]interface{}{
-			"address":           "${HTTP_ADDRESS:0.0.0.0:8080}",
-			"path":              path,
-			"allowed_verbs":     []string{"GET"},
-			"timeout":           "0",
-			"stream_response":   true,
-			"content_type":      "text/event-stream",
+			"address":         "${HTTP_ADDRESS:0.0.0.0:8080}",
+			"path":            path,
+			"allowed_verbs":   []string{"GET"},
+			"timeout":         "0",
+			"stream_response": true,
+			"content_type":    "text/event-stream",
 			"response_headers": map[string]string{
 				"Cache-Control":                "no-cache",
 				"Connection":                   "keep-alive",

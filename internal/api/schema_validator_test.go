@@ -178,58 +178,58 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 	}
 }
 
-func TestJSONSchemaValidator_ValidateActionInput(t *testing.T) {
-	validator := NewJSONSchemaValidator()
-	baseLogger := logrus.New()
-	baseLogger.SetOutput(io.Discard)
-	logger := baseLogger.WithContext(context.Background())
+// func TestJSONSchemaValidator_ValidateActionInput(t *testing.T) {
+// 	validator := NewJSONSchemaValidator()
+// 	baseLogger := logrus.New()
+// 	baseLogger.SetOutput(io.Discard)
+// 	logger := baseLogger.WithContext(context.Background())
 
-	// TODO: Developer to implement table-driven tests for ValidateActionInput.
-	// Similar structure to TestJSONSchemaValidator_ValidateProperty.
-	// Key differences:
-	// - The `schema` field in test cases will be for action input.
-	// - The `data` field will represent action invocation payloads.
-	// - Test cases should cover various input structures expected by actions.
-	// Example test case:
-	/*
-		{
-			name: "valid action input - object",
-			schema: wot.DataSchema{
-				DataSchemaCore: wot.DataSchemaCore{
-					Type: "object",
-					Properties: map[string]*wot.DataSchema{
-						"targetSpeed": {DataSchemaCore: wot.DataSchemaCore{Type: "integer"}},
-					},
-					Required: []string{"targetSpeed"},
-				},
-			},
-			data: map[string]interface{}{"targetSpeed": 100},
-			expectError: false,
-		},
-	*/
-	t.Skip("TestJSONSchemaValidator_ValidateActionInput not yet implemented by developer.")
-}
+// 	// TODO: Developer to implement table-driven tests for ValidateActionInput.
+// 	// Similar structure to TestJSONSchemaValidator_ValidateProperty.
+// 	// Key differences:
+// 	// - The `schema` field in test cases will be for action input.
+// 	// - The `data` field will represent action invocation payloads.
+// 	// - Test cases should cover various input structures expected by actions.
+// 	// Example test case:
+// 	/*
+// 		{
+// 			name: "valid action input - object",
+// 			schema: wot.DataSchema{
+// 				DataSchemaCore: wot.DataSchemaCore{
+// 					Type: "object",
+// 					Properties: map[string]*wot.DataSchema{
+// 						"targetSpeed": {DataSchemaCore: wot.DataSchemaCore{Type: "integer"}},
+// 					},
+// 					Required: []string{"targetSpeed"},
+// 				},
+// 			},
+// 			data: map[string]interface{}{"targetSpeed": 100},
+// 			expectError: false,
+// 		},
+// 	*/
+// 	t.Skip("TestJSONSchemaValidator_ValidateActionInput not yet implemented by developer.")
+// }
 
-func TestJSONSchemaValidator_ValidateEventData(t *testing.T) {
-	validator := NewJSONSchemaValidator()
-	baseLogger := logrus.New()
-	baseLogger.SetOutput(io.Discard)
-	logger := baseLogger.WithContext(context.Background())
+// func TestJSONSchemaValidator_ValidateEventData(t *testing.T) {
+// 	validator := NewJSONSchemaValidator()
+// 	baseLogger := logrus.New()
+// 	baseLogger.SetOutput(io.Discard)
+// 	logger := baseLogger.WithContext(context.Background())
 
-	// TODO: Developer to implement table-driven tests for ValidateEventData.
-	// Similar structure to TestJSONSchemaValidator_ValidateProperty.
-	// Key differences:
-	// - The `schema` field in test cases will be for event data.
-	// - The `data` field will represent event payloads.
-	// - Test cases should cover various event data structures.
-	// Example test case:
-	/*
-		{
-			name: "valid event data - simple string",
-			schema: wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string"}},
-			data: "overheat_warning",
-			expectError: false,
-		},
-	*/
-	t.Skip("TestJSONSchemaValidator_ValidateEventData not yet implemented by developer.")
-}
+// 	// TODO: Developer to implement table-driven tests for ValidateEventData.
+// 	// Similar structure to TestJSONSchemaValidator_ValidateProperty.
+// 	// Key differences:
+// 	// - The `schema` field in test cases will be for event data.
+// 	// - The `data` field will represent event payloads.
+// 	// - Test cases should cover various event data structures.
+// 	// Example test case:
+// 	/*
+// 		{
+// 			name: "valid event data - simple string",
+// 			schema: wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string"}},
+// 			data: "overheat_warning",
+// 			expectError: false,
+// 		},
+// 	*/
+// 	t.Skip("TestJSONSchemaValidator_ValidateEventData not yet implemented by developer.")
+// }

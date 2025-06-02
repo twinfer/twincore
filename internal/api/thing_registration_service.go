@@ -196,7 +196,6 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 		for generatedRouteKey, formRoute := range allBindings.HTTPRoutes { // Use generatedRouteKey as it's the map key
 			// Adapt forms.HTTPRoute to types.HTTPRoute
 			apiRoute := types.HTTPRoute{ // Ensure types package is imported
-				ID:            fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey), // Unique ID: ThingID + BindingGeneratorRoute + OriginalKey
 				Path:          formRoute.Path,
 				Method:        formRoute.Method,
 				TargetService: "wot_handler", // Default assumption: routes are for WoT interactions
@@ -209,18 +208,19 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 			// apiRoute.Config["content_type"] = formRoute.ContentType
 
 			if err := s.configManager.AddRoute(ctx, apiRoute.ID, apiRoute); err != nil {
+			routeID := fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey) // Generate unique route ID
+			if err := s.configManager.AddRoute(ctx, routeID, apiRoute); err != nil {
 				logger.WithError(err).WithFields(logrus.Fields{
-					"route_id": apiRoute.ID,
+					"route_id": routeID,
 					"path":     apiRoute.Path,
 				}).Error("Failed to register HTTP route from BindingGenerator")
 			} else {
 				logger.WithFields(logrus.Fields{
-					"route_id": apiRoute.ID,
+					"route_id": routeID,
 					"path":     apiRoute.Path,
 				}).Info("Successfully registered HTTP route from BindingGenerator")
 				routesSuccessfullyAdded++
 			}
-		}
 		result.ConfigGeneration.HTTPRoutes += routesSuccessfullyAdded // Add to existing count
 		if routesSuccessfullyAdded > 0 {
 			result.ConfigGeneration.CaddyConfigured = true // If any route added, consider Caddy configured by this step

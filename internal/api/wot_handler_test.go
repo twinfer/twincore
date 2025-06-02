@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/twinfer/twincore/internal/models"
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // --- Mock Implementations ---
@@ -300,7 +299,7 @@ func (suite *WoTHandlerTestSuite) TestHandlePropertyRead_GetProperty_Success() {
 	mockPropertyAffordance := wot.PropertyAffordance{
 		InteractionAffordance: wot.InteractionAffordance{
 			Forms: []wot.Form{
-				{FormCore: forms.FormCore{Href: path, ContentType: "application/json"}},
+				{Href: path, ContentType: "application/json"},
 			},
 		},
 		Observable: false, // Not testing SSE here
@@ -327,8 +326,8 @@ func (suite *WoTHandlerTestSuite) TestHandlePropertyRead_GetProperty_Success() {
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), mockPropertyValue, respBody["value"])
 
-	suite.mockRegistry.AssertCalledOnce(suite.T(), "GetProperty", thingID, propName)
-	suite.mockStateManager.AssertCalledOnce(suite.T(), "GetProperty", thingID, propName)
+	suite.mockRegistry.AssertCalled(suite.T(), "GetProperty", thingID, propName)
+	suite.mockStateManager.AssertCalled(suite.T(), "GetProperty", thingID, propName)
 }
 
 func (suite *WoTHandlerTestSuite) TestHandlePropertyRead_GetProperty_NotFound() {
@@ -356,14 +355,14 @@ func (suite *WoTHandlerTestSuite) TestHandlePropertyRead_GetProperty_NotFound() 
 	// To check HTTP status, we'd need a full Caddy server or more complex middleware setup.
 	// However, caddyhttp.Error() which is used by the handler, does set the status code.
 	// Let's assume the handler returns a caddyhttp.Error type
-	var caddyErr caddyhttp.Error
+	var caddyErr *caddyhttp.HandlerError
 	if errors.As(err, &caddyErr) {
 		assert.Equal(suite.T(), http.StatusNotFound, int(caddyErr.StatusCode))
 	} else {
-		suite.T().Fatalf("Expected caddyhttp.Error, got %T", err)
+		suite.T().Fatalf("Expected caddyhttp.HandlerError, got %T", err)
 	}
 
-	suite.mockRegistry.AssertCalledOnce(suite.T(), "GetProperty", thingID, propName)
+	suite.mockRegistry.AssertCalled(suite.T(), "GetProperty", thingID, propName)
 	suite.mockStateManager.AssertNotCalled(suite.T(), "GetProperty", mock.Anything, mock.Anything)
 }
 

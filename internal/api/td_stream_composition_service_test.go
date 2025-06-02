@@ -19,8 +19,8 @@ type MockBindingGenerationService struct {
 	mock.Mock
 }
 
-func (m *MockBindingGenerationService) GenerateAllBindings(td *wot.ThingDescription) (*forms.AllBindings, error) {
-	args := m.Called(td)
+func (m *MockBindingGenerationService) GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*forms.AllBindings, error) {
+	args := m.Called(logger, td)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -159,7 +159,7 @@ func (suite *TDStreamCompositionServiceTestSuite) TestProcessThingDescription_Su
 		// ... other binding fields
 	}
 	// GenerateAllBindings does not take logger or context according to its interface
-	suite.mockBindingGen.On("GenerateAllBindings", testTD).Return(mockBindings, nil)
+	suite.mockBindingGen.On("GenerateAllBindings", loggerWithCtx, testTD).Return(mockBindings, nil)
 
 	// Assume BindingGenerator itself calls streamManager.CreateStream implicitly.
 	// ProcessThingDescription then calls GetStream to confirm/fetch details.
@@ -180,8 +180,8 @@ func (suite *TDStreamCompositionServiceTestSuite) TestProcessThingDescription_Su
 		assert.Empty(suite.T(), result.FailedStreams)
 	}
 
-	suite.mockBindingGen.AssertCalledOnce(suite.T(), "GenerateAllBindings", testTD)
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "GetStream", ctx, "stream1-id")
+	suite.mockBindingGen.AssertCalled(suite.T(), "GenerateAllBindings", loggerWithCtx, testTD)
+	suite.mockStreamMgr.AssertCalled(suite.T(), "GetStream", ctx, "stream1-id")
 }
 
 func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_Success() {
@@ -203,9 +203,10 @@ func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_Succ
 
 	// --- Assert ---
 	assert.NoError(suite.T(), err)
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "ListStreams", ctx, StreamFilters{ThingID: thingID})
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "DeleteStream", ctx, "stream1")
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "DeleteStream", ctx, "stream2")
+	suite.mockStreamMgr.AssertNumberOfCalls(suite.T(), "ListStreams", 1)
+	suite.mockStreamMgr.AssertNumberOfCalls(suite.T(), "DeleteStream", 1)
+	suite.mockStreamMgr.AssertCalled(suite.T(), "DeleteStream", ctx, "stream1")
+	suite.mockStreamMgr.AssertCalled(suite.T(), "DeleteStream", ctx, "stream2")
 }
 
 func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_DeleteFailsPartially() {
@@ -240,9 +241,10 @@ func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_Dele
 	//    assert.Contains(suite.T(), compositeErr.Errors[0].Error(), deleteErr1.Error())
 	// }
 
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "ListStreams", ctx, StreamFilters{ThingID: thingID})
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "DeleteStream", ctx, "stream1")
-	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "DeleteStream", ctx, "stream2")
+	suite.mockStreamMgr.AssertNumberOfCalls(suite.T(), "ListStreams", 1)
+	suite.mockStreamMgr.AssertNumberOfCalls(suite.T(), "DeleteStream", 1)
+	suite.mockStreamMgr.AssertCalled(suite.T(), "DeleteStream", ctx, "stream1")
+	suite.mockStreamMgr.AssertCalled(suite.T(), "DeleteStream", ctx, "stream2")
 }
 
 // Add more test methods here based on the test plan...

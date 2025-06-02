@@ -23,8 +23,8 @@ type MQTTForm struct {
 	Href        string                 `json:"href"`
 	ContentType string                 `json:"contentType"`
 	Op          []string               `json:"op"`
-	QoS         int                    `json:"mqtt:qos,omitempty"` // W3C WoT compliant
-	Retain      bool                   `json:"mqtt:retain,omitempty"` // W3C WoT compliant
+	QoS         int                    `json:"mqtt:qos,omitempty"`     // W3C WoT compliant
+	Retain      bool                   `json:"mqtt:retain,omitempty"`  // W3C WoT compliant
 	Headers     map[string]string      `json:"mqtt:headers,omitempty"` // For MQTT 5.0 user properties
 	Options     map[string]interface{} `json:"mqtt:options,omitempty"` // Additional MQTT options
 }
