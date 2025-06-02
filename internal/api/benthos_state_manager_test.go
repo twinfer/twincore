@@ -51,7 +51,7 @@ func TestBenthosStateManager_ParquetReplacement(t *testing.T) {
 	propertyName := "temperature"
 	value := 23.5
 
-	err = sm.SetProperty(thingID, propertyName, value)
+	err = sm.SetProperty(logger, thingID, propertyName, value)
 	if err != nil {
 		t.Fatalf("Failed to set property: %v", err)
 	}

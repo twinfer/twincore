@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time" // Required for some types like forms.AllBindings
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -116,10 +115,10 @@ func (m *MockBenthosStreamManager) ListProcessorCollections(ctx context.Context)
 // TDStreamCompositionServiceTestSuite is the test suite for TDStreamCompositionService.
 type TDStreamCompositionServiceTestSuite struct {
 	suite.Suite
-	service         TDStreamCompositionService // System Under Test (the interface)
-	mockBindingGen  *MockBindingGenerationService
-	mockStreamMgr   *MockBenthosStreamManager
-	logger          *logrus.Logger
+	service        TDStreamCompositionService // System Under Test (the interface)
+	mockBindingGen *MockBindingGenerationService
+	mockStreamMgr  *MockBenthosStreamManager
+	logger         *logrus.Logger
 }
 
 // SetupTest sets up resources before each test.
@@ -181,7 +180,6 @@ func (suite *TDStreamCompositionServiceTestSuite) TestProcessThingDescription_Su
 		assert.Empty(suite.T(), result.FailedStreams)
 	}
 
-
 	suite.mockBindingGen.AssertCalledOnce(suite.T(), "GenerateAllBindings", testTD)
 	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "GetStream", ctx, "stream1-id")
 }
@@ -241,7 +239,6 @@ func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_Dele
 	//    assert.Len(suite.T(), compositeErr.Errors, 1)
 	//    assert.Contains(suite.T(), compositeErr.Errors[0].Error(), deleteErr1.Error())
 	// }
-
 
 	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "ListStreams", ctx, StreamFilters{ThingID: thingID})
 	suite.mockStreamMgr.AssertCalledOnce(suite.T(), "DeleteStream", ctx, "stream1")

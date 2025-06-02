@@ -105,7 +105,7 @@ func (bi *Integration) ProcessThingDescription(ctx context.Context, td *wot.Thin
 	bi.logger.WithField("thing_id", td.ID).Info("Processing Thing Description for binding generation")
 
 	// Generate all bindings using centralized approach
-	allBindings, err := bi.bindingGenerator.GenerateAllBindings(td)
+	allBindings, err := bi.bindingGenerator.GenerateAllBindings(bi.logger, td)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bindings: %w", err)
 	}

@@ -125,10 +125,10 @@ func createStreamRequest(logger logrus.FieldLogger, bg *BindingGenerator, thingI
 // registerStreamWithManager creates the stream via streamManager and stores its config.
 func registerStreamWithManager(logger logrus.FieldLogger, bg *BindingGenerator, request types.StreamCreationRequest, streamType types.BenthosStreamType, streamDirection types.StreamDirection, processorChain ProcessorChain, bindings *AllBindings) (StreamConfig, error) {
 	opLogger := logger.WithFields(logrus.Fields{
-		"thing_id": request.ThingID,
+		"thing_id":         request.ThingID,
 		"interaction_name": request.InteractionName,
-		"purpose": request.Metadata["purpose"],
-		"operation": "registerStreamWithManager",
+		"purpose":          request.Metadata["purpose"],
+		"operation":        "registerStreamWithManager",
 	})
 	opLogger.Debug("Registering stream with manager")
 
@@ -340,9 +340,9 @@ func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerat
 			})
 		} else if format == "json" {
 			additionalProcessors = append(additionalProcessors, ProcessorConfig{
-				Type: types.ProcessorJSONEncode,
-				Label: "json_encoding",
-				Config: map[string]interface{}{},
+				Type:        types.ProcessorJSONEncode,
+				Label:       "json_encoding",
+				Config:      map[string]interface{}{},
 				Description: "Encode property data to JSON format",
 			})
 		}
@@ -498,10 +498,10 @@ func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator
 				Description: "Encode action data to Parquet format",
 			})
 		} else if format == "json" {
-				additionalProcessors = append(additionalProcessors, ProcessorConfig{
-				Type: types.ProcessorJSONEncode,
-				Label: "json_encoding",
-				Config: map[string]interface{}{},
+			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+				Type:        types.ProcessorJSONEncode,
+				Label:       "json_encoding",
+				Config:      map[string]interface{}{},
 				Description: "Encode action data to JSON format",
 			})
 		}
@@ -657,9 +657,9 @@ func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator,
 			})
 		} else if format == "json" {
 			additionalProcessors = append(additionalProcessors, ProcessorConfig{
-				Type: types.ProcessorJSONEncode,
-				Label: "json_encoding",
-				Config: map[string]interface{}{},
+				Type:        types.ProcessorJSONEncode,
+				Label:       "json_encoding",
+				Config:      map[string]interface{}{},
 				Description: "Encode event data to JSON format",
 			})
 		}
@@ -670,7 +670,6 @@ func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator,
 	if event.Data != nil && event.Data.Type != "" {
 		dataSchemaCore = &event.Data.DataSchemaCore
 	}
-
 
 	processorChain, err := buildProcessorChain(opLogger, bg, streamIDBase,
 		fmt.Sprintf("Event %s persistence processors", eventName),
@@ -913,4 +912,29 @@ func indentString(s string, indent string) string {
 		}
 	}
 	return "\n" + strings.Join(lines, "\n")
+}
+
+// generatePersistenceOutputConfig generates the output config for property persistence streams.
+func (bg *BindingGenerator) generatePersistenceOutputConfig(thingID, propName string, persistenceCfg map[string]interface{}) (types.StreamEndpointConfig, error) {
+	format, _ := persistenceCfg["format"].(string)
+	switch format {
+	case "parquet":
+		path := fmt.Sprintf("/data/persistence/%s/properties/%s.parquet", thingID, propName)
+		return types.StreamEndpointConfig{
+			Type: "parquet",
+			Config: map[string]interface{}{
+				"path": path,
+			},
+		}, nil
+	case "json":
+		path := fmt.Sprintf("/data/persistence/%s/properties/%s.json", thingID, propName)
+		return types.StreamEndpointConfig{
+			Type: "file",
+			Config: map[string]interface{}{
+				"path": path,
+			},
+		}, nil
+	default:
+		return types.StreamEndpointConfig{}, fmt.Errorf("unsupported persistence format: %s", format)
+	}
 }

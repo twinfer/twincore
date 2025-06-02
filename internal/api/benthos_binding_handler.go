@@ -1,13 +1,12 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"errors" // Added for errors.As
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -35,25 +34,6 @@ type (
 	StreamInfo            = types.StreamInfo
 	StreamFilters         = types.StreamFilters
 )
-
-// BenthosStreamManager manages Benthos stream lifecycle
-// This extends the basic interface from pkg/types with additional methods
-type BenthosStreamManager interface {
-	types.BenthosStreamManager
-
-	// Additional methods for stream management
-	UpdateStream(ctx context.Context, streamID string, request StreamUpdateRequest) (*StreamInfo, error)
-
-	// Processor collection
-	CreateProcessorCollection(ctx context.Context, request ProcessorCollectionRequest) (*ProcessorCollection, error)
-	GetProcessorCollection(ctx context.Context, collectionID string) (*ProcessorCollection, error)
-	ListProcessorCollections(ctx context.Context) ([]ProcessorCollection, error)
-
-	// Stream operations
-	StartStream(ctx context.Context, streamID string) error
-	StopStream(ctx context.Context, streamID string) error
-	GetStreamStatus(ctx context.Context, streamID string) (*StreamStatus, error)
-}
 
 // Additional types not in pkg/types
 type StreamUpdateRequest struct {
@@ -211,7 +191,6 @@ func (h *BenthosBindingHandler) handleCreateStream(logger *logrus.Entry, w http.
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 	logger = logger.WithFields(logrus.Fields{"thing_id": request.ThingID, "interaction_type": request.InteractionType, "interaction_name": request.InteractionName})
-
 
 	// Validate Thing exists
 	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetThing", "thing_id": request.ThingID}).Debug("Calling service")
@@ -492,7 +471,6 @@ func (h *BenthosBindingHandler) handleGenerateFromTD(logger *logrus.Entry, w htt
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 	logger = logger.WithField("thing_id", request.ThingID)
-
 
 	// Get Thing Description
 	logger.WithFields(logrus.Fields{"service_name": "ThingRegistry", "method_name": "GetThing"}).Debug("Calling service")

@@ -3,20 +3,16 @@ package api
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
-	"net/http" // Not directly used by BSM tests but common in _test files
 	"os"
 	"testing"
-	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
-	// Benthos public API, might be needed if we directly use its types in SUT
-	// or if mocks need to return concrete Benthos types (though interfaces are preferred).
-	// "github.com/redpanda-data/benthos/v4/public/service"
 )
 
 // MockableBenthosStream is an interface abstracting Benthos's service.Stream
@@ -75,10 +71,10 @@ func (m *MockBenthosStreamBuilder) AsYAML() (string, error) {
 // BenthosStreamManagerTestSuite is the test suite for SimpleBenthosStreamManager.
 type BenthosStreamManagerTestSuite struct {
 	suite.Suite
-	manager      *SimpleBenthosStreamManager // System Under Test
-	db           *sql.DB
-	mockSql      sqlmock.Sqlmock // For sql.DB mocking
-	logger       *logrus.Logger
+	manager       *SimpleBenthosStreamManager // System Under Test
+	db            *sql.DB
+	mockSql       sqlmock.Sqlmock // For sql.DB mocking
+	logger        *logrus.Logger
 	testConfigDir string // For testing config file writing
 
 	// mockStream and mockBuilder can be initialized per test if needed
@@ -168,10 +164,10 @@ output:
 		WithArgs(sqlmock.AnyArg(), request.ThingID, request.InteractionType, request.InteractionName, request.Direction,
 			`{"Type":"generate","Config":{"interval":"1s","mapping":"root = {}"}}`, // Marshalled Input
 			`{"Type":"drop","Config":{}}`,                                          // Marshalled Output
-			`[]`, // Marshalled ProcessorChain
-			"created",          // Default status
-			sqlmock.AnyArg(),   // created_at
-			sqlmock.AnyArg(),   // updated_at
+			`[]`,                                                                   // Marshalled ProcessorChain
+			"created",                                                              // Default status
+			sqlmock.AnyArg(),                                                       // created_at
+			sqlmock.AnyArg(),                                                       // updated_at
 			`{"yaml_config":"\ninput:\n  generate:\n    mapping: 'root = {}'\n    interval: 1s # Added to make it a valid input config\noutput:\n  drop: {}\n"}`, // Marshalled Metadata
 			"", // No validation error
 		).

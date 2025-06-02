@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/wot"
@@ -63,7 +64,9 @@ func (s *DefaultTDStreamCompositionService) ProcessThingDescription(logger logru
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ProcessThingDescription", "thing_id": td.ID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now() // Assuming time is imported
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", td.ID) // Use this for subsequent logs
 	logger.Info("Processing Thing Description for stream composition")
@@ -127,7 +130,9 @@ func (s *DefaultTDStreamCompositionService) UpdateStreamsForThing(logger logrus.
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UpdateStreamsForThing", "thing_id": td.ID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", td.ID)
 	logger.Info("Updating streams for Thing Description")
@@ -182,7 +187,9 @@ func (s *DefaultTDStreamCompositionService) RemoveStreamsForThing(logger logrus.
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "RemoveStreamsForThing", "thing_id": thingID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", thingID)
 	logger.Info("Removing all streams for Thing")
@@ -203,8 +210,8 @@ func (s *DefaultTDStreamCompositionService) RemoveStreamsForThing(logger logrus.
 		if err := s.streamManager.DeleteStream(ctx, stream.ID); err != nil {
 			logger.WithError(err).WithFields(logrus.Fields{
 				"dependency_name": "BenthosStreamManager",
-				"operation": "DeleteStream",
-				"stream_id": stream.ID,
+				"operation":       "DeleteStream",
+				"stream_id":       stream.ID,
 			}).Error("Dependency call failed")
 			removeErrors = append(removeErrors, err)
 		} else {
@@ -234,7 +241,9 @@ func (s *DefaultTDStreamCompositionService) GetStreamCompositionStatus(logger lo
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetStreamCompositionStatus", "thing_id": thingID})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
-	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+	defer func() {
+		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
+	}()
 
 	logger = logger.WithField("thing_id", thingID)
 	logger.WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Debug("Calling dependency")

@@ -7,7 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	// "github.com/stretchr/testify/require" // Not strictly needed for these examples but good practice
+
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -33,11 +33,11 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name:         "invalid type - number for string",
-			propertyName: "deviceName",
-			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string"}},
-			data:         12345,
-			expectError:  true,
+			name:          "invalid type - number for string",
+			propertyName:  "deviceName",
+			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string"}},
+			data:          12345,
+			expectError:   true,
 			errorContains: "type is wrong. Expected: string, Got: integer",
 		},
 		{
@@ -48,11 +48,11 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name:         "invalid type - string for integer",
-			propertyName: "sensorReading",
-			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "integer"}},
-			data:         "not-a-number",
-			expectError:  true,
+			name:          "invalid type - string for integer",
+			propertyName:  "sensorReading",
+			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "integer"}},
+			data:          "not-a-number",
+			expectError:   true,
 			errorContains: "type is wrong. Expected: integer, Got: string",
 		},
 		{
@@ -77,15 +77,15 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name:         "invalid type - string for boolean",
-			propertyName: "isActive",
-			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "boolean"}},
-			data:         "true_string",
-			expectError:  true,
+			name:          "invalid type - string for boolean",
+			propertyName:  "isActive",
+			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "boolean"}},
+			data:          "true_string",
+			expectError:   true,
 			errorContains: "type is wrong. Expected: boolean, Got: string",
 		},
 		{
-			name: "valid object with required property",
+			name:         "valid object with required property",
 			propertyName: "location",
 			schema: wot.DataSchema{
 				DataSchemaCore: wot.DataSchemaCore{
@@ -101,7 +101,7 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "invalid object - missing required property",
+			name:         "invalid object - missing required property",
 			propertyName: "location",
 			schema: wot.DataSchema{
 				DataSchemaCore: wot.DataSchemaCore{
@@ -118,7 +118,7 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			errorContains: "latitude: (root): latitude is required",
 		},
 		{
-			name: "invalid object - wrong type for property",
+			name:         "invalid object - wrong type for property",
 			propertyName: "location",
 			schema: wot.DataSchema{
 				DataSchemaCore: wot.DataSchemaCore{
@@ -133,11 +133,11 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			errorContains: "latitude: type is wrong. Expected: number, Got: string",
 		},
 		{
-			name:         "nil data for required string",
-			propertyName: "deviceName",
-			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string"}}, // Assumes string is implicitly required if not nullable
-			data:         nil,
-			expectError:  true,
+			name:          "nil data for required string",
+			propertyName:  "deviceName",
+			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string"}}, // Assumes string is implicitly required if not nullable
+			data:          nil,
+			expectError:   true,
 			errorContains: "type is wrong. Expected: string, Got: null",
 		},
 		{
@@ -148,11 +148,11 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 			expectError:  false,
 		},
 		{
-			name:         "invalid string for enum",
-			propertyName: "status",
-			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string", Enum: []interface{}{"active", "inactive", "error"}}},
-			data:         "pending",
-			expectError:  true,
+			name:          "invalid string for enum",
+			propertyName:  "status",
+			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string", Enum: []interface{}{"active", "inactive", "error"}}},
+			data:          "pending",
+			expectError:   true,
 			errorContains: "does not match any of the options in the enum", // Actual message might vary slightly
 		},
 		// TODO: Developer to add many more cases:

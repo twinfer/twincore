@@ -4,9 +4,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 
-	"github.com/twinfer/twincore/pkg/wot"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/wot"
 	"github.com/xeipuuv/gojsonschema"
