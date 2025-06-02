@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -17,6 +18,8 @@ type BenthosStateManager struct {
 	db             *sql.DB
 	logger         logrus.FieldLogger
 	parquetEnabled bool
+	subscribers    sync.Map // map[string][]chan PropertyUpdate
+	mu             sync.RWMutex // Protects subscribers map
 }
 
 // NewBenthosStateManager creates a new state manager with Benthos Parquet logging
@@ -81,7 +84,7 @@ func (sm *BenthosStateManager) SetProperty(logger logrus.FieldLogger, thingID, n
 
 // SetPropertyWithContext updates a property value with source context
 func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, name string, value interface{}) error {
-	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetPropertyWithContext", "thing_id": thingID, "property_name": name, "value": value})
+	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetPropertyWithContext", "thing_id": thingID, "property_name": name}) // Removed value from initial log for brevity
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
 	defer func() { entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
@@ -121,6 +124,10 @@ func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger,
 			"source":   source,
 		}).Debug("Parquet logging for property update handled by centralized binding generation (BenthosStateManager)")
 	}
+
+	// Notify subscribers
+	// Pass the entryLogger (which includes request_id if available from the handler) to notifySubscribers
+	sm.notifySubscribers(entryLogger, thingID, name, value)
 
 	return nil
 }
@@ -219,16 +226,124 @@ func (sm *BenthosStateManager) Close() error {
 	return nil
 }
 
+func (sm *BenthosStateManager) notifySubscribers(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) {
+	key := fmt.Sprintf("%s/%s", thingID, propertyName)
+	// Use the logger passed from SetPropertyWithContext, which may include request_id
+	notifyLogger := logger.WithFields(logrus.Fields{"internal_method": "notifySubscribers", "key": key})
+	notifyLogger.Debug("Notifying subscribers")
+
+	if subs, ok := sm.subscribers.Load(key); ok {
+		channels := subs.([]chan models.PropertyUpdate)
+		notifyLogger.WithField("subscriber_count", len(channels)).Debug("Found subscribers to notify")
+
+		// Determine source from context if possible, otherwise default or leave as is
+		// For now, using a generic source as the original SetProperty context is not directly available here.
+		// This could be enhanced by passing source information through if critical.
+		source := "state_manager" // Default source
+		// Attempt to get source from context if available (this function doesn't have direct access to original ctx)
+		// This part is tricky as notifySubscribers doesn't have the original context.
+		// The PropertyUpdate model expects a source. We'll use a generic one.
+		// If SetPropertyWithContext's context's source is needed, it should be passed explicitly.
+
+		update := models.PropertyUpdate{
+			ThingID:      thingID,
+			PropertyName: propertyName,
+			Value:        value,
+			Timestamp:    time.Now(),
+			Source:       models.UpdateSource(source), // Ensure this matches the type if it's an enum/defined type
+		}
+
+		for i, ch := range channels {
+			select {
+			case ch <- update:
+				notifyLogger.WithField("subscriber_index", i).Debug("Notified subscriber")
+			default:
+				notifyLogger.WithField("subscriber_index", i).Warn("Subscriber channel full, skipping notification")
+			}
+		}
+	} else {
+		notifyLogger.Debug("No subscribers for property")
+	}
+}
+
 // SubscribeProperty implements StateManager interface
 func (sm *BenthosStateManager) SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error) {
-	// For now, return nil channel - this would need to be implemented with proper subscription
-	// This is beyond the scope of Benthos Parquet replacement
-	return nil, fmt.Errorf("subscription not implemented in Benthos state manager")
+	// Use sm.logger as this is not typically part of a request needing specific request_id logging from handler.
+	logger := sm.logger.WithFields(logrus.Fields{"service_method": "SubscribeProperty", "thing_id": thingID, "property_name": propertyName})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
+	ch := make(chan models.PropertyUpdate, 10) // Buffer size 10
+	key := fmt.Sprintf("%s/%s", thingID, propertyName)
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if subs, ok := sm.subscribers.Load(key); ok {
+		channels, ok := subs.([]chan models.PropertyUpdate)
+		if !ok {
+			// This case should ideally not happen if types are consistent.
+			// If it does, it implies a different type was stored, which is a programming error.
+			logger.Error("Subscribers list is not of expected type, reinitializing.")
+			// Reinitialize the subscriber list for this key.
+			sm.subscribers.Store(key, []chan models.PropertyUpdate{ch})
+		} else {
+			channels = append(channels, ch)
+			sm.subscribers.Store(key, channels)
+			logger.WithField("total_subscribers", len(channels)).Debug("Added subscriber to existing list")
+		}
+	} else {
+		sm.subscribers.Store(key, []chan models.PropertyUpdate{ch})
+		logger.Debug("Created new subscriber list")
+	}
+
+	return ch, nil
 }
 
 // UnsubscribeProperty implements StateManager interface
 func (sm *BenthosStateManager) UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate) {
-	// No-op for now
+	// Use sm.logger for similar reasons as SubscribeProperty.
+	logger := sm.logger.WithFields(logrus.Fields{"service_method": "UnsubscribeProperty", "thing_id": thingID, "property_name": propertyName})
+	logger.Debug("Service method called")
+	startTime := time.Now()
+	defer func() { logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished") }()
+
+	key := fmt.Sprintf("%s/%s", thingID, propertyName)
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	subs, ok := sm.subscribers.Load(key)
+	if !ok {
+		logger.Warn("No subscriber list found for key during unsubscribe")
+		return
+	}
+
+	channels, ok := subs.([]chan models.PropertyUpdate)
+	if !ok {
+		// Log error, as this indicates a type mismatch issue.
+		logger.Error("Subscribers list is not of expected type during unsubscribe.")
+		// It's safer to delete the key if the type is wrong to prevent further issues.
+		sm.subscribers.Delete(key)
+		return
+	}
+
+	for i, c := range channels {
+		if c == ch {
+			channels = append(channels[:i], channels[i+1:]...)
+			if len(channels) == 0 {
+				sm.subscribers.Delete(key)
+				logger.Debug("Removed last subscriber, deleting list")
+			} else {
+				sm.subscribers.Store(key, channels)
+				logger.WithField("remaining_subscribers", len(channels)).Debug("Removed subscriber")
+			}
+			close(c) // Close the channel to signal the subscriber
+			return
+		}
+	}
+	logger.Warn("Channel not found in subscriber list for key")
 }
 
 // Ensure BenthosStateManager implements StateManager interface

@@ -209,10 +209,12 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 	c.BenthosEnvironment = service.NewEnvironment()
 
 	// Initialize state manager
-	// Pass ParquetLogPath to NewDuckDBStateManager (signature: db, logger, parquetLogPath)
-	sm, err := api.NewDuckDBStateManager(c.DB, c.Logger, cfg.ParquetLogPath)
+	// NewBenthosStateManager signature: (db *sql.DB, benthosConfigDir, parquetLogPath string, logger logrus.FieldLogger)
+	// Passing empty string for benthosConfigDir as it's not available in cfg here.
+	// c.Logger is *logrus.Logger, which implements logrus.FieldLogger.
+	sm, err := api.NewBenthosStateManager(c.DB, "", cfg.ParquetLogPath, c.Logger)
 	if err != nil {
-		return fmt.Errorf("failed to initialize DuckDB state manager: %w", err)
+		return fmt.Errorf("failed to initialize Benthos state manager: %w", err)
 	}
 	c.StateManager = sm
 
