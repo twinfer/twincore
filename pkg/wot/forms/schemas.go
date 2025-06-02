@@ -1,7 +1,6 @@
 package forms
 
 import (
-	"fmt"
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
