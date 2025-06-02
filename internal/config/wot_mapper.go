@@ -17,7 +17,7 @@ type WoTMapper struct {
 
 func NewWoTMapper(logger *logrus.Logger) *WoTMapper {
 	return &WoTMapper{
-		httpPattern:   "/things/{id}/{type}/{name}",
+		httpPattern:   "/api/things/{id}/{type}/{name}",
 		streamPattern: "things.{id}.{type}.{name}",
 		logger:        logger,
 	}
@@ -51,7 +51,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		route := types.HTTPRoute{
 			Path:         m.expandPattern(m.httpPattern, td.ID, "properties", name),
 			Methods:      m.getPropertyMethods(*property), // Dereference pointer
-			Handler:      "wot_property_handler",
+			Handler:      "unified_wot_handler",
 			RequiresAuth: len(td.Security) > 0,
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":      td.ID,
@@ -91,7 +91,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		route := types.HTTPRoute{
 			Path:         m.expandPattern(m.httpPattern, td.ID, "actions", name),
 			Methods:      []string{"POST"},
-			Handler:      "wot_action_handler",
+			Handler:      "unified_wot_handler",
 			RequiresAuth: len(td.Security) > 0,
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":    td.ID,
@@ -133,7 +133,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		route := types.HTTPRoute{
 			Path:         m.expandPattern(m.httpPattern, td.ID, "events", name),
 			Methods:      []string{"GET"},
-			Handler:      "wot_event_handler",
+			Handler:      "unified_wot_handler",
 			RequiresAuth: len(td.Security) > 0,
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":   td.ID,

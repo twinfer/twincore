@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
+	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // MockThingRegistryExt is a mock for api.ThingRegistryExt interface.
@@ -161,6 +163,11 @@ func (m *MockConfigurationManager) RemoveThingRoutes(logger logrus.FieldLogger, 
 	return args.Error(0)
 }
 
+func (m *MockConfigurationManager) AddRoute(ctx context.Context, routeID string, route types.HTTPRoute) error {
+	args := m.Called(ctx, routeID, route)
+	return args.Error(0)
+}
+
 // ThingRegistrationServiceTestSuite is the test suite for ThingRegistrationService.
 type ThingRegistrationServiceTestSuite struct {
 	suite.Suite
@@ -183,13 +190,14 @@ func (suite *ThingRegistrationServiceTestSuite) SetupTest() {
 	// Provide nil or suitable mocks for BindingGenerator and BenthosStreamManager as needed for tests
 	// var mockBindingGenerator *forms.BindingGenerator = nil
 	var mockBenthosStreamManager BenthosStreamManager = nil
+	var mockBindingGenerator *forms.BindingGenerator = nil
 
 	// Constructor order: thingRegistry, streamComposer, configManager, bindingGenerator, benthosStreamManager, logger
 	suite.service = NewDefaultThingRegistrationService(
 		suite.mockRegistry,
 		suite.mockStreamComposer,
 		suite.mockConfigManager,
-		// mockBindingGenerator,
+		mockBindingGenerator,
 		mockBenthosStreamManager,
 		suite.logger,
 	)

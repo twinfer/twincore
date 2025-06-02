@@ -41,10 +41,10 @@ type Container struct {
 	WoTService      types.Service
 
 	// WoT Components
-	StateManager api.StateManager
-	StreamBridge api.StreamBridge
-	EventBroker  *api.EventBroker
-	WoTHandler   *api.WoTHandler
+	StateManager       api.StateManager
+	StreamBridge       api.StreamBridge
+	EventBroker        *api.EventBroker
+	UnifiedWoTHandler  *api.UnifiedWoTHandler
 
 	// Stream Composition Components
 	BenthosStreamManager api.BenthosStreamManager
@@ -236,11 +236,12 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 		return fmt.Errorf("failed to initialize stream composition: %w", err)
 	}
 
-	// Initialize WoT handler
-	c.WoTHandler = api.NewWoTHandler(
+	// Initialize Unified WoT handler
+	c.UnifiedWoTHandler = api.NewUnifiedWoTHandler(
 		c.StateManager,
 		c.StreamBridge,
 		c.ThingRegistry,
+		c.BenthosStreamManager,
 		c.EventBroker,
 		c.Logger,
 	)

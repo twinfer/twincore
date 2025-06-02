@@ -161,13 +161,6 @@ func (v *JSONSchemaValidator) ValidateEventData(logger logrus.FieldLogger, schem
 }
 
 // MetricsCollector collects metrics for monitoring
-type MetricsCollector struct {
-	propertyReads  uint64
-	propertyWrites uint64
-	actionInvokes  uint64
-	eventEmissions uint64
-	errors         uint64
-}
 
 func (m *MetricsCollector) IncrementPropertyReads()  { atomic.AddUint64(&m.propertyReads, 1) }
 func (m *MetricsCollector) IncrementPropertyWrites() { atomic.AddUint64(&m.propertyWrites, 1) }

@@ -223,6 +223,7 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 				}).Info("Successfully registered HTTP route from BindingGenerator")
 				routesSuccessfullyAdded++
 			}
+		}
 		result.ConfigGeneration.HTTPRoutes += routesSuccessfullyAdded // Add to existing count
 		if routesSuccessfullyAdded > 0 {
 			result.ConfigGeneration.CaddyConfigured = true // If any route added, consider Caddy configured by this step

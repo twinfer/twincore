@@ -42,55 +42,146 @@ func NewConfigManager(logger logrus.FieldLogger) *ConfigManager {
 }
 
 // RemoveThingRoutes removes Caddy routes associated with a specific Thing.
-// TODO: Implement the logic to find and remove Caddy routes.
 func (cm *ConfigManager) RemoveThingRoutes(logger logrus.FieldLogger, thingID string) error {
 	entryLogger := logger.WithFields(logrus.Fields{
 		"service_method": "RemoveThingRoutes",
 		"thing_id":       thingID,
 	})
-	entryLogger.Info("Attempting to remove Caddy routes for Thing")
+	entryLogger.Info("Removing Caddy routes for Thing")
 
-	// TODO: Implement the logic to find and remove Caddy routes.
-	// This is a complex operation and requires careful manipulation of Caddy's JSON config.
-	// For now, this function is a placeholder.
-	// Example steps:
-	// 1. Fetch current Caddy config: currentConfig, err := cm.getCaddyConfig(logger, "/config")
-	//    If err, return &ErrCaddyAdminAPIAccess{WrappedErr: err, URL: cm.caddyAdminURL + "/config", HTTPMethod: "GET"}
-	// 2. Navigate to http server routes: e.g., currentConfig["apps"]["http"]["servers"]["srv0"]["routes"]
-	// 3. Iterate and filter routes: remove routes matching thingID. This needs a robust way to identify these routes.
-	//    If a route to be removed is not found, this might be okay or an ErrCaddyResourceNotFound.
-	// 4. Update Caddy config: err = cm.updateCaddyConfig(logger, "/config", currentConfig)
-	//    If err, it could be ErrCaddyAdminAPIAccess or ErrCaddyConfigLoadFailed depending on the cause.
+	// Get current Caddy HTTP config
+	entryLogger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "getCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency")
+	httpConfig, err := cm.getCaddyConfig(logger, "/apps/http")
+	if err != nil {
+		entryLogger.WithError(err).Error("Failed to get current Caddy HTTP config")
+		return err
+	}
 
-	entryLogger.Warn("RemoveThingRoutes is not fully implemented. Placeholder success.")
-	// Simulate not finding any routes for this thingID to avoid accidental success logging for an empty operation.
-	// return &ErrCaddyResourceNotFound{ResourceType: "route", ResourceID: thingID, CaddyPath: "/config/apps/http/servers/srv0/routes"}
-	return nil // Returning nil for now to avoid breaking existing flows.
+	// Navigate to routes
+	servers, ok := httpConfig["servers"].(map[string]interface{})
+	if !ok {
+		entryLogger.Error("Invalid Caddy HTTP config structure: missing servers")
+		return fmt.Errorf("invalid Caddy HTTP config: missing servers")
+	}
+
+	srv0, ok := servers["srv0"].(map[string]interface{})
+	if !ok {
+		entryLogger.Error("Invalid Caddy HTTP config structure: missing srv0")
+		return fmt.Errorf("invalid Caddy HTTP config: missing srv0 server")
+	}
+
+	routes, ok := srv0["routes"].([]interface{})
+	if !ok {
+		entryLogger.Error("Invalid Caddy HTTP config structure: missing routes")
+		return fmt.Errorf("invalid Caddy HTTP config: missing routes")
+	}
+
+	// Filter out routes that match the thingID
+	var updatedRoutes []interface{}
+	removedCount := 0
+
+	for _, route := range routes {
+		routeMap, ok := route.(map[string]interface{})
+		if !ok {
+			updatedRoutes = append(updatedRoutes, route)
+			continue
+		}
+
+		// Check if this route is for the specified thingID
+		if cm.isThingRoute(routeMap, thingID) {
+			entryLogger.WithField("route", routeMap).Debug("Removing route for Thing")
+			removedCount++
+			continue // Skip this route (remove it)
+		}
+
+		updatedRoutes = append(updatedRoutes, route)
+	}
+
+	if removedCount == 0 {
+		entryLogger.Info("No routes found for Thing")
+		return nil
+	}
+
+	// Update the routes in the config
+	srv0["routes"] = updatedRoutes
+
+	// Apply the updated config back to Caddy
+	entryLogger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "updateCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency")
+	if err := cm.updateCaddyConfig(logger, "/apps/http", httpConfig); err != nil {
+		entryLogger.WithError(err).Error("Failed to update Caddy HTTP config")
+		return err
+	}
+
+	entryLogger.WithField("removed_routes", removedCount).Info("Successfully removed Caddy routes for Thing")
+	return nil
 }
 
 // AddRoute adds a new HTTP route to the Caddy configuration
 func (cm *ConfigManager) AddRoute(ctx context.Context, routeID string, route types.HTTPRoute) error {
-	cm.logger.WithFields(logrus.Fields{
+	entryLogger := cm.logger.WithFields(logrus.Fields{
 		"service_method": "AddRoute",
 		"route_id":       routeID,
 		"path":           route.Path,
-	}).Info("Adding HTTP route to Caddy configuration")
+		"handler":        route.Handler,
+	})
+	entryLogger.Info("Adding HTTP route to Caddy configuration")
 
-	// TODO: Implement the logic to add the route to Caddy's configuration
-	// This is a complex operation and requires careful manipulation of Caddy's JSON config.
-	// For now, this function is a placeholder.
-	// Example steps:
-	// 1. Fetch current Caddy config: currentConfig, err := cm.getCaddyConfig(cm.logger, "/config")
-	// 2. Navigate to http server routes: e.g., currentConfig["apps"]["http"]["servers"]["srv0"]["routes"]
-	// 3. Add the new route in the appropriate format
-	// 4. Update Caddy config: err = cm.updateCaddyConfig(cm.logger, "/config", currentConfig)
+	// Get current Caddy HTTP config
+	entryLogger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "getCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency")
+	httpConfig, err := cm.getCaddyConfig(cm.logger, "/apps/http")
+	if err != nil {
+		entryLogger.WithError(err).Error("Failed to get current Caddy HTTP config")
+		return err
+	}
 
-	cm.logger.WithFields(logrus.Fields{
-		"route_id": routeID,
-		"path":     route.Path,
-	}).Warn("AddRoute is not fully implemented. Placeholder success.")
-	
-	return nil // Returning nil for now to avoid breaking existing flows.
+	// Navigate to routes
+	servers, ok := httpConfig["servers"].(map[string]interface{})
+	if !ok {
+		entryLogger.Error("Invalid Caddy HTTP config structure: missing servers")
+		return fmt.Errorf("invalid Caddy HTTP config: missing servers")
+	}
+
+	srv0, ok := servers["srv0"].(map[string]interface{})
+	if !ok {
+		entryLogger.Error("Invalid Caddy HTTP config structure: missing srv0")
+		return fmt.Errorf("invalid Caddy HTTP config: missing srv0 server")
+	}
+
+	routes, ok := srv0["routes"].([]interface{})
+	if !ok {
+		entryLogger.Error("Invalid Caddy HTTP config structure: missing routes")
+		return fmt.Errorf("invalid Caddy HTTP config: missing routes")
+	}
+
+	// Check if route already exists
+	for _, existingRoute := range routes {
+		if routeMap, ok := existingRoute.(map[string]interface{}); ok {
+			if cm.routeMatches(routeMap, routeID, route.Path) {
+				entryLogger.Info("Route already exists, skipping addition")
+				return nil
+			}
+		}
+	}
+
+	// Build the new Caddy route
+	newCaddyRoute := cm.buildCaddyRoute(routeID, route)
+	entryLogger.WithField("caddy_route", newCaddyRoute).Debug("Built new Caddy route")
+
+	// Add the new route (prepend to ensure it's matched before more general routes)
+	updatedRoutes := append([]interface{}{newCaddyRoute}, routes...)
+
+	// Update the routes in the config
+	srv0["routes"] = updatedRoutes
+
+	// Apply the updated config back to Caddy
+	entryLogger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "updateCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency")
+	if err := cm.updateCaddyConfig(cm.logger, "/apps/http", httpConfig); err != nil {
+		entryLogger.WithError(err).Error("Failed to update Caddy HTTP config")
+		return err
+	}
+
+	entryLogger.Info("Successfully added HTTP route to Caddy configuration")
+	return nil
 }
 
 // IsSetupComplete checks if initial setup has been completed
@@ -624,4 +715,192 @@ func loadAuthTemplates() map[string]interface{} {
 			"template": "saml_template.json",
 		},
 	}
+}
+
+// Helper methods for route management
+
+// isThingRoute checks if a Caddy route is associated with a specific Thing
+func (cm *ConfigManager) isThingRoute(route map[string]interface{}, thingID string) bool {
+	// Check if route path contains the thingID pattern
+	matches, ok := route["match"].([]interface{})
+	if !ok {
+		return false
+	}
+
+	for _, match := range matches {
+		matchMap, ok := match.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		paths, ok := matchMap["path"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, path := range paths {
+			pathStr, ok := path.(string)
+			if !ok {
+				continue
+			}
+
+			// Check if path matches Thing pattern: /api/things/{thingID}/* or /things/{thingID}/*
+			if cm.pathMatchesThing(pathStr, thingID) {
+				return true
+			}
+		}
+	}
+
+	// Also check for custom metadata/tags if we add them in the future
+	if metadata, ok := route["@twincore_thing_id"]; ok {
+		if metadataStr, ok := metadata.(string); ok && metadataStr == thingID {
+			return true
+		}
+	}
+
+	return false
+}
+
+// pathMatchesThing checks if a path pattern matches a specific thingID
+func (cm *ConfigManager) pathMatchesThing(path, thingID string) bool {
+	// Match patterns like:
+	// - /api/things/thingID/*
+	// - /things/thingID/*
+	// - /api/things/thingID
+	// - /things/thingID
+
+	// Simple string matching for now - could use regex for more sophisticated matching
+	patterns := []string{
+		"/api/things/" + thingID + "/*",
+		"/api/things/" + thingID,
+		"/things/" + thingID + "/*", 
+		"/things/" + thingID,
+	}
+
+	for _, pattern := range patterns {
+		if path == pattern {
+			return true
+		}
+	}
+
+	return false
+}
+
+// routeMatches checks if an existing route matches the route being added
+func (cm *ConfigManager) routeMatches(existingRoute map[string]interface{}, routeID, path string) bool {
+	// Check for custom route ID metadata
+	if metadata, ok := existingRoute["@twincore_route_id"]; ok {
+		if metadataStr, ok := metadata.(string); ok && metadataStr == routeID {
+			return true
+		}
+	}
+
+	// Check path matching
+	matches, ok := existingRoute["match"].([]interface{})
+	if !ok {
+		return false
+	}
+
+	for _, match := range matches {
+		matchMap, ok := match.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		paths, ok := matchMap["path"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, existingPath := range paths {
+			pathStr, ok := existingPath.(string)
+			if !ok {
+				continue
+			}
+
+			if pathStr == path {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// buildCaddyRoute converts a types.HTTPRoute to Caddy route format
+func (cm *ConfigManager) buildCaddyRoute(routeID string, route types.HTTPRoute) map[string]interface{} {
+	// Build Caddy route structure
+	caddyRoute := map[string]interface{}{
+		"@twincore_route_id": routeID, // Custom metadata for tracking
+		"match": []map[string]interface{}{
+			{
+				"path": []string{route.Path},
+			},
+		},
+		"handle": []map[string]interface{}{},
+	}
+
+	// Add method matching if specified
+	if len(route.Methods) > 0 {
+		caddyRoute["match"].([]map[string]interface{})[0]["method"] = route.Methods
+	}
+
+	// Build handlers based on the route configuration
+	handlers := []map[string]interface{}{}
+
+	// Add authentication if required
+	if route.RequiresAuth {
+		handlers = append(handlers, map[string]interface{}{
+			"handler":     "authenticator",
+			"portal_name": "twincore_portal",
+		})
+	}
+
+	// Add the main handler
+	switch route.Handler {
+	case "unified_wot_handler":
+		handlers = append(handlers, map[string]interface{}{
+			"handler": "unified_wot_handler",
+		})
+	case "reverse_proxy":
+		// Default reverse proxy to local API server
+		proxyHandler := map[string]interface{}{
+			"handler": "reverse_proxy",
+			"upstreams": []map[string]interface{}{
+				{"dial": "localhost:8090"},
+			},
+		}
+		// Add any additional config from route.Config
+		if route.Config != nil {
+			for key, value := range route.Config {
+				proxyHandler[key] = value
+			}
+		}
+		handlers = append(handlers, proxyHandler)
+	case "file_server":
+		fileHandler := map[string]interface{}{
+			"handler": "file_server",
+		}
+		// Add config from route.Config
+		if route.Config != nil {
+			for key, value := range route.Config {
+				fileHandler[key] = value
+			}
+		}
+		handlers = append(handlers, fileHandler)
+	default:
+		// Custom handler - pass through with config
+		customHandler := map[string]interface{}{
+			"handler": route.Handler,
+		}
+		if route.Config != nil {
+			for key, value := range route.Config {
+				customHandler[key] = value
+			}
+		}
+		handlers = append(handlers, customHandler)
+	}
+
+	caddyRoute["handle"] = handlers
+	return caddyRoute
 }

@@ -10,6 +10,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const RequestIDHeader = "X-Request-ID" // Request ID header for tracing
+
 // SetupHandler provides first-time setup flow
 type SetupHandler struct {
 	configManager ConfigurationManager // Changed to interface type
