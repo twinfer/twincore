@@ -107,15 +107,15 @@ type SecurityScheme struct {
 	Name string `json:"name,omitempty"` // For apikey (name of header/query param)
 
 	// Fields for specific security schemes as per TD 1.1
-	QOP             string   `json:"qop,omitempty"`              // For Digest
-	AuthorizationURI string   `json:"authorization,omitempty"`    // For Bearer, OAuth2
-	Alg             string   `json:"alg,omitempty"`              // For Bearer
-	Format          string   `json:"format,omitempty"`           // For Bearer
-	TokenURI        string   `json:"token,omitempty"`            // For OAuth2
-	RefreshURI      string   `json:"refresh,omitempty"`          // For OAuth2
-	Scopes          []string `json:"scopes,omitempty"`           // For OAuth2
-	Flow            string   `json:"flow,omitempty"`             // For OAuth2
-	Identity        string   `json:"identity,omitempty"`         // For PSK
+	QOP              string   `json:"qop,omitempty"`           // For Digest
+	AuthorizationURI string   `json:"authorization,omitempty"` // For Bearer, OAuth2
+	Alg              string   `json:"alg,omitempty"`           // For Bearer
+	Format           string   `json:"format,omitempty"`        // For Bearer
+	TokenURI         string   `json:"token,omitempty"`         // For OAuth2
+	RefreshURI       string   `json:"refresh,omitempty"`       // For OAuth2
+	Scopes           []string `json:"scopes,omitempty"`        // For OAuth2
+	Flow             string   `json:"flow,omitempty"`          // For OAuth2
+	Identity         string   `json:"identity,omitempty"`      // For PSK
 }
 
 // InteractionAffordance is a base type for Properties, Actions, and Events.
@@ -155,11 +155,11 @@ func (pa *PropertyAffordance) IsObservable() bool { return pa.DataSchemaCore.Obs
 // ActionAffordance defines an action that can be performed on a Thing.
 type ActionAffordance struct {
 	InteractionAffordance
-	Input      *DataSchema `json:"input,omitempty"`
-	Output     *DataSchema `json:"output,omitempty"`
-	Safe       bool        `json:"safe,omitempty"`       // Default false
-	Idempotent bool        `json:"idempotent,omitempty"` // Default false
-	Synchronous bool       `json:"synchronous,omitempty"` // Added for W3C WoT TD 1.1
+	Input       *DataSchema `json:"input,omitempty"`
+	Output      *DataSchema `json:"output,omitempty"`
+	Safe        bool        `json:"safe,omitempty"`        // Default false
+	Idempotent  bool        `json:"idempotent,omitempty"`  // Default false
+	Synchronous bool        `json:"synchronous,omitempty"` // Added for W3C WoT TD 1.1
 }
 
 // GetForms returns the forms associated with the action affordance.
@@ -203,11 +203,11 @@ func (ea *EventAffordance) GetData() DataSchema {
 
 // Link provides a link to a related resource.
 type Link struct {
-	Href   string `json:"href"`
-	Type   string `json:"type,omitempty"` // Media type
-	Rel    string `json:"rel,omitempty"`
-	Anchor string `json:"anchor,omitempty"`
-	Sizes string  `json:"sizes,omitempty"` // Added for W3C WoT TD 1.1
+	Href     string      `json:"href"`
+	Type     string      `json:"type,omitempty"` // Media type
+	Rel      string      `json:"rel,omitempty"`
+	Anchor   string      `json:"anchor,omitempty"`
+	Sizes    string      `json:"sizes,omitempty"`    // Added for W3C WoT TD 1.1
 	Hreflang interface{} `json:"hreflang,omitempty"` // Added for W3C WoT TD 1.1
 }
 
@@ -220,9 +220,9 @@ type VersionInfo struct {
 // AdditionalExpectedResponse defines requirements for responses beyond the primary one in a Form.
 // This is relevant for TD 1.1.
 type AdditionalExpectedResponse struct {
-	ContentType string      `json:"contentType"` // Making this non-omitempty as per spec's default handling described.
-	Schema      string      `json:"schema,omitempty"`
-	Success     bool        `json:"success,omitempty"`
+	ContentType string `json:"contentType"` // Making this non-omitempty as per spec's default handling described.
+	Schema      string `json:"schema,omitempty"`
+	Success     bool   `json:"success,omitempty"`
 }
 
 // ThingDescription is the top-level structure for a W3C WoT Thing Description.

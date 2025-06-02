@@ -1,7 +1,5 @@
 package types
 
-import "context"
-
 // StreamCreationRequest represents a request to create a Benthos stream
 type StreamCreationRequest struct {
 	ThingID         string                 `json:"thing_id"`

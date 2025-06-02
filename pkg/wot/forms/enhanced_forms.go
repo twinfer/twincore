@@ -3,7 +3,6 @@ package forms
 import (
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -13,11 +12,8 @@ func ConvertFormToStreamEndpoint(form wot.Form) (map[string]interface{}, error) 
 		"type": form.GetProtocol(),
 	}
 
-	if configGen, ok := form.(interface {
-		GenerateConfig(logger logrus.FieldLogger, securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error)
-	}); ok {
-		defaultLogger := logrus.NewEntry(logrus.StandardLogger())
-		formConfig, err := configGen.GenerateConfig(defaultLogger, nil)
+	// Form interface already has GenerateConfig method
+	formConfig, err := form.GenerateConfig(nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate form config: %w", err)
 		}
@@ -27,7 +23,6 @@ func ConvertFormToStreamEndpoint(form wot.Form) (map[string]interface{}, error) 
 			config["config"] = formConfig
 		}
 		return config, nil
-	}
 
 	switch form.GetProtocol() {
 	case "kafka":

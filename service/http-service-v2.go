@@ -137,7 +137,7 @@ func (h *HTTPServiceV2) buildCaddyConfig(config types.ServiceConfig) (map[string
 	// Add application routes
 	for _, route := range httpConfig.Routes {
 		// buildRoute now doesn't need the separate securityConfig map
-		caddyRoute := h.buildRoute(route) 
+		caddyRoute := h.buildRoute(route)
 		routes = append(routes, caddyRoute)
 	}
 
@@ -230,7 +230,6 @@ func (h *HTTPServiceV2) buildAuthRoute(securityConfig types.SimpleSecurityConfig
 		h.logger.Warn("BearerAuth with static tokens configured in SimpleSecurityConfig, but Caddy handler implementation is complex and not fully provided here. Consider JWT or a custom Caddy auth module for production bearer tokens.")
 	}
 
-
 	if len(authHandlers) == 0 {
 		return nil
 	}
@@ -286,7 +285,7 @@ func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute) map[string]interface{}
 			})
 		}
 	case "static_response":
-		body, _ := route.Config["body"].(string) // Changed from route.Metadata
+		body, _ := route.Config["body"].(string)               // Changed from route.Metadata
 		statusCode, _ := route.Config["status_code"].(float64) // Changed from route.Metadata
 		if statusCode == 0 {
 			statusCode = 200

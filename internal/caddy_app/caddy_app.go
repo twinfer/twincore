@@ -49,8 +49,7 @@ func (tca *TwinCoreApp) Provision(ctx caddy.Context) error {
 	tca.thingRegistry = globalContainer.ThingRegistry
 	tca.eventBroker = globalContainer.EventBroker
 	tca.benthosStreamManager = globalContainer.BenthosStreamManager
-	// Assuming globalContainer.ConfigManager (*config.ConfigManager) implements api.ConfigurationManager
-	tca.configurationManager = globalContainer.ConfigManager
+	tca.configurationManager = globalContainer.ConfigurationMgr
 
 	if tca.logger != nil {
 		tca.logger.Info("TwinCoreApp provisioned successfully")
@@ -60,13 +59,13 @@ func (tca *TwinCoreApp) Provision(ctx caddy.Context) error {
 
 // Validate ensures the module is configured correctly.
 func (tca *TwinCoreApp) Validate() error {
-	if tca.logger == nil || 
-       tca.stateManager == nil || 
-       tca.streamBridge == nil || 
-       tca.thingRegistry == nil || 
-       tca.eventBroker == nil || 
-       tca.benthosStreamManager == nil || 
-       tca.configurationManager == nil { // Added this check
+	if tca.logger == nil ||
+		tca.stateManager == nil ||
+		tca.streamBridge == nil ||
+		tca.thingRegistry == nil ||
+		tca.eventBroker == nil ||
+		tca.benthosStreamManager == nil ||
+		tca.configurationManager == nil { // Added this check
 		return fmt.Errorf("twincore app: one or more core dependencies are nil")
 	}
 	return nil

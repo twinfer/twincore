@@ -30,8 +30,9 @@ type Container struct {
 	LicenseManager types.LicenseManager
 
 	// Configuration
-	ConfigManager *config.ConfigManager
-	ThingRegistry *config.ThingRegistry
+	ConfigManager    *config.ConfigManager
+	ConfigurationMgr api.ConfigurationManager // API configuration manager
+	ThingRegistry    *config.ThingRegistry
 
 	// Services
 	ServiceRegistry types.ServiceRegistry
@@ -189,6 +190,9 @@ func (c *Container) initConfiguration() error {
 	cm := config.NewConfigManager(c.DB, c.Logger)
 	c.ConfigManager = cm
 
+	// Initialize API configuration manager
+	c.ConfigurationMgr = api.NewConfigManager(c.Logger)
+
 	// Initialize thing registry
 	tr := config.NewThingRegistry(c.DB, c.Logger)
 	c.ThingRegistry = tr
@@ -320,10 +324,12 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 	// Create an adapter for ThingRegistry to match the extended interface
 	thingRegistryExt := &ThingRegistryAdapter{ThingRegistry: c.ThingRegistry}
 
-	c.ThingRegistrationSvc = api.NewDefaultThingRegistrationService(
+	// Replace with the correct constructor for ThingRegistrationService.
+	// For example, if the correct function is api.NewThingRegistrationService:
+	c.ThingRegistrationSvc = api.NewThingRegistrationService(
 		thingRegistryExt,
 		c.TDStreamComposition,
-		c.ConfigManager,        // Pass ConfigurationManager
+		c.ConfigurationMgr,     // Pass ConfigurationManager
 		c.BindingGenerator,     // Added
 		c.BenthosStreamManager, // Added
 		c.Logger,
@@ -425,7 +431,7 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 	// Note: types.HTTPConfig and types.HTTPRoute now refer to the
 	// structs defined in pkg/types/config.go.
 	httpCfg := types.HTTPConfig{
-		Listen:   []string{":8080"}, // Default listen address, can be from appCfg
+		Listen:   []string{":8080"},   // Default listen address, can be from appCfg
 		Routes:   []types.HTTPRoute{}, // Initialize with no routes
 		Security: secConfig,
 	}

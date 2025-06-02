@@ -132,7 +132,7 @@ func (bi *Integration) ProcessThingDescription(ctx context.Context, td *wot.Thin
 // ProcessingResult contains the complete binding generation results
 type ProcessingResult struct {
 	ThingID       string                   `json:"thing_id"`
-	AllBindings   *forms.AllBindings       `json:"all_bindings"`
+	AllBindings   *types.AllBindings       `json:"all_bindings"`
 	HTTPEndpoints []HTTPEndpointConfig     `json:"http_endpoints"`
 	StreamConfigs []StreamDeploymentConfig `json:"stream_configs"`
 	Summary       ProcessingSummary        `json:"summary"`
@@ -177,7 +177,7 @@ type ProcessingSummary struct {
 
 // Helper methods to extract deployable configurations
 
-func (bi *Integration) extractHTTPEndpoints(bindings *forms.AllBindings) []HTTPEndpointConfig {
+func (bi *Integration) extractHTTPEndpoints(bindings *types.AllBindings) []HTTPEndpointConfig {
 	var endpoints []HTTPEndpointConfig
 
 	for routeID, route := range bindings.HTTPRoutes {
@@ -200,7 +200,7 @@ func (bi *Integration) extractHTTPEndpoints(bindings *forms.AllBindings) []HTTPE
 	return endpoints
 }
 
-func (bi *Integration) extractStreamConfigs(bindings *forms.AllBindings) []StreamDeploymentConfig {
+func (bi *Integration) extractStreamConfigs(bindings *types.AllBindings) []StreamDeploymentConfig {
 	var configs []StreamDeploymentConfig
 
 	for streamID, stream := range bindings.Streams {
@@ -223,7 +223,7 @@ func (bi *Integration) extractStreamConfigs(bindings *forms.AllBindings) []Strea
 	return configs
 }
 
-func (bi *Integration) generateSummary(bindings *forms.AllBindings) ProcessingSummary {
+func (bi *Integration) generateSummary(bindings *types.AllBindings) ProcessingSummary {
 	totalProcessors := 0
 	featureBreakdown := make(map[string]int)
 

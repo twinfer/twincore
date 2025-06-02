@@ -207,7 +207,7 @@ func (m *WoTMapper) mapSecuritySchemes(schemes map[string]wot.SecurityScheme) ty
 	// (e.g., where to get user lists, tokens, JWT keys) or assumptions.
 	// Example: if a "basic" scheme is found, one might initialize BasicAuth, but users are not in TD.
 	// Example: if a "bearer" scheme is "jwt", JWTAuth could be initialized, but public key is not in TD.
-	
+
 	// Simplified: if any security scheme is defined, mark security as enabled.
 	// The actual methods (Basic, JWT) would need to be configured externally
 	// or through a more detailed mapping if possible.
@@ -227,7 +227,7 @@ func (m *WoTMapper) mapSecuritySchemes(schemes map[string]wot.SecurityScheme) ty
 		// If specific mappings are needed, they would go here.
 		// e.g., if scheme.Scheme == "basic", set secConfig.BasicAuth = ...
 	}
-	
+
 	m.logger.Info("HTTP security enabled due to presence of security schemes in TD.")
 	return secConfig
 }

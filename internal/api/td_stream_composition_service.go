@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // TDStreamCompositionService is defined in interfaces.go
@@ -15,8 +15,8 @@ import (
 // StreamCompositionResult contains the result of TD stream composition
 type StreamCompositionResult struct {
 	ThingID        string                   `json:"thing_id"`
-	Bindings       *forms.AllBindings       `json:"bindings"`
-	CreatedStreams []StreamInfo             `json:"created_streams"`
+	Bindings       *types.AllBindings       `json:"bindings"`
+	CreatedStreams []types.StreamInfo       `json:"created_streams"`
 	FailedStreams  []StreamCreationFailure  `json:"failed_streams,omitempty"`
 	RemovedStreams []string                 `json:"removed_streams,omitempty"`
 	Summary        StreamCompositionSummary `json:"summary"`
@@ -24,8 +24,8 @@ type StreamCompositionResult struct {
 
 // StreamCreationFailure represents a failed stream creation attempt
 type StreamCreationFailure struct {
-	Request StreamCreationRequest `json:"request"`
-	Error   string                `json:"error"`
+	Request types.StreamCreationRequest `json:"request"`
+	Error   string                      `json:"error"`
 }
 
 // StreamCompositionSummary provides high-level statistics
@@ -73,7 +73,7 @@ func (s *DefaultTDStreamCompositionService) ProcessThingDescription(logger logru
 
 	result := &StreamCompositionResult{
 		ThingID:        td.ID,
-		CreatedStreams: []StreamInfo{},
+		CreatedStreams: []types.StreamInfo{},
 		FailedStreams:  []StreamCreationFailure{},
 	}
 
@@ -139,7 +139,7 @@ func (s *DefaultTDStreamCompositionService) UpdateStreamsForThing(logger logrus.
 
 	// Get existing streams for this thing
 	logger.WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Debug("Calling dependency")
-	existingStreams, err := s.streamManager.ListStreams(ctx, StreamFilters{ThingID: td.ID})
+	existingStreams, err := s.streamManager.ListStreams(ctx, types.StreamFilters{ThingID: td.ID})
 	if err != nil {
 		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to list existing streams: %w", err)
@@ -196,7 +196,7 @@ func (s *DefaultTDStreamCompositionService) RemoveStreamsForThing(logger logrus.
 
 	// Get existing streams for this thing
 	logger.WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Debug("Calling dependency")
-	existingStreams, err := s.streamManager.ListStreams(ctx, StreamFilters{ThingID: thingID})
+	existingStreams, err := s.streamManager.ListStreams(ctx, types.StreamFilters{ThingID: thingID})
 	if err != nil {
 		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to list existing streams: %w", err)
@@ -247,7 +247,7 @@ func (s *DefaultTDStreamCompositionService) GetStreamCompositionStatus(logger lo
 
 	logger = logger.WithField("thing_id", thingID)
 	logger.WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Debug("Calling dependency")
-	streams, err := s.streamManager.ListStreams(ctx, StreamFilters{ThingID: thingID})
+	streams, err := s.streamManager.ListStreams(ctx, types.StreamFilters{ThingID: thingID})
 	if err != nil {
 		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "BenthosStreamManager", "operation": "ListStreams"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to list streams: %w", err)

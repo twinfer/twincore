@@ -26,6 +26,13 @@ type StreamConfig struct {
 	Commands []CommandStream `json:"commands"`
 }
 
+// UnifiedConfig represents a unified configuration for both HTTP and Stream services
+type UnifiedConfig struct {
+	Version string       `json:"version"`
+	HTTP    HTTPConfig   `json:"http"`
+	Stream  StreamConfig `json:"stream"`
+}
+
 // ServiceConfig holds the generic configuration for a service.
 type ServiceConfig struct {
 	Name   string                 `json:"name"`
@@ -110,7 +117,7 @@ type JWTAuthConfig struct {
 // HTTPConfig is a simplified HTTP configuration
 type HTTPConfig struct {
 	Listen   []string             `json:"listen"`
-	Routes   []HTTPRoute        `json:"routes"`
+	Routes   []HTTPRoute          `json:"routes"`
 	Security SimpleSecurityConfig `json:"security"`
 }
 

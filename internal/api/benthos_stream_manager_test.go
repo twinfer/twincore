@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"github.com/twinfer/twincore/pkg/types"
 )
 
 // MockableBenthosStream is an interface abstracting Benthos's service.Stream
@@ -146,14 +147,14 @@ output:
 `
 	// This request is for the manager's CreateStream, not directly Benthos config.
 	// The manager expects `yaml_config` in Metadata to then create a Benthos stream.
-	request := StreamCreationRequest{
+	request := types.StreamCreationRequest{
 		ThingID:         testThingID,
 		InteractionName: "testProperty",
 		InteractionType: "properties",
 		Direction:       "input",
-		Input:           StreamEndpointConfig{Type: "generate", Config: map[string]interface{}{"mapping": "root = {}", "interval": "1s"}},
-		Output:          StreamEndpointConfig{Type: "drop", Config: map[string]interface{}{}},
-		ProcessorChain:  []ProcessorConfig{},
+		Input:           types.StreamEndpointConfig{Type: "generate", Config: map[string]interface{}{"mapping": "root = {}", "interval": "1s"}},
+		Output:          types.StreamEndpointConfig{Type: "drop", Config: map[string]interface{}{}},
+		ProcessorChain:  []types.ProcessorConfig{},
 		Metadata:        map[string]interface{}{"yaml_config": testYAMLConfig},
 	}
 

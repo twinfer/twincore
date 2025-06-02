@@ -39,10 +39,10 @@ func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.F
 	sm := &SimpleBenthosStreamManager{
 		configDir:            configDir,
 		db:                   db,
-		streams:              make(map[string]*StreamInfo),
+		streams:              make(map[string]*types.StreamInfo),
 		streamBuilders:       make(map[string]*service.StreamBuilder),
 		activeStreams:        make(map[string]*service.Stream),
-		processorCollections: make(map[string]*ProcessorCollection),
+		processorCollections: make(map[string]*types.ProcessorCollection),
 		logger:               logger,
 	}
 
@@ -842,10 +842,10 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 	logger.WithFields(logrus.Fields{"is_running": isRunning, "reported_status": actualStatus}).Debug("Stream status determined")
 
 	status := &types.StreamStatus{ // Changed type
-		Status:       actualStatus,
-		LastActivity: stream.UpdatedAt,
-		Metrics:      metrics,
-		Errors:       []string{}, // Placeholder for actual error reporting
+		Status:      actualStatus,
+		LastUpdated: stream.UpdatedAt,
+		Metrics:     metrics,
+		Error:       "", // Placeholder for actual error reporting
 	}
 
 	return status, nil
@@ -875,7 +875,6 @@ func (sm *SimpleBenthosStreamManager) CreateProcessorCollection(ctx context.Cont
 		Processors:  request.Processors,
 		CreatedAt:   now,
 		UpdatedAt:   now,
-		Metadata:    request.Metadata,
 	}
 
 	// Store collection

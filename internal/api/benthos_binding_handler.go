@@ -26,48 +26,6 @@ type BenthosBindingHandler struct {
 	logger        *logrus.Logger
 }
 
-// Type aliases from pkg/types for backward compatibility
-type (
-	StreamCreationRequest = types.StreamCreationRequest
-	ProcessorConfig       = types.ProcessorConfig
-	StreamEndpointConfig  = types.StreamEndpointConfig
-	StreamInfo            = types.StreamInfo
-	StreamFilters         = types.StreamFilters
-)
-
-// Additional types not in pkg/types
-type StreamUpdateRequest struct {
-	ProcessorChain []ProcessorConfig      `json:"processor_chain,omitempty"`
-	Input          *StreamEndpointConfig  `json:"input,omitempty"`
-	Output         *StreamEndpointConfig  `json:"output,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-}
-
-type StreamStatus struct {
-	Status       string                 `json:"status"`
-	LastActivity string                 `json:"last_activity,omitempty"`
-	Metrics      map[string]interface{} `json:"metrics,omitempty"`
-	Errors       []string               `json:"errors,omitempty"`
-}
-
-// Processor collection types
-type ProcessorCollectionRequest struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Processors  []ProcessorConfig      `json:"processors"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-}
-
-type ProcessorCollection struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Processors  []ProcessorConfig      `json:"processors"`
-	CreatedAt   string                 `json:"created_at"`
-	UpdatedAt   string                 `json:"updated_at"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-}
-
 // NewBenthosBindingHandler creates a new Benthos binding handler
 func NewBenthosBindingHandler(
 	tr ThingRegistry,
@@ -185,7 +143,7 @@ func (h *BenthosBindingHandler) handleCreateStream(logger *logrus.Entry, w http.
 	logger.WithFields(logrus.Fields{"handler_name": "handleCreateStream"}).Debug("Handler called")
 	defer logger.WithFields(logrus.Fields{"handler_name": "handleCreateStream"}).Debug("Handler finished")
 
-	var request StreamCreationRequest
+	var request types.StreamCreationRequest
 	if err := h.decodeJSON(r, &request); err != nil {
 		logger.WithError(err).Warn("Failed to decode JSON for create stream request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
@@ -227,7 +185,7 @@ func (h *BenthosBindingHandler) handleListStreams(logger *logrus.Entry, w http.R
 	defer logger.WithFields(logrus.Fields{"handler_name": "handleListStreams"}).Debug("Handler finished")
 
 	// Parse query filters
-	filters := StreamFilters{
+	filters := types.StreamFilters{
 		ThingID:         r.URL.Query().Get("thing_id"),
 		InteractionType: r.URL.Query().Get("interaction_type"),
 		Status:          r.URL.Query().Get("status"),
@@ -281,7 +239,7 @@ func (h *BenthosBindingHandler) handleUpdateStream(logger *logrus.Entry, w http.
 	logger.WithFields(logrus.Fields{"handler_name": "handleUpdateStream", "stream_id": streamID}).Debug("Handler called")
 	defer logger.WithFields(logrus.Fields{"handler_name": "handleUpdateStream"}).Debug("Handler finished")
 
-	var request StreamUpdateRequest
+	var request types.StreamUpdateRequest
 	if err := h.decodeJSON(r, &request); err != nil {
 		logger.WithError(err).Warn("Failed to decode JSON for update stream request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
@@ -386,7 +344,7 @@ func (h *BenthosBindingHandler) handleCreateProcessorCollection(logger *logrus.E
 	logger.WithFields(logrus.Fields{"handler_name": "handleCreateProcessorCollection"}).Debug("Handler called")
 	defer logger.WithFields(logrus.Fields{"handler_name": "handleCreateProcessorCollection"}).Debug("Handler finished")
 
-	var request ProcessorCollectionRequest
+	var request types.ProcessorCollectionRequest
 	if err := h.decodeJSON(r, &request); err != nil {
 		logger.WithError(err).Warn("Failed to decode JSON for create processor collection request")
 		return caddyhttp.Error(http.StatusBadRequest, err)
@@ -524,30 +482,30 @@ func (h *BenthosBindingHandler) validateInteraction(thingID, interactionType, in
 	}
 }
 
-func (h *BenthosBindingHandler) generateStreamsFromTD(td *wot.ThingDescription) []StreamCreationRequest {
-	var streams []StreamCreationRequest
+func (h *BenthosBindingHandler) generateStreamsFromTD(td *wot.ThingDescription) []types.StreamCreationRequest {
+	var streams []types.StreamCreationRequest
 
 	// Generate property streams
 	for name, property := range td.Properties {
 		if property.IsObservable() {
 			// Property output stream (device -> platform)
-			streams = append(streams, StreamCreationRequest{
+			streams = append(streams, types.StreamCreationRequest{
 				ThingID:         td.ID,
 				InteractionType: "properties",
 				InteractionName: name,
 				Direction:       "input",
-				ProcessorChain: []ProcessorConfig{
+				ProcessorChain: []types.ProcessorConfig{
 					{Type: "license_check", Config: map[string]interface{}{"feature": "property_ingestion"}},
 					{Type: "json_validation", Config: map[string]interface{}{"schema": property.DataSchemaCore}},
 					{Type: "parquet_encode", Config: map[string]interface{}{"schema": "property_schema"}},
 				},
-				Input: StreamEndpointConfig{
+				Input: types.StreamEndpointConfig{
 					Type: "kafka",
 					Config: map[string]interface{}{
 						"topic": fmt.Sprintf("things.%s.properties.%s", td.ID, name),
 					},
 				},
-				Output: StreamEndpointConfig{
+				Output: types.StreamEndpointConfig{
 					Type: "parquet",
 					Config: map[string]interface{}{
 						"path": "${PARQUET_LOG_PATH}/properties/props_${!timestamp_unix():yyyy-MM-dd}.parquet",
@@ -558,22 +516,22 @@ func (h *BenthosBindingHandler) generateStreamsFromTD(td *wot.ThingDescription) 
 
 		if !property.IsReadOnly() {
 			// Property input stream (platform -> device)
-			streams = append(streams, StreamCreationRequest{
+			streams = append(streams, types.StreamCreationRequest{
 				ThingID:         td.ID,
 				InteractionType: "properties",
 				InteractionName: name,
 				Direction:       "output",
-				ProcessorChain: []ProcessorConfig{
+				ProcessorChain: []types.ProcessorConfig{
 					{Type: "license_check", Config: map[string]interface{}{"feature": "property_commands"}},
 					{Type: "json_validation", Config: map[string]interface{}{"schema": property.DataSchemaCore}},
 				},
-				Input: StreamEndpointConfig{
+				Input: types.StreamEndpointConfig{
 					Type: "http",
 					Config: map[string]interface{}{
 						"path": fmt.Sprintf("/things/%s/properties/%s", td.ID, name),
 					},
 				},
-				Output: StreamEndpointConfig{
+				Output: types.StreamEndpointConfig{
 					Type: "kafka",
 					Config: map[string]interface{}{
 						"topic": fmt.Sprintf("things.%s.properties.%s.commands", td.ID, name),
@@ -585,23 +543,23 @@ func (h *BenthosBindingHandler) generateStreamsFromTD(td *wot.ThingDescription) 
 
 	// Generate action streams
 	for name, action := range td.Actions {
-		streams = append(streams, StreamCreationRequest{
+		streams = append(streams, types.StreamCreationRequest{
 			ThingID:         td.ID,
 			InteractionType: "actions",
 			InteractionName: name,
 			Direction:       "bidirectional",
-			ProcessorChain: []ProcessorConfig{
+			ProcessorChain: []types.ProcessorConfig{
 				{Type: "license_check", Config: map[string]interface{}{"feature": "action_invocation"}},
 				{Type: "json_validation", Config: map[string]interface{}{"schema": action.GetInput()}},
 				{Type: "action_tracker", Config: map[string]interface{}{"timeout": "30s"}},
 			},
-			Input: StreamEndpointConfig{
+			Input: types.StreamEndpointConfig{
 				Type: "http",
 				Config: map[string]interface{}{
 					"path": fmt.Sprintf("/things/%s/actions/%s", td.ID, name),
 				},
 			},
-			Output: StreamEndpointConfig{
+			Output: types.StreamEndpointConfig{
 				Type: "kafka",
 				Config: map[string]interface{}{
 					"topic": fmt.Sprintf("things.%s.actions.%s", td.ID, name),
@@ -612,23 +570,23 @@ func (h *BenthosBindingHandler) generateStreamsFromTD(td *wot.ThingDescription) 
 
 	// Generate event streams
 	for name := range td.Events {
-		streams = append(streams, StreamCreationRequest{
+		streams = append(streams, types.StreamCreationRequest{
 			ThingID:         td.ID,
 			InteractionType: "events",
 			InteractionName: name,
 			Direction:       "input",
-			ProcessorChain: []ProcessorConfig{
+			ProcessorChain: []types.ProcessorConfig{
 				{Type: "license_check", Config: map[string]interface{}{"feature": "event_processing"}},
 				{Type: "event_enrichment", Config: map[string]interface{}{}},
 				{Type: "parquet_encode", Config: map[string]interface{}{"schema": "event_schema"}},
 			},
-			Input: StreamEndpointConfig{
+			Input: types.StreamEndpointConfig{
 				Type: "kafka",
 				Config: map[string]interface{}{
 					"topic": fmt.Sprintf("things.%s.events.%s", td.ID, name),
 				},
 			},
-			Output: StreamEndpointConfig{
+			Output: types.StreamEndpointConfig{
 				Type: "parquet",
 				Config: map[string]interface{}{
 					"path": "${PARQUET_LOG_PATH}/events/events_${!timestamp_unix():yyyy-MM-dd}.parquet",

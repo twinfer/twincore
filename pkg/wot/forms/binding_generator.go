@@ -1,12 +1,12 @@
 package forms
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/twinfer/twincore/internal/api" // Added import
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -18,7 +18,7 @@ type BindingGenerator struct {
 	kafkaConfig    types.KafkaConfig
 	mqttConfig     types.MQTTConfig
 	licenseChecker LicenseChecker
-	streamManager  api.BenthosStreamManager // Changed type
+	streamManager  StreamManager
 }
 
 // LicenseChecker interface for checking feature availability
@@ -30,11 +30,16 @@ type LicenseChecker interface {
 	GetFeatureConfig(feature string) map[string]interface{}
 }
 
+// StreamManager interface defines the subset of BenthosStreamManager needed by forms package
+type StreamManager interface {
+	CreateStream(ctx context.Context, request types.StreamCreationRequest) (*types.StreamInfo, error)
+}
+
 // NewBindingGenerator creates a new binding generator with existing dependencies
 func NewBindingGenerator(
 	logger logrus.FieldLogger,
 	licenseChecker LicenseChecker,
-	streamManager api.BenthosStreamManager, // Changed type
+	streamManager StreamManager,
 	parquetConfig types.ParquetConfig,
 	kafkaConfig types.KafkaConfig,
 	mqttConfig types.MQTTConfig,
@@ -50,17 +55,17 @@ func NewBindingGenerator(
 }
 
 // GenerateAllBindings generates all bindings (HTTP routes + Benthos streams) from a Thing Description
-func (bg *BindingGenerator) GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*AllBindings, error) {
+func (bg *BindingGenerator) GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*types.AllBindings, error) {
 	methodLogger := logger.WithFields(logrus.Fields{
 		"component": "BindingGenerator",
 		"thing_id":  td.ID,
 	})
 	methodLogger.Info("Starting binding generation for Thing Description")
-	bindings := &AllBindings{
+	bindings := &types.AllBindings{
 		ThingID:     td.ID,
-		HTTPRoutes:  make(map[string]HTTPRoute),
-		Streams:     make(map[string]StreamConfig),
-		Processors:  make(map[string]ProcessorChain),
+		HTTPRoutes:  make(map[string]types.BindingHTTPRoute),
+		Streams:     make(map[string]types.BenthosStreamConfig),
+		Processors:  make(map[string]types.ProcessorChain),
 		GeneratedAt: time.Now(),
 	}
 
@@ -92,64 +97,13 @@ func (bg *BindingGenerator) GenerateAllBindings(logger logrus.FieldLogger, td *w
 	return bindings, nil
 }
 
-// AllBindings contains all generated bindings for a Thing Description
-type AllBindings struct {
-	ThingID     string                    `json:"thing_id"`
-	HTTPRoutes  map[string]HTTPRoute      `json:"http_routes"`
-	Streams     map[string]StreamConfig   `json:"streams"`
-	Processors  map[string]ProcessorChain `json:"processors"`
-	GeneratedAt time.Time                 `json:"generated_at"`
-}
-
-// HTTPRoute represents an HTTP endpoint configuration
-type HTTPRoute struct {
-	Path        string            `json:"path"`
-	Method      string            `json:"method"`
-	ContentType string            `json:"content_type"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Security    []string          `json:"security,omitempty"`
-}
-
-// StreamConfig represents a complete Benthos stream configuration
-type StreamConfig struct {
-	ID             string                  `json:"id"`
-	Type           types.BenthosStreamType `json:"type"`
-	Direction      types.StreamDirection   `json:"direction"`
-	Input          StreamEndpoint          `json:"input"`
-	Output         StreamEndpoint          `json:"output"`
-	ProcessorChain ProcessorChain          `json:"processor_chain"`
-	YAML           string                  `json:"yaml"`
-}
-
-// StreamEndpoint represents input/output configuration for streams
-type StreamEndpoint struct {
-	Protocol types.StreamProtocol   `json:"protocol"`
-	Config   map[string]interface{} `json:"config"`
-}
-
-// ProcessorChain represents a sequence of Benthos processors
-type ProcessorChain struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Processors []ProcessorConfig      `json:"processors"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-}
-
-// ProcessorConfig represents a single Benthos processor configuration
-type ProcessorConfig struct {
-	Type        types.BenthosProcessorType `json:"type"`
-	Label       string                     `json:"label"`
-	Config      map[string]interface{}     `json:"config"`
-	Description string                     `json:"description,omitempty"`
-}
-
 // generatePropertyBindings creates all bindings for a property affordance
-func (bg *BindingGenerator) generatePropertyBindings(logger logrus.FieldLogger, thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+func (bg *BindingGenerator) generatePropertyBindings(logger logrus.FieldLogger, thingID, propName string, prop *wot.PropertyAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"property_name": propName, "operation": "generatePropertyBindings"})
 	opLogger.Debug("Generating bindings for property")
 	for i, form := range prop.Forms {
 		routeID := fmt.Sprintf("%s_property_%s_form_%d", thingID, propName, i)
-		route := HTTPRoute{
+		route := types.BindingHTTPRoute{
 			Path:        strings.Replace(form.GetHref(), "{thingId}", thingID, -1),
 			Method:      bg.getHTTPMethod(form.GetOp()),
 			ContentType: form.GetContentType(),
@@ -178,12 +132,12 @@ func (bg *BindingGenerator) generatePropertyBindings(logger logrus.FieldLogger, 
 }
 
 // generateActionBindings creates all bindings for an action affordance
-func (bg *BindingGenerator) generateActionBindings(logger logrus.FieldLogger, thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
+func (bg *BindingGenerator) generateActionBindings(logger logrus.FieldLogger, thingID, actionName string, action *wot.ActionAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"action_name": actionName, "operation": "generateActionBindings"})
 	opLogger.Debug("Generating bindings for action")
 	for i, form := range action.Forms {
 		routeID := fmt.Sprintf("%s_action_%s_form_%d", thingID, actionName, i)
-		route := HTTPRoute{
+		route := types.BindingHTTPRoute{
 			Path:        strings.Replace(form.GetHref(), "{thingId}", thingID, -1),
 			Method:      "POST",
 			ContentType: form.GetContentType(),
@@ -206,12 +160,12 @@ func (bg *BindingGenerator) generateActionBindings(logger logrus.FieldLogger, th
 }
 
 // generateEventBindings creates all bindings for an event affordance
-func (bg *BindingGenerator) generateEventBindings(logger logrus.FieldLogger, thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
+func (bg *BindingGenerator) generateEventBindings(logger logrus.FieldLogger, thingID, eventName string, event *wot.EventAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"event_name": eventName, "operation": "generateEventBindings"})
 	opLogger.Debug("Generating bindings for event")
 	for i, form := range event.Forms {
 		routeID := fmt.Sprintf("%s_event_%s_form_%d", thingID, eventName, i)
-		route := HTTPRoute{
+		route := types.BindingHTTPRoute{
 			Path:        strings.Replace(form.GetHref(), "{thingId}", thingID, -1),
 			Method:      "GET",
 			ContentType: "text/event-stream",

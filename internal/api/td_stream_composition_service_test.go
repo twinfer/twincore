@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // MockBindingGenerationService is a mock for api.BindingGenerationService interface.
@@ -19,12 +19,12 @@ type MockBindingGenerationService struct {
 	mock.Mock
 }
 
-func (m *MockBindingGenerationService) GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*forms.AllBindings, error) {
+func (m *MockBindingGenerationService) GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*types.AllBindings, error) {
 	args := m.Called(logger, td)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*forms.AllBindings), args.Error(1)
+	return args.Get(0).(*types.AllBindings), args.Error(1)
 }
 
 // MockBenthosStreamManager is a mock for api.BenthosStreamManager interface.
@@ -33,20 +33,20 @@ type MockBenthosStreamManager struct {
 	mock.Mock
 }
 
-func (m *MockBenthosStreamManager) CreateStream(ctx context.Context, request StreamCreationRequest) (*StreamInfo, error) {
+func (m *MockBenthosStreamManager) CreateStream(ctx context.Context, request types.StreamCreationRequest) (*types.StreamInfo, error) {
 	args := m.Called(ctx, request)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*StreamInfo), args.Error(1)
+	return args.Get(0).(*types.StreamInfo), args.Error(1)
 }
 
-func (m *MockBenthosStreamManager) UpdateStream(ctx context.Context, streamID string, request StreamUpdateRequest) (*StreamInfo, error) {
+func (m *MockBenthosStreamManager) UpdateStream(ctx context.Context, streamID string, request types.StreamUpdateRequest) (*types.StreamInfo, error) {
 	args := m.Called(ctx, streamID, request)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*StreamInfo), args.Error(1)
+	return args.Get(0).(*types.StreamInfo), args.Error(1)
 }
 
 func (m *MockBenthosStreamManager) DeleteStream(ctx context.Context, streamID string) error {
@@ -54,20 +54,20 @@ func (m *MockBenthosStreamManager) DeleteStream(ctx context.Context, streamID st
 	return args.Error(0)
 }
 
-func (m *MockBenthosStreamManager) GetStream(ctx context.Context, streamID string) (*StreamInfo, error) {
+func (m *MockBenthosStreamManager) GetStream(ctx context.Context, streamID string) (*types.StreamInfo, error) {
 	args := m.Called(ctx, streamID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*StreamInfo), args.Error(1)
+	return args.Get(0).(*types.StreamInfo), args.Error(1)
 }
 
-func (m *MockBenthosStreamManager) ListStreams(ctx context.Context, filters StreamFilters) ([]StreamInfo, error) {
+func (m *MockBenthosStreamManager) ListStreams(ctx context.Context, filters types.StreamFilters) ([]types.StreamInfo, error) {
 	args := m.Called(ctx, filters)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]StreamInfo), args.Error(1)
+	return args.Get(0).([]types.StreamInfo), args.Error(1)
 }
 
 func (m *MockBenthosStreamManager) StartStream(ctx context.Context, streamID string) error {
@@ -80,36 +80,36 @@ func (m *MockBenthosStreamManager) StopStream(ctx context.Context, streamID stri
 	return args.Error(0)
 }
 
-func (m *MockBenthosStreamManager) GetStreamStatus(ctx context.Context, streamID string) (*StreamStatus, error) {
+func (m *MockBenthosStreamManager) GetStreamStatus(ctx context.Context, streamID string) (*types.StreamStatus, error) {
 	args := m.Called(ctx, streamID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*StreamStatus), args.Error(1)
+	return args.Get(0).(*types.StreamStatus), args.Error(1)
 }
 
-func (m *MockBenthosStreamManager) CreateProcessorCollection(ctx context.Context, request ProcessorCollectionRequest) (*ProcessorCollection, error) {
+func (m *MockBenthosStreamManager) CreateProcessorCollection(ctx context.Context, request types.ProcessorCollectionRequest) (*types.ProcessorCollection, error) {
 	args := m.Called(ctx, request)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*ProcessorCollection), args.Error(1)
+	return args.Get(0).(*types.ProcessorCollection), args.Error(1)
 }
 
-func (m *MockBenthosStreamManager) GetProcessorCollection(ctx context.Context, collectionID string) (*ProcessorCollection, error) {
+func (m *MockBenthosStreamManager) GetProcessorCollection(ctx context.Context, collectionID string) (*types.ProcessorCollection, error) {
 	args := m.Called(ctx, collectionID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*ProcessorCollection), args.Error(1)
+	return args.Get(0).(*types.ProcessorCollection), args.Error(1)
 }
 
-func (m *MockBenthosStreamManager) ListProcessorCollections(ctx context.Context) ([]ProcessorCollection, error) {
+func (m *MockBenthosStreamManager) ListProcessorCollections(ctx context.Context) ([]types.ProcessorCollection, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]ProcessorCollection), args.Error(1)
+	return args.Get(0).([]types.ProcessorCollection), args.Error(1)
 }
 
 // TDStreamCompositionServiceTestSuite is the test suite for TDStreamCompositionService.
@@ -151,9 +151,9 @@ func (suite *TDStreamCompositionServiceTestSuite) TestProcessThingDescription_Su
 	loggerWithCtx := suite.logger.WithContext(ctx) // Example of passing logger with context
 	testTD := &wot.ThingDescription{ID: "urn:test:td1", Title: "Test TD"}
 
-	mockBindings := &forms.AllBindings{
+	mockBindings := &types.AllBindings{
 		ThingID: testTD.ID,
-		Streams: map[string]forms.StreamConfig{
+		Streams: map[string]types.BenthosStreamConfig{
 			"stream1-id": {ID: "stream1-id", Type: "property_output" /* ... other fields */},
 		},
 		// ... other binding fields
@@ -163,7 +163,7 @@ func (suite *TDStreamCompositionServiceTestSuite) TestProcessThingDescription_Su
 
 	// Assume BindingGenerator itself calls streamManager.CreateStream implicitly.
 	// ProcessThingDescription then calls GetStream to confirm/fetch details.
-	mockStreamInfo := &StreamInfo{ID: "stream1-id", Status: "created" /* ... */}
+	mockStreamInfo := &types.StreamInfo{ID: "stream1-id", Status: "created" /* ... */}
 	suite.mockStreamMgr.On("GetStream", ctx, "stream1-id").Return(mockStreamInfo, nil) // GetStream takes ctx
 
 	// --- Act ---
@@ -190,11 +190,11 @@ func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_Succ
 	loggerWithCtx := suite.logger.WithContext(ctx)
 	thingID := "urn:test:td1"
 
-	streamsToReturn := []StreamInfo{
+	streamsToReturn := []types.StreamInfo{
 		{ID: "stream1", ThingID: thingID},
 		{ID: "stream2", ThingID: thingID},
 	}
-	suite.mockStreamMgr.On("ListStreams", ctx, StreamFilters{ThingID: thingID}).Return(streamsToReturn, nil)
+	suite.mockStreamMgr.On("ListStreams", ctx, types.StreamFilters{ThingID: thingID}).Return(streamsToReturn, nil)
 	suite.mockStreamMgr.On("DeleteStream", ctx, "stream1").Return(nil)
 	suite.mockStreamMgr.On("DeleteStream", ctx, "stream2").Return(nil)
 
@@ -217,11 +217,11 @@ func (suite *TDStreamCompositionServiceTestSuite) TestRemoveStreamsForThing_Dele
 	deleteErr1 := errors.New("failed to delete stream1")
 	// deleteErr2 is not used, one error is enough to make the whole operation fail with composite error
 
-	streamsToReturn := []StreamInfo{
+	streamsToReturn := []types.StreamInfo{
 		{ID: "stream1", ThingID: thingID},
 		{ID: "stream2", ThingID: thingID},
 	}
-	suite.mockStreamMgr.On("ListStreams", ctx, StreamFilters{ThingID: thingID}).Return(streamsToReturn, nil)
+	suite.mockStreamMgr.On("ListStreams", ctx, types.StreamFilters{ThingID: thingID}).Return(streamsToReturn, nil)
 	suite.mockStreamMgr.On("DeleteStream", ctx, "stream1").Return(deleteErr1)
 	suite.mockStreamMgr.On("DeleteStream", ctx, "stream2").Return(nil) // This one succeeds
 

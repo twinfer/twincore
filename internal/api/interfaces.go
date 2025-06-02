@@ -8,7 +8,6 @@ import (
 	"github.com/twinfer/twincore/internal/models"
 	"github.com/twinfer/twincore/pkg/types" // Added import
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // ConfigurationManager defines the interface for managing application and Caddy configurations.
@@ -44,7 +43,7 @@ type BenthosStreamManager interface {
 
 // BindingGenerationService defines the interface for generating bindings from a Thing Description.
 type BindingGenerationService interface {
-	GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*forms.AllBindings, error)
+	GenerateAllBindings(logger logrus.FieldLogger, td *wot.ThingDescription) (*types.AllBindings, error)
 }
 
 // StateManager handles property state and synchronization

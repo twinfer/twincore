@@ -41,6 +41,13 @@ type ThingRegistrationSummary struct {
 	Error            string `json:"error,omitempty"`
 }
 
+// ThingWithStreams contains a Thing Description along with its associated streams
+type ThingWithStreams struct {
+	ThingDescription *wot.ThingDescription      `json:"thing_description"`
+	Streams          []types.StreamInfo         `json:"streams"`
+	StreamStatus     *StreamCompositionStatus   `json:"stream_status"`
+}
+
 // DefaultThingRegistrationService implements ThingRegistrationService
 type DefaultThingRegistrationService struct {
 	thingRegistry        ThingRegistryExt           // Interface from interfaces.go
@@ -488,7 +495,7 @@ func (s *DefaultThingRegistrationService) GetThingWithStreams(logger logrus.Fiel
 
 	// Get streams - this assumes the stream manager supports listing by Thing ID
 	// We'll create a helper interface for this
-	streams := []StreamInfo{} // Placeholder - would need actual stream listing implementation
+	streams := []types.StreamInfo{} // Placeholder - would need actual stream listing implementation
 
 	return &ThingWithStreams{
 		ThingDescription: td,

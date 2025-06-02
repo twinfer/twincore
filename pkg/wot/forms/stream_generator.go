@@ -52,15 +52,15 @@ func logStreamGeneration(logger logrus.FieldLogger, streamIDBase, thingID, inter
 }
 
 // buildProcessorChain creates and stores a processor chain.
-func buildProcessorChain(logger logrus.FieldLogger, bg *BindingGenerator, namePrefix, chainDisplayName, interactionType, purpose, thingID, interactionName string, dataSchema *wot.DataSchemaCore, bindings *AllBindings, customMappings ...ProcessorConfig) (ProcessorChain, error) {
+func buildProcessorChain(logger logrus.FieldLogger, bg *BindingGenerator, namePrefix, chainDisplayName, interactionType, purpose, thingID, interactionName string, dataSchema *wot.DataSchemaCore, bindings *types.AllBindings, customMappings ...types.ProcessorConfigItem) (types.ProcessorChain, error) {
 	opLogger := logger.WithFields(logrus.Fields{"chain_id_prefix": namePrefix, "purpose": purpose, "thing_id": thingID, "interaction_name": interactionName, "operation": "buildProcessorChain"})
 	opLogger.Debug("Building processor chain")
 
 	actualChainID := fmt.Sprintf("%s_processors", namePrefix)
-	chain := ProcessorChain{
+	chain := types.ProcessorChain{
 		ID:         actualChainID,
 		Name:       chainDisplayName,
-		Processors: []ProcessorConfig{},
+		Processors: []types.ProcessorConfigItem{},
 		Metadata: map[string]interface{}{
 			"thing_id":         thingID,
 			"interaction_name": interactionName,
@@ -74,7 +74,7 @@ func buildProcessorChain(logger logrus.FieldLogger, bg *BindingGenerator, namePr
 
 	if dataSchema != nil && dataSchema.Type != "" {
 		jsonSchema := convertDataSchemaToJSONSchema(*dataSchema)
-		schemaValidationProcessor := ProcessorConfig{
+		schemaValidationProcessor := types.ProcessorConfigItem{
 			Type:  types.ProcessorJSONSchema,
 			Label: fmt.Sprintf("%s_schema_validation", purpose),
 			Config: map[string]interface{}{
@@ -95,7 +95,7 @@ func buildProcessorChain(logger logrus.FieldLogger, bg *BindingGenerator, namePr
 }
 
 // createStreamRequest constructs the StreamCreationRequest object and generates YAML.
-func createStreamRequest(logger logrus.FieldLogger, bg *BindingGenerator, thingID, interactionType, interactionName, direction string, inputConfig types.StreamEndpointConfig, outputConfig types.StreamEndpointConfig, processorChainConfigs []types.ProcessorConfig, purpose string, bindings *AllBindings) (types.StreamCreationRequest, error) {
+func createStreamRequest(logger logrus.FieldLogger, bg *BindingGenerator, thingID, interactionType, interactionName, direction string, inputConfig types.StreamEndpointConfig, outputConfig types.StreamEndpointConfig, processorChainConfigs []types.ProcessorConfig, purpose string, bindings *types.AllBindings) (types.StreamCreationRequest, error) {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "interaction_name": interactionName, "purpose": purpose, "operation": "createStreamRequest"})
 	opLogger.Debug("Creating stream request")
 	request := types.StreamCreationRequest{
@@ -123,7 +123,7 @@ func createStreamRequest(logger logrus.FieldLogger, bg *BindingGenerator, thingI
 }
 
 // registerStreamWithManager creates the stream via streamManager and stores its config.
-func registerStreamWithManager(logger logrus.FieldLogger, bg *BindingGenerator, request types.StreamCreationRequest, streamType types.BenthosStreamType, streamDirection types.StreamDirection, processorChain ProcessorChain, bindings *AllBindings) (StreamConfig, error) {
+func registerStreamWithManager(logger logrus.FieldLogger, bg *BindingGenerator, request types.StreamCreationRequest, streamType types.BenthosStreamType, streamDirection types.StreamDirection, processorChain types.ProcessorChain, bindings *types.AllBindings) (types.BenthosStreamConfig, error) {
 	opLogger := logger.WithFields(logrus.Fields{
 		"thing_id":         request.ThingID,
 		"interaction_name": request.InteractionName,
@@ -135,18 +135,18 @@ func registerStreamWithManager(logger logrus.FieldLogger, bg *BindingGenerator, 
 	streamInfo, err := bg.streamManager.CreateStream(context.Background(), request)
 	if err != nil {
 		opLogger.WithError(err).Error("Failed to create stream with BenthosStreamManager")
-		return StreamConfig{}, err
+		return types.BenthosStreamConfig{}, err
 	}
 
-	createdStreamConfig := StreamConfig{
+	createdStreamConfig := types.BenthosStreamConfig{
 		ID:        streamInfo.ID,
 		Type:      streamType,
 		Direction: streamDirection,
-		Input: StreamEndpoint{
+		Input: types.StreamEndpoint{
 			Protocol: types.StreamProtocol(request.Input.Type),
 			Config:   request.Input.Config,
 		},
-		Output: StreamEndpoint{
+		Output: types.StreamEndpoint{
 			Protocol: types.StreamProtocol(request.Output.Type),
 			Config:   request.Output.Config,
 		},
@@ -165,7 +165,7 @@ func registerStreamWithManager(logger logrus.FieldLogger, bg *BindingGenerator, 
 	return createdStreamConfig, nil
 }
 
-func generatePropertyObservationStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+func generatePropertyObservationStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "operation": "generatePropertyObservationStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("property_streaming") {
 		opLogger.WithField("feature", "property_streaming").Debug("Property streaming not available in license")
@@ -178,7 +178,7 @@ func generatePropertyObservationStream(logger logrus.FieldLogger, bg *BindingGen
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "property", propName, topic, purpose)
 
-	observationMapping := ProcessorConfig{
+	observationMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTProperty,
 		Label: "property_observation_mapping",
 		Config: map[string]interface{}{
@@ -230,7 +230,7 @@ func generatePropertyObservationStream(logger logrus.FieldLogger, bg *BindingGen
 	return nil
 }
 
-func generatePropertyCommandStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+func generatePropertyCommandStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "operation": "generatePropertyCommandStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("property_commands") {
 		opLogger.WithField("feature", "property_commands").Debug("Property commands not available in license")
@@ -242,7 +242,7 @@ func generatePropertyCommandStream(logger logrus.FieldLogger, bg *BindingGenerat
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "property", propName, "", purpose)
 
-	commandMapping := ProcessorConfig{
+	commandMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTProperty,
 		Label: "property_command_mapping",
 		Config: map[string]interface{}{
@@ -250,7 +250,7 @@ func generatePropertyCommandStream(logger logrus.FieldLogger, bg *BindingGenerat
 		},
 		Description: "Map property command data for device execution",
 	}
-	deviceTransformMapping := ProcessorConfig{
+	deviceTransformMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTProperty,
 		Label: "device_command_transform",
 		Config: map[string]interface{}{
@@ -304,7 +304,7 @@ func generatePropertyCommandStream(logger logrus.FieldLogger, bg *BindingGenerat
 	return nil
 }
 
-func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance, bindings *AllBindings) error {
+func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, propName string, prop *wot.PropertyAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "property_name": propName, "operation": "generatePropertyLoggingStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("data_persistence") {
 		opLogger.WithField("feature", "data_persistence").Debug("Persistence feature not available in license")
@@ -317,7 +317,7 @@ func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerat
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "property", propName, topic, purpose)
 
-	persistenceMapping := ProcessorConfig{
+	persistenceMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTProperty,
 		Label: "property_normalization",
 		Config: map[string]interface{}{
@@ -326,11 +326,11 @@ func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerat
 		Description: "Normalize property data for persistence",
 	}
 
-	var additionalProcessors []ProcessorConfig
+	var additionalProcessors []types.ProcessorConfigItem
 	persistenceCfg := bg.licenseChecker.GetFeatureConfig("data_persistence")
 	if format, ok := persistenceCfg["format"].(string); ok {
 		if format == "parquet" {
-			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+			additionalProcessors = append(additionalProcessors, types.ProcessorConfigItem{
 				Type:  types.ProcessorParquetEncode,
 				Label: "parquet_encoding",
 				Config: map[string]interface{}{
@@ -339,7 +339,7 @@ func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerat
 				Description: "Encode property data to Parquet format",
 			})
 		} else if format == "json" {
-			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+			additionalProcessors = append(additionalProcessors, types.ProcessorConfigItem{
 				Type:        types.ProcessorJSONEncode,
 				Label:       "json_encoding",
 				Config:      map[string]interface{}{},
@@ -348,7 +348,7 @@ func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerat
 		}
 	}
 
-	allMappings := append([]ProcessorConfig{persistenceMapping}, additionalProcessors...)
+	allMappings := append([]types.ProcessorConfigItem{persistenceMapping}, additionalProcessors...)
 
 	processorChain, err := buildProcessorChain(opLogger, bg, streamIDBase,
 		fmt.Sprintf("Property %s persistence processors", propName),
@@ -389,7 +389,7 @@ func generatePropertyLoggingStream(logger logrus.FieldLogger, bg *BindingGenerat
 	return nil
 }
 
-func generateActionInvocationStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
+func generateActionInvocationStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, actionName string, action *wot.ActionAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName, "operation": "generateActionInvocationStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("action_invocation") {
 		opLogger.WithField("feature", "action_invocation").Debug("Action invocation not available in license")
@@ -401,7 +401,7 @@ func generateActionInvocationStream(logger logrus.FieldLogger, bg *BindingGenera
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "action", actionName, "", purpose)
 
-	invocationMapping := ProcessorConfig{
+	invocationMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTAction,
 		Label: "action_invocation_mapping",
 		Config: map[string]interface{}{
@@ -409,7 +409,7 @@ func generateActionInvocationStream(logger logrus.FieldLogger, bg *BindingGenera
 		},
 		Description: "Map action invocation data for device execution",
 	}
-	deviceActionMapping := ProcessorConfig{
+	deviceActionMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTAction,
 		Label: "device_action_transform",
 		Config: map[string]interface{}{
@@ -463,7 +463,7 @@ func generateActionInvocationStream(logger logrus.FieldLogger, bg *BindingGenera
 	return nil
 }
 
-func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, actionName string, action *wot.ActionAffordance, bindings *AllBindings) error {
+func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, actionName string, action *wot.ActionAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "action_name": actionName, "operation": "generateActionLoggingStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("data_persistence") {
 		opLogger.WithField("feature", "data_persistence").Debug("Persistence feature not available in license")
@@ -476,7 +476,7 @@ func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "action", actionName, topic, purpose)
 
-	persistenceMapping := ProcessorConfig{
+	persistenceMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTAction,
 		Label: "action_normalization",
 		Config: map[string]interface{}{
@@ -485,11 +485,11 @@ func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator
 		Description: "Normalize action data for persistence",
 	}
 
-	var additionalProcessors []ProcessorConfig
+	var additionalProcessors []types.ProcessorConfigItem
 	persistenceCfg := bg.licenseChecker.GetFeatureConfig("data_persistence")
 	if format, ok := persistenceCfg["format"].(string); ok {
 		if format == "parquet" {
-			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+			additionalProcessors = append(additionalProcessors, types.ProcessorConfigItem{
 				Type:  types.ProcessorParquetEncode,
 				Label: "parquet_encoding",
 				Config: map[string]interface{}{
@@ -498,7 +498,7 @@ func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator
 				Description: "Encode action data to Parquet format",
 			})
 		} else if format == "json" {
-			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+			additionalProcessors = append(additionalProcessors, types.ProcessorConfigItem{
 				Type:        types.ProcessorJSONEncode,
 				Label:       "json_encoding",
 				Config:      map[string]interface{}{},
@@ -506,7 +506,7 @@ func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator
 			})
 		}
 	}
-	allMappings := append([]ProcessorConfig{persistenceMapping}, additionalProcessors...)
+	allMappings := append([]types.ProcessorConfigItem{persistenceMapping}, additionalProcessors...)
 
 	processorChain, err := buildProcessorChain(opLogger, bg, streamIDBase,
 		fmt.Sprintf("Action %s persistence processors", actionName),
@@ -547,7 +547,7 @@ func generateActionLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator
 	return nil
 }
 
-func generateEventProcessingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
+func generateEventProcessingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, eventName string, event *wot.EventAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "event_name": eventName, "operation": "generateEventProcessingStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("event_processing") {
 		opLogger.WithField("feature", "event_processing").Debug("Event processing not available in license")
@@ -560,7 +560,7 @@ func generateEventProcessingStream(logger logrus.FieldLogger, bg *BindingGenerat
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "event", eventName, topic, purpose)
 
-	processingMapping := ProcessorConfig{
+	processingMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTEvent,
 		Label: "event_processing_mapping",
 		Config: map[string]interface{}{
@@ -568,7 +568,7 @@ func generateEventProcessingStream(logger logrus.FieldLogger, bg *BindingGenerat
 		},
 		Description: "Map event data for client distribution",
 	}
-	enrichmentMapping := ProcessorConfig{
+	enrichmentMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTEvent,
 		Label: "event_enrichment",
 		Config: map[string]interface{}{
@@ -621,7 +621,7 @@ func generateEventProcessingStream(logger logrus.FieldLogger, bg *BindingGenerat
 	return nil
 }
 
-func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, eventName string, event *wot.EventAffordance, bindings *AllBindings) error {
+func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator, thingID, eventName string, event *wot.EventAffordance, bindings *types.AllBindings) error {
 	opLogger := logger.WithFields(logrus.Fields{"thing_id": thingID, "event_name": eventName, "operation": "generateEventLoggingStream"})
 	if !bg.licenseChecker.IsFeatureAvailable("data_persistence") {
 		opLogger.WithField("feature", "data_persistence").Debug("Persistence feature not available in license")
@@ -634,7 +634,7 @@ func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator,
 
 	logStreamGeneration(opLogger, streamIDBase, thingID, "event", eventName, topic, purpose)
 
-	persistenceMapping := ProcessorConfig{
+	persistenceMapping := types.ProcessorConfigItem{
 		Type:  types.ProcessorBloblangWoTEvent,
 		Label: "event_normalization",
 		Config: map[string]interface{}{
@@ -643,11 +643,11 @@ func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator,
 		Description: "Normalize event data for persistence",
 	}
 
-	var additionalProcessors []ProcessorConfig
+	var additionalProcessors []types.ProcessorConfigItem
 	persistenceCfg := bg.licenseChecker.GetFeatureConfig("data_persistence")
 	if format, ok := persistenceCfg["format"].(string); ok {
 		if format == "parquet" {
-			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+			additionalProcessors = append(additionalProcessors, types.ProcessorConfigItem{
 				Type:  types.ProcessorParquetEncode,
 				Label: "parquet_encoding",
 				Config: map[string]interface{}{
@@ -656,7 +656,7 @@ func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator,
 				Description: "Encode event data to Parquet format",
 			})
 		} else if format == "json" {
-			additionalProcessors = append(additionalProcessors, ProcessorConfig{
+			additionalProcessors = append(additionalProcessors, types.ProcessorConfigItem{
 				Type:        types.ProcessorJSONEncode,
 				Label:       "json_encoding",
 				Config:      map[string]interface{}{},
@@ -664,7 +664,7 @@ func generateEventLoggingStream(logger logrus.FieldLogger, bg *BindingGenerator,
 			})
 		}
 	}
-	allMappings := append([]ProcessorConfig{persistenceMapping}, additionalProcessors...)
+	allMappings := append([]types.ProcessorConfigItem{persistenceMapping}, additionalProcessors...)
 
 	var dataSchemaCore *wot.DataSchemaCore
 	if event.Data != nil && event.Data.Type != "" {
@@ -885,7 +885,7 @@ func generateParquetSchemaYAML(logger logrus.FieldLogger, bg *BindingGenerator, 
 	return strings.Join(lines, "\n"), nil
 }
 
-func (bg *BindingGenerator) convertToTypesProcessorConfig(processors []ProcessorConfig) []types.ProcessorConfig {
+func (bg *BindingGenerator) convertToTypesProcessorConfig(processors []types.ProcessorConfigItem) []types.ProcessorConfig {
 	result := make([]types.ProcessorConfig, len(processors))
 	for i, proc := range processors {
 		result[i] = types.ProcessorConfig{
