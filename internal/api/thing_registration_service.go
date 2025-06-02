@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/types" // Added
 	"github.com/twinfer/twincore/pkg/wot"
+	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // ThingRegistrationService is defined in interfaces.go
@@ -46,10 +50,12 @@ type ThingWithStreams struct {
 
 // DefaultThingRegistrationService implements ThingRegistrationService
 type DefaultThingRegistrationService struct {
-	thingRegistry  ThingRegistryExt           // Interface from interfaces.go
-	streamComposer TDStreamCompositionService // Interface from interfaces.go
-	configManager  ConfigurationManager       // Added ConfigurationManager
-	logger         logrus.FieldLogger
+	thingRegistry        ThingRegistryExt           // Interface from interfaces.go
+	streamComposer       TDStreamCompositionService // Interface from interfaces.go
+	configManager        ConfigurationManager       // Added ConfigurationManager
+	bindingGenerator     *forms.BindingGenerator    // Added
+	benthosStreamManager BenthosStreamManager       // Added
+	logger               logrus.FieldLogger
 }
 
 // ThingRegistryExt is defined in interfaces.go
@@ -59,13 +65,17 @@ func NewDefaultThingRegistrationService(
 	thingRegistry ThingRegistryExt,
 	streamComposer TDStreamCompositionService,
 	configManager ConfigurationManager, // Added configManager parameter
+	bindingGenerator *forms.BindingGenerator, // Added
+	benthosStreamManager BenthosStreamManager, // Added
 	logger logrus.FieldLogger,
 ) *DefaultThingRegistrationService {
 	return &DefaultThingRegistrationService{
-		thingRegistry:  thingRegistry,
-		streamComposer: streamComposer,
-		configManager:  configManager, // Assign configManager
-		logger:         logger,
+		thingRegistry:        thingRegistry,
+		streamComposer:       streamComposer,
+		configManager:        configManager, // Assign configManager
+		bindingGenerator:     bindingGenerator, // Added
+		benthosStreamManager: benthosStreamManager, // Added
+		logger:               logger,
 	}
 }
 
@@ -130,13 +140,115 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 		}).Info("Stream composition completed")
 	}
 
-	result.Summary.Success = true
+	// Add new BindingGenerator logic starting here:
+	logger.Info("Attempting to generate and apply bindings via BindingGenerator")
+	allBindings, bindingErr := s.bindingGenerator.GenerateAllBindings(logger, td) // Renamed err to bindingErr
+	if bindingErr != nil {
+		logger.WithError(bindingErr).Error("Failed to generate bindings using BindingGenerator")
+		// Append to existing error or log; don't overwrite if streamComposer already set an error.
+		if result.Summary.Error == "" {
+			result.Summary.Error = fmt.Sprintf("Binding generation failed: %v", bindingErr)
+		} else {
+			result.Summary.Error = fmt.Sprintf("%s; Binding generation failed: %v", result.Summary.Error, bindingErr)
+		}
+	} else {
+		logger.WithFields(logrus.Fields{
+			"http_routes_generated": len(allBindings.HTTPRoutes),
+			"streams_generated":     len(allBindings.Streams),
+		}).Info("Successfully generated bindings from BindingGenerator")
+
+		if result.ConfigGeneration == nil {
+			result.ConfigGeneration = &ConfigGenerationResult{}
+		}
+
+		// Start generated streams
+		// GenerateAllBindings already calls CreateStream. Now we need to start them.
+		streamsSuccessfullyStarted := 0
+		for streamIDFromBinding, streamConfig := range allBindings.Streams { // streamIDFromBinding to avoid conflict if streamID is in outer scope
+			if err := s.benthosStreamManager.StartStream(ctx, streamConfig.ID); err != nil {
+				logger.WithError(err).WithFields(logrus.Fields{
+					"stream_id": streamConfig.ID,
+					"type":      streamConfig.Type,
+				}).Error("Failed to start generated stream from BindingGenerator")
+				// Note: StreamsFailed is already handled by streamComposer, avoid double counting for now
+				// unless BindingGenerator's streams are entirely separate.
+				// result.Summary.StreamsFailed++
+			} else {
+				logger.WithFields(logrus.Fields{
+					"stream_id": streamConfig.ID,
+					"type":      streamConfig.Type,
+				}).Info("Successfully started generated stream from BindingGenerator")
+				streamsSuccessfullyStarted++
+			}
+		}
+		// It's safer to add to existing counts if they are from different sources.
+		// However, the plan implies BindingGenerator might be the primary source now.
+		// For now, let's assume streamComposer's summary is primary and these are logged.
+		// If BindingGenerator replaces streamComposer for these counts, then uncomment next line:
+		// result.Summary.StreamsCreated += streamsSuccessfullyStarted // Or assign if replacing
+
+		logger.Infof("%d streams started via BindingGenerator.", streamsSuccessfullyStarted)
+
+		// Register HTTP routes
+		routesSuccessfullyAdded := 0
+		for generatedRouteKey, formRoute := range allBindings.HTTPRoutes { // Use generatedRouteKey as it's the map key
+			// Adapt forms.HTTPRoute to types.HTTPRoute
+			apiRoute := types.HTTPRoute{ // Ensure types package is imported
+				ID:            fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey), // Unique ID: ThingID + BindingGeneratorRoute + OriginalKey
+				Path:          formRoute.Path,
+				Method:        formRoute.Method,
+				TargetService: "wot_handler", // Default assumption: routes are for WoT interactions
+				// Config:        make(map[string]interface{}), // Initialize if needed
+				// Security:      nil, // Initialize if needed
+			}
+			// Headers from formRoute.Headers could be mapped to apiRoute.Config if necessary
+			// Example: apiRoute.Config["headers"] = formRoute.Headers
+			// ContentType from formRoute.ContentType could also be mapped if needed by TargetService
+			// apiRoute.Config["content_type"] = formRoute.ContentType
+
+			if err := s.configManager.AddRoute(ctx, apiRoute.ID, apiRoute); err != nil {
+				logger.WithError(err).WithFields(logrus.Fields{
+					"route_id": apiRoute.ID,
+					"path":     apiRoute.Path,
+				}).Error("Failed to register HTTP route from BindingGenerator")
+			} else {
+				logger.WithFields(logrus.Fields{
+					"route_id": apiRoute.ID,
+					"path":     apiRoute.Path,
+				}).Info("Successfully registered HTTP route from BindingGenerator")
+				routesSuccessfullyAdded++
+			}
+		}
+		result.ConfigGeneration.HTTPRoutes += routesSuccessfullyAdded // Add to existing count
+		if routesSuccessfullyAdded > 0 {
+			result.ConfigGeneration.CaddyConfigured = true // If any route added, consider Caddy configured by this step
+		}
+
+		if streamsSuccessfullyStarted > 0 && !result.ConfigGeneration.BenthosConfigured {
+			// If streamComposer didn't set it, and BG started streams, set it.
+			result.ConfigGeneration.BenthosConfigured = true
+		}
+		logger.Infof("%d HTTP routes registered via BindingGenerator.", routesSuccessfullyAdded)
+	}
+
+	// Ensure result.Summary.Success reflects the overall status.
+	// If bindingErr occurred, or significant failures in starting streams/routes,
+	// success might need to be reconsidered or error messages aggregated.
+	// For now, existing success logic is: result.Summary.Success = true (set after streamComposer)
+	// This might need adjustment based on how critical bindingGenerator failures are.
+	// if bindingErr != nil || (len(allBindings.Streams) > 0 && streamsSuccessfullyStarted == 0) {
+	//    result.Summary.Success = false // Example of stricter success criteria
+	// }
+
+	result.Summary.Success = result.Summary.Error == "" && bindingErr == nil // Adjusted success criteria
 
 	s.logger.WithFields(logrus.Fields{
 		"thing_id":        td.ID,
-		"streams_created": result.Summary.StreamsCreated,
-		"streams_failed":  result.Summary.StreamsFailed,
-	}).Info("Thing registration with stream composition completed")
+		"streams_created": result.Summary.StreamsCreated, // This might need to sum results from streamComposer and bindingGenerator
+		"streams_failed":  result.Summary.StreamsFailed,  // Same as above
+		"routes_added":    result.ConfigGeneration.HTTPRoutes,
+		"success":         result.Summary.Success,
+	}).Info("Thing registration with stream composition and binding generation completed")
 
 	return result, nil
 }
@@ -197,13 +309,88 @@ func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger,
 		}).Info("Stream update completed")
 	}
 
-	result.Summary.Success = true
+	// Add new BindingGenerator logic for HTTP routes starting here:
+	logger.Info("Attempting to generate bindings via BindingGenerator for HTTP route updates")
+	allBindings, bindingErr := s.bindingGenerator.GenerateAllBindings(logger, td)
+	if bindingErr != nil {
+		logger.WithError(bindingErr).Error("Failed to generate bindings using BindingGenerator for HTTP route updates")
+		if result.Summary.Error == "" {
+			result.Summary.Error = fmt.Sprintf("Binding generation for routes failed: %v", bindingErr)
+		} else {
+			result.Summary.Error = fmt.Sprintf("%s; Binding generation for routes failed: %v", result.Summary.Error, bindingErr)
+		}
+	} else {
+		logger.WithFields(logrus.Fields{
+			"http_routes_generated": len(allBindings.HTTPRoutes),
+		}).Info("Successfully generated bindings from BindingGenerator, focusing on HTTP routes")
 
-	s.logger.WithFields(logrus.Fields{
-		"thing_id":        td.ID,
-		"streams_created": result.Summary.StreamsCreated,
-		"streams_failed":  result.Summary.StreamsFailed,
-	}).Info("Thing update with stream composition completed")
+		if result.ConfigGeneration == nil {
+			result.ConfigGeneration = &ConfigGenerationResult{}
+		}
+
+		// HTTP Route Reconciliation: Remove old routes for the thing, then add new ones.
+		logger.Info("Removing existing HTTP routes for the thing before adding updated ones.")
+		if err := s.configManager.RemoveThingRoutes(logger, thingID); err != nil {
+			logger.WithError(err).Error("Failed to remove existing HTTP routes for thing.")
+			// Potentially update summary error, but proceed with adding new routes if possible
+			if result.Summary.Error == "" {
+				result.Summary.Error = fmt.Sprintf("Failed to remove old routes: %v", err)
+			} else {
+				result.Summary.Error = fmt.Sprintf("%s; Failed to remove old routes: %v", result.Summary.Error, err)
+			}
+		}
+
+		routesSuccessfullyAdded := 0
+		for generatedRouteKey, formRoute := range allBindings.HTTPRoutes {
+			apiRoute := types.HTTPRoute{
+				ID:            fmt.Sprintf("%s_br_%s", td.ID, generatedRouteKey),
+				Path:          formRoute.Path,
+				Method:        formRoute.Method,
+				TargetService: "wot_handler",
+			}
+
+			if err := s.configManager.AddRoute(ctx, apiRoute.ID, apiRoute); err != nil {
+				logger.WithError(err).WithFields(logrus.Fields{
+					"route_id": apiRoute.ID,
+					"path":     apiRoute.Path,
+				}).Error("Failed to register HTTP route from BindingGenerator during update")
+			} else {
+				logger.WithFields(logrus.Fields{
+					"route_id": apiRoute.ID,
+					"path":     apiRoute.Path,
+				}).Info("Successfully registered HTTP route from BindingGenerator during update")
+				routesSuccessfullyAdded++
+			}
+		}
+		result.ConfigGeneration.HTTPRoutes = routesSuccessfullyAdded // Set, as old ones were removed
+		result.ConfigGeneration.CaddyConfigured = routesSuccessfullyAdded > 0
+
+		logger.Infof("%d HTTP routes registered via BindingGenerator for update.", routesSuccessfullyAdded)
+	}
+
+	// Update overall success status
+	// streamResult error is already factored into result.Summary.Error by previous block
+	if bindingErr != nil { // If binding generation for routes failed
+		result.Summary.Success = false
+	} else if result.Summary.Error != "" { // If streamComposer or route removal had errors
+		result.Summary.Success = false
+	} else {
+		result.Summary.Success = true // Only true if no errors from streamComposer, bindingGen, or route removal/add
+	}
+
+	// Update the final log message
+	finalFields := logrus.Fields{
+		"thing_id":          td.ID,
+		"streams_created":   result.Summary.StreamsCreated, // From streamComposer
+		"streams_failed":    result.Summary.StreamsFailed,  // From streamComposer
+		"streams_removed":   0,                             // Potentially from streamComposer, if it logs it
+		"routes_configured": result.ConfigGeneration.HTTPRoutes,
+		"success":           result.Summary.Success,
+	}
+	if streamResult != nil { // streamResult might be nil if streamComposer.UpdateStreamsForThing itself failed critically
+		finalFields["streams_removed"] = streamResult.Summary.StreamsRemoved
+	}
+	s.logger.WithFields(finalFields).Info("Thing update process (stream composition and binding generation for routes) completed")
 
 	return result, nil
 }

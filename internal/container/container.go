@@ -322,6 +322,8 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 		thingRegistryExt,
 		c.TDStreamComposition,
 		c.ConfigManager, // Pass ConfigurationManager
+		c.BindingGenerator, // Added
+		c.BenthosStreamManager, // Added
 		c.Logger,
 	)
 
