@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/pkg/types" // Added import
 )
 
 // SimpleBenthosStreamManager implements BenthosStreamManager for dynamic stream management
@@ -21,10 +22,10 @@ import (
 type SimpleBenthosStreamManager struct {
 	configDir            string
 	db                   *sql.DB
-	streams              map[string]*StreamInfo
+	streams              map[string]*types.StreamInfo // Changed type
 	streamBuilders       map[string]*service.StreamBuilder
 	activeStreams        map[string]*service.Stream
-	processorCollections map[string]*ProcessorCollection
+	processorCollections map[string]*types.ProcessorCollection // Changed type
 	// templateFactory removed - using direct YAML generation now
 	logger logrus.FieldLogger
 	mu     sync.RWMutex
@@ -139,7 +140,7 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 		}
 
 		// Deserialize configurations
-		var inputConfig StreamEndpointConfig
+		var inputConfig types.StreamEndpointConfig // Changed type
 		if err := json.Unmarshal([]byte(inputConfigJSON), &inputConfig); err != nil {
 			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal input config for loaded stream")
 			// Log and continue, this stream might be corrupted
@@ -147,14 +148,14 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 			continue
 		}
 
-		var outputConfig StreamEndpointConfig
+		var outputConfig types.StreamEndpointConfig // Changed type
 		if err := json.Unmarshal([]byte(outputConfigJSON), &outputConfig); err != nil {
 			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal output config for loaded stream")
 			errorCount++
 			continue
 		}
 
-		var processorChain []ProcessorConfig
+		var processorChain []types.ProcessorConfig // Changed type
 		if err := json.Unmarshal([]byte(processorChainJSON), &processorChain); err != nil {
 			logger.WithError(err).WithField("stream_id", streamID).Error("Failed to unmarshal processor chain for loaded stream")
 			errorCount++
@@ -170,7 +171,7 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 		}
 
 		// Create StreamInfo
-		streamInfo := &StreamInfo{
+		streamInfo := &types.StreamInfo{ // Changed type
 			ID:              streamID,
 			ThingID:         thingID,
 			InteractionType: interactionType,
@@ -266,7 +267,7 @@ func (sm *SimpleBenthosStreamManager) updateStreamStatusInDatabase(logger logrus
 
 // Stream lifecycle methods
 
-func (sm *SimpleBenthosStreamManager) CreateStream(ctx context.Context, request StreamCreationRequest) (*StreamInfo, error) {
+func (sm *SimpleBenthosStreamManager) CreateStream(ctx context.Context, request types.StreamCreationRequest) (*types.StreamInfo, error) { // Changed types
 	// This method is part of an interface. If request_id needs to be logged,
 	// it should ideally come from ctx or be added to logger passed in if signature changes.
 	// For now, using sm.logger and adding specific fields from request.
@@ -290,7 +291,7 @@ func (sm *SimpleBenthosStreamManager) CreateStream(ctx context.Context, request 
 	now := time.Now().UTC()
 
 	// Create stream info
-	stream := &StreamInfo{
+	stream := &types.StreamInfo{ // Changed type
 		ID:              streamID,
 		ThingID:         request.ThingID,
 		InteractionType: request.InteractionType,
@@ -342,7 +343,7 @@ func (sm *SimpleBenthosStreamManager) CreateStream(ctx context.Context, request 
 }
 
 // persistStreamToDatabase saves stream configuration to DuckDB
-func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.FieldLogger, stream *StreamInfo) error {
+func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.FieldLogger, stream *types.StreamInfo) error { // Changed type
 	logger = logger.WithFields(logrus.Fields{"internal_method": "persistStreamToDatabase", "stream_id": stream.ID})
 	logger.Debug("Persisting stream to database")
 	// Serialize configurations to JSON
@@ -398,7 +399,7 @@ func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.Fiel
 	return nil
 }
 
-func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID string, request StreamUpdateRequest) (*StreamInfo, error) {
+func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID string, request types.StreamUpdateRequest) (*types.StreamInfo, error) { // Changed types
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "UpdateStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -468,7 +469,7 @@ func (sm *SimpleBenthosStreamManager) UpdateStream(ctx context.Context, streamID
 }
 
 // updateStreamInDatabase updates stream configuration in DuckDB
-func (sm *SimpleBenthosStreamManager) updateStreamInDatabase(logger logrus.FieldLogger, stream *StreamInfo) error {
+func (sm *SimpleBenthosStreamManager) updateStreamInDatabase(logger logrus.FieldLogger, stream *types.StreamInfo) error { // Changed type
 	logger = logger.WithFields(logrus.Fields{"internal_method": "updateStreamInDatabase", "stream_id": stream.ID})
 	logger.Debug("Updating stream in database")
 
@@ -588,7 +589,7 @@ func (sm *SimpleBenthosStreamManager) DeleteStream(ctx context.Context, streamID
 	return nil
 }
 
-func (sm *SimpleBenthosStreamManager) GetStream(ctx context.Context, streamID string) (*StreamInfo, error) {
+func (sm *SimpleBenthosStreamManager) GetStream(ctx context.Context, streamID string) (*types.StreamInfo, error) { // Changed type
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetStream", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -609,7 +610,7 @@ func (sm *SimpleBenthosStreamManager) GetStream(ctx context.Context, streamID st
 	return stream, nil
 }
 
-func (sm *SimpleBenthosStreamManager) ListStreams(ctx context.Context, filters StreamFilters) ([]StreamInfo, error) {
+func (sm *SimpleBenthosStreamManager) ListStreams(ctx context.Context, filters types.StreamFilters) ([]types.StreamInfo, error) { // Changed types
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "ListStreams", "filters": fmt.Sprintf("%+v", filters)})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -620,7 +621,7 @@ func (sm *SimpleBenthosStreamManager) ListStreams(ctx context.Context, filters S
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	var result []StreamInfo
+	var result []types.StreamInfo // Changed type
 	logger.WithField("total_streams_in_memory", len(sm.streams)).Debug("Filtering streams")
 	for _, stream := range sm.streams {
 		// Apply filters
@@ -799,7 +800,7 @@ func (sm *SimpleBenthosStreamManager) StopStream(ctx context.Context, streamID s
 	return nil
 }
 
-func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, streamID string) (*StreamStatus, error) {
+func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, streamID string) (*types.StreamStatus, error) { // Changed type
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetStreamStatus", "stream_id": streamID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -840,7 +841,7 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 	// In production, you'd typically use Benthos HTTP API or metrics exporters
 	logger.WithFields(logrus.Fields{"is_running": isRunning, "reported_status": actualStatus}).Debug("Stream status determined")
 
-	status := &StreamStatus{
+	status := &types.StreamStatus{ // Changed type
 		Status:       actualStatus,
 		LastActivity: stream.UpdatedAt,
 		Metrics:      metrics,
@@ -852,7 +853,7 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 
 // Processor collection methods
 
-func (sm *SimpleBenthosStreamManager) CreateProcessorCollection(ctx context.Context, request ProcessorCollectionRequest) (*ProcessorCollection, error) {
+func (sm *SimpleBenthosStreamManager) CreateProcessorCollection(ctx context.Context, request types.ProcessorCollectionRequest) (*types.ProcessorCollection, error) { // Changed types
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "CreateProcessorCollection", "collection_name": request.Name})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -867,7 +868,7 @@ func (sm *SimpleBenthosStreamManager) CreateProcessorCollection(ctx context.Cont
 	collectionID := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	collection := &ProcessorCollection{
+	collection := &types.ProcessorCollection{ // Changed type
 		ID:          collectionID,
 		Name:        request.Name,
 		Description: request.Description,
@@ -885,7 +886,7 @@ func (sm *SimpleBenthosStreamManager) CreateProcessorCollection(ctx context.Cont
 	return collection, nil
 }
 
-func (sm *SimpleBenthosStreamManager) GetProcessorCollection(ctx context.Context, collectionID string) (*ProcessorCollection, error) {
+func (sm *SimpleBenthosStreamManager) GetProcessorCollection(ctx context.Context, collectionID string) (*types.ProcessorCollection, error) { // Changed type
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetProcessorCollection", "collection_id": collectionID})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -906,7 +907,7 @@ func (sm *SimpleBenthosStreamManager) GetProcessorCollection(ctx context.Context
 	return collection, nil
 }
 
-func (sm *SimpleBenthosStreamManager) ListProcessorCollections(ctx context.Context) ([]ProcessorCollection, error) {
+func (sm *SimpleBenthosStreamManager) ListProcessorCollections(ctx context.Context) ([]types.ProcessorCollection, error) { // Changed type
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "ListProcessorCollections"})
 	logger.Debug("Service method called")
 	startTime := time.Now()
@@ -917,7 +918,7 @@ func (sm *SimpleBenthosStreamManager) ListProcessorCollections(ctx context.Conte
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
-	var result []ProcessorCollection
+	var result []types.ProcessorCollection // Changed type
 	logger.WithField("total_collections_in_memory", len(sm.processorCollections)).Debug("Listing processor collections")
 	for _, collection := range sm.processorCollections {
 		result = append(result, *collection)
@@ -929,7 +930,7 @@ func (sm *SimpleBenthosStreamManager) ListProcessorCollections(ctx context.Conte
 // Helper methods for generating Benthos configurations
 
 // generateBenthosStreamBuilder creates Benthos StreamBuilder using service API
-func (sm *SimpleBenthosStreamManager) generateBenthosStreamBuilder(stream *StreamInfo) (*service.StreamBuilder, error) {
+func (sm *SimpleBenthosStreamManager) generateBenthosStreamBuilder(stream *types.StreamInfo) (*service.StreamBuilder, error) { // Changed type
 	// Using sm.logger as this is an internal helper. Contextual info like stream.ID is logged.
 	logger := sm.logger.WithFields(logrus.Fields{"internal_method": "generateBenthosStreamBuilder", "stream_id": stream.ID})
 	logger.Debug("Internal method called")

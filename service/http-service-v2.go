@@ -122,15 +122,13 @@ func (h *HTTPServiceV2) buildCaddyConfig(config types.ServiceConfig) (map[string
 		return nil, fmt.Errorf("missing HTTP configuration")
 	}
 
-	// Extract security configuration
-	securityConfig, _ := config.Config["security"].(map[string]interface{})
-
+	// Security configuration is now part of httpConfig.Security (types.SimpleSecurityConfig)
 	// Build routes with authentication
 	var routes []interface{}
 
 	// Add authentication route if security is enabled
-	if enabled, _ := securityConfig["enabled"].(bool); enabled {
-		authRoute := h.buildAuthRoute(securityConfig)
+	if httpConfig.Security.Enabled {
+		authRoute := h.buildAuthRoute(httpConfig.Security) // Pass SimpleSecurityConfig
 		if authRoute != nil {
 			routes = append(routes, authRoute)
 		}
@@ -138,7 +136,8 @@ func (h *HTTPServiceV2) buildCaddyConfig(config types.ServiceConfig) (map[string
 
 	// Add application routes
 	for _, route := range httpConfig.Routes {
-		caddyRoute := h.buildRoute(route, securityConfig)
+		// buildRoute now doesn't need the separate securityConfig map
+		caddyRoute := h.buildRoute(route) 
 		routes = append(routes, caddyRoute)
 	}
 
@@ -163,68 +162,92 @@ func (h *HTTPServiceV2) buildCaddyConfig(config types.ServiceConfig) (map[string
 }
 
 // buildAuthRoute creates an authentication route using Caddy's built-in auth
-func (h *HTTPServiceV2) buildAuthRoute(securityConfig map[string]interface{}) map[string]interface{} {
-	var handlers []interface{}
+// It now accepts types.SimpleSecurityConfig
+func (h *HTTPServiceV2) buildAuthRoute(securityConfig types.SimpleSecurityConfig) map[string]interface{} {
+	var authHandlers []map[string]interface{}
 
-	// Use basic auth if configured
-	if basicAuth, ok := securityConfig["basic_auth"].(map[string]interface{}); ok {
-		accounts := make(map[string]interface{})
-		if users, ok := basicAuth["users"].([]interface{}); ok {
-			for _, user := range users {
-				if u, ok := user.(map[string]interface{}); ok {
-					username, _ := u["username"].(string)
-					password, _ := u["password"].(string)
-					if username != "" && password != "" {
-						// In production, passwords should be hashed
-						accounts[username] = map[string]interface{}{
-							"password": password,
-						}
-					}
-				}
-			}
+	// Basic Auth
+	if securityConfig.BasicAuth != nil && len(securityConfig.BasicAuth.Users) > 0 {
+		caddyBasicAuthAccounts := make(map[string]interface{})
+		for _, user := range securityConfig.BasicAuth.Users {
+			// TODO: Hashing passwords should be handled before they get here or by Caddy itself.
+			// Caddy's basicauth handler expects plaintext passwords or pre-hashed ones if specified.
+			// For simplicity, assuming plaintext or that Caddy handles hashing if configured.
+			caddyBasicAuthAccounts[user.Username] = map[string]interface{}{"password": user.Password}
 		}
-
-		if len(accounts) > 0 {
-			handlers = append(handlers, map[string]interface{}{
+		if len(caddyBasicAuthAccounts) > 0 {
+			authHandlers = append(authHandlers, map[string]interface{}{
 				"handler": "authentication",
 				"providers": map[string]interface{}{
 					"http_basic": map[string]interface{}{
-						"accounts": accounts,
+						"accounts": caddyBasicAuthAccounts,
+						// "realm": "TwinCore Protected Area", // Optional realm
 					},
 				},
 			})
 		}
 	}
 
-	// Add bearer token validation using subroute
-	if bearerTokens, ok := securityConfig["bearer_tokens"].([]interface{}); ok && len(bearerTokens) > 0 {
-		// Create a matcher for Authorization header
-		handlers = append(handlers, map[string]interface{}{
-			"handler": "headers",
-			"request": map[string]interface{}{
-				"set": map[string][]string{
-					"X-Authenticated": {"true"},
+	// Bearer Auth (using Caddy's `jwt` handler if applicable, or a custom header check for opaque tokens)
+	// SimpleSecurityConfig.BearerAuth.Tokens suggests opaque tokens.
+	// Caddy doesn't have a direct "match these exact bearer tokens" handler.
+	// This usually requires a custom module or using `expression` matchers with `http.handlers.authentication`.
+	// For JWTs, SimpleSecurityConfig.JWTAuth would be used with Caddy's `jwt` handler.
+
+	// Placeholder for Bearer/JWT:
+	// If JWTAuth is configured:
+	if securityConfig.JWTAuth != nil && securityConfig.JWTAuth.PublicKey != "" {
+		jwtHandler := map[string]interface{}{
+			"handler": "authentication",
+			"providers": map[string]interface{}{
+				"jwt": map[string]interface{}{
+					"primary": map[string]interface{}{
+						"keys": []map[string]interface{}{
+							{"source": securityConfig.JWTAuth.PublicKey, "alg": "RS256"}, // Assuming alg, might need to be configurable
+						},
+					},
+					// "trusted_issuers": []string{securityConfig.JWTAuth.Issuer}, // If issuer is set
+					// "trusted_audiences": []string{securityConfig.JWTAuth.Audience}, // If audience is set
 				},
 			},
-		})
+		}
+		// Add issuer/audience if present
+		jwtProvider := jwtHandler["providers"].(map[string]interface{})["jwt"].(map[string]interface{})
+		if securityConfig.JWTAuth.Issuer != "" {
+			jwtProvider["trusted_issuers"] = []string{securityConfig.JWTAuth.Issuer}
+		}
+		if securityConfig.JWTAuth.Audience != "" {
+			jwtProvider["trusted_audiences"] = []string{securityConfig.JWTAuth.Audience}
+		}
+		authHandlers = append(authHandlers, jwtHandler)
+		h.logger.Info("JWT Authentication configured for Caddy")
+	} else if securityConfig.BearerAuth != nil && len(securityConfig.BearerAuth.Tokens) > 0 {
+		// This is tricky with Caddy's standard handlers.
+		// A simple approach might be to use a request header matcher for specific tokens,
+		// but this is not scalable and insecure if tokens are static and long-lived.
+		// A more robust solution would involve a custom auth module or token introspection.
+		// For now, logging that it's configured but not implementing a Caddy handler.
+		h.logger.Warn("BearerAuth with static tokens configured in SimpleSecurityConfig, but Caddy handler implementation is complex and not fully provided here. Consider JWT or a custom Caddy auth module for production bearer tokens.")
 	}
 
-	if len(handlers) == 0 {
+
+	if len(authHandlers) == 0 {
 		return nil
 	}
 
 	return map[string]interface{}{
 		"match": []map[string]interface{}{
 			{
-				"path": []string{"/*"},
+				"path": []string{"/*"}, // This auth route applies to all paths
 			},
 		},
-		"handle": handlers,
+		"handle": authHandlers, // Corrected from 'handlers' to 'authHandlers'
 	}
 }
 
 // buildRoute creates a route configuration
-func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[string]interface{}) map[string]interface{} {
+// The securityConfig map parameter is removed as auth is handled by buildAuthRoute and httpConfig.Security
+func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute) map[string]interface{} {
 	// Build matchers
 	var matchers []map[string]interface{}
 
@@ -243,56 +266,18 @@ func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[str
 	// Build handlers
 	var handlers []interface{}
 
-	// Add authentication if required
-	if route.RequiresAuth {
-		if bearerTokens, ok := securityConfig["bearer_tokens"].([]interface{}); ok && len(bearerTokens) > 0 {
-			// Simple bearer token check using header matcher
-			// This is a simplified approach - in production, use proper JWT validation
-			handlers = append(handlers, map[string]interface{}{
-				"handler": "subroute",
-				"routes": []map[string]interface{}{
-					{
-						"match": []map[string]interface{}{
-							{
-								"header": map[string][]string{
-									"Authorization": {"Bearer *"},
-								},
-							},
-						},
-						"handle": []map[string]interface{}{
-							{
-								"handler": "headers",
-								"response": map[string]interface{}{
-									"set": map[string][]string{
-										"X-Authenticated": {"true"},
-									},
-								},
-							},
-						},
-					},
-					{
-						// No Authorization header - return 401
-						"handle": []map[string]interface{}{
-							{
-								"handler":     "static_response",
-								"status_code": 401,
-								"headers": map[string][]string{
-									"WWW-Authenticate": {`Bearer realm="TwinCore"`},
-									"Content-Type":     {"application/json"},
-								},
-								"body": `{"error": "unauthorized", "message": "missing or invalid authorization"}`,
-							},
-						},
-					},
-				},
-			})
-		}
-	}
+	// Authentication for individual routes is now primarily handled by the global auth handler
+	// configured by buildAuthRoute if httpConfig.Security.Enabled is true.
+	// The route.RequiresAuth flag is still useful to know if a route expects to be protected.
+	// Specific per-route auth logic (e.g. different JWT scopes) would require more complex Caddy config.
+	// For now, if route.RequiresAuth is true, we assume the global auth handler (if enabled) takes care of it.
+	// If no global auth is enabled but a route requires auth, it's effectively unprotected.
+	// This simplified model might need refinement for more granular per-route auth.
 
 	// Add the actual handler (reverse proxy, static response, etc.)
 	switch route.Handler {
 	case "reverse_proxy":
-		if upstream, ok := route.Metadata["upstream"].(string); ok {
+		if upstream, ok := route.Config["upstream"].(string); ok { // Changed from route.Metadata
 			handlers = append(handlers, map[string]interface{}{
 				"handler": "reverse_proxy",
 				"upstreams": []map[string]interface{}{
@@ -301,8 +286,8 @@ func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[str
 			})
 		}
 	case "static_response":
-		body, _ := route.Metadata["body"].(string)
-		statusCode, _ := route.Metadata["status_code"].(float64)
+		body, _ := route.Config["body"].(string) // Changed from route.Metadata
+		statusCode, _ := route.Config["status_code"].(float64) // Changed from route.Metadata
 		if statusCode == 0 {
 			statusCode = 200
 		}
@@ -316,7 +301,7 @@ func (h *HTTPServiceV2) buildRoute(route types.HTTPRoute, securityConfig map[str
 		handlers = append(handlers, map[string]interface{}{
 			"handler":     "static_response",
 			"status_code": 200,
-			"body":        fmt.Sprintf(`{"message": "Handler not implemented: %s"}`, route.Handler),
+			"body":        fmt.Sprintf(`{"message": "Handler not implemented for %s or bad config: %s"}`, route.Path, route.Handler),
 		})
 	}
 

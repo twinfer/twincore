@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/twinfer/twincore/pkg/types"
+	"github.com/twinfer/twincore/pkg/types" // This will resolve to the new types after old config.go is removed/changed
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
@@ -28,8 +28,11 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 
 	config := &types.UnifiedConfig{
 		Version: "1.0",
-		HTTP:    types.HTTPConfig{Routes: []types.HTTPRoute{}},
-		Stream:  types.StreamConfig{Topics: []types.StreamTopic{}, Commands: []types.CommandStream{}},
+		HTTP: types.HTTPConfig{ // Will use new HTTPConfig from config_v2.go
+			Routes:   []types.HTTPRoute{},
+			Security: types.SimpleSecurityConfig{Enabled: false}, // Default, may be overridden
+		},
+		Stream: types.StreamConfig{Topics: []types.StreamTopic{}, Commands: []types.CommandStream{}},
 	}
 
 	// Process properties
@@ -50,7 +53,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 			Methods:      m.getPropertyMethods(*property), // Dereference pointer
 			Handler:      "wot_property_handler",
 			RequiresAuth: len(td.Security) > 0,
-			Metadata: map[string]interface{}{
+			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":      td.ID,
 				"propertyName": name,
 				"forms":        forms,
@@ -90,7 +93,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 			Methods:      []string{"POST"},
 			Handler:      "wot_action_handler",
 			RequiresAuth: len(td.Security) > 0,
-			Metadata: map[string]interface{}{
+			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":    td.ID,
 				"actionName": name,
 				"input":      action.GetInput(),
@@ -132,7 +135,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 			Methods:      []string{"GET"},
 			Handler:      "wot_event_handler",
 			RequiresAuth: len(td.Security) > 0,
-			Metadata: map[string]interface{}{
+			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":   td.ID,
 				"eventName": name,
 				"data":      event.GetData(),
@@ -189,37 +192,42 @@ func (m *WoTMapper) expandPattern(pattern, thingID, interactionType, name string
 	return result
 }
 
-func (m *WoTMapper) mapSecuritySchemes(schemes map[string]wot.SecurityScheme) map[string]interface{} {
-	result := make(map[string]interface{})
-
-	for name, scheme := range schemes {
-		switch scheme.Scheme {
-		case "bearer":
-			result[name] = map[string]interface{}{
-				"type":   "jwt",
-				"source": "header",
-				"name":   "Authorization",
-			}
-			m.logger.Debugf("Mapped bearer scheme: %s", name)
-
-		case "basic":
-			result[name] = map[string]interface{}{
-				"type": "basic",
-			}
-			m.logger.Debugf("Mapped basic scheme: %s", name)
-
-		case "apikey":
-			result[name] = map[string]interface{}{
-				"type":   "apikey",
-				"source": scheme.In,
-				"name":   scheme.Name,
-			}
-			m.logger.Debugf("Mapped apikey scheme: %s", name)
-
-		default:
-			m.logger.Warnf("Unknown security scheme: %s", scheme.Scheme)
-		}
+// mapSecuritySchemes translates WoT security definitions into a SimpleSecurityConfig.
+// This is a simplification, as SimpleSecurityConfig holds a single configuration
+// rather than a map of named schemes. It enables auth if any scheme is present.
+func (m *WoTMapper) mapSecuritySchemes(schemes map[string]wot.SecurityScheme) types.SimpleSecurityConfig {
+	if len(schemes) == 0 {
+		m.logger.Debug("No security schemes defined in TD, HTTP security will be disabled.")
+		return types.SimpleSecurityConfig{Enabled: false}
 	}
 
-	return result
+	m.logger.Debugf("Processing %d security schemes for SimpleSecurityConfig.", len(schemes))
+	// For now, presence of any scheme enables the generic security flag.
+	// Detailed mapping to BasicAuth, BearerAuth, JWTAuth would require more context
+	// (e.g., where to get user lists, tokens, JWT keys) or assumptions.
+	// Example: if a "basic" scheme is found, one might initialize BasicAuth, but users are not in TD.
+	// Example: if a "bearer" scheme is "jwt", JWTAuth could be initialized, but public key is not in TD.
+	
+	// Simplified: if any security scheme is defined, mark security as enabled.
+	// The actual methods (Basic, JWT) would need to be configured externally
+	// or through a more detailed mapping if possible.
+	secConfig := types.SimpleSecurityConfig{
+		Enabled: true,
+	}
+
+	// Potential future enhancement:
+	// Iterate through schemes and try to populate specific fields if possible.
+	// For example, if a 'basic' scheme exists, maybe set:
+	// secConfig.BasicAuth = &types.BasicAuthConfig{} // Users would be empty
+	// This indicates basic auth is expected.
+	// Similar for BearerAuth or JWTAuth if a 'bearer' scheme implies JWT.
+	// For now, just enabling is the most robust direct mapping.
+	for name, scheme := range schemes {
+		m.logger.Debugf("Found security scheme: %s (type: %s)", name, scheme.Scheme)
+		// If specific mappings are needed, they would go here.
+		// e.g., if scheme.Scheme == "basic", set secConfig.BasicAuth = ...
+	}
+	
+	m.logger.Info("HTTP security enabled due to presence of security schemes in TD.")
+	return secConfig
 }

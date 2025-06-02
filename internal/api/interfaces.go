@@ -6,6 +6,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/models"
+	"github.com/twinfer/twincore/pkg/types" // Added import
 	"github.com/twinfer/twincore/pkg/wot"
 	"github.com/twinfer/twincore/pkg/wot/forms"
 )
@@ -28,17 +29,17 @@ type License interface {
 
 // BenthosStreamManager defines the interface for managing Benthos streams.
 type BenthosStreamManager interface {
-	CreateStream(ctx context.Context, request StreamCreationRequest) (*StreamInfo, error)
-	UpdateStream(ctx context.Context, streamID string, request StreamUpdateRequest) (*StreamInfo, error)
+	CreateStream(ctx context.Context, request types.StreamCreationRequest) (*types.StreamInfo, error)
+	UpdateStream(ctx context.Context, streamID string, request types.StreamUpdateRequest) (*types.StreamInfo, error)
 	DeleteStream(ctx context.Context, streamID string) error
-	GetStream(ctx context.Context, streamID string) (*StreamInfo, error)
-	ListStreams(ctx context.Context, filters StreamFilters) ([]StreamInfo, error)
+	GetStream(ctx context.Context, streamID string) (*types.StreamInfo, error)
+	ListStreams(ctx context.Context, filters types.StreamFilters) ([]types.StreamInfo, error)
 	StartStream(ctx context.Context, streamID string) error
 	StopStream(ctx context.Context, streamID string) error
-	GetStreamStatus(ctx context.Context, streamID string) (*StreamStatus, error)
-	CreateProcessorCollection(ctx context.Context, request ProcessorCollectionRequest) (*ProcessorCollection, error)
-	GetProcessorCollection(ctx context.Context, collectionID string) (*ProcessorCollection, error)
-	ListProcessorCollections(ctx context.Context) ([]ProcessorCollection, error)
+	GetStreamStatus(ctx context.Context, streamID string) (*types.StreamStatus, error)
+	CreateProcessorCollection(ctx context.Context, request types.ProcessorCollectionRequest) (*types.ProcessorCollection, error)
+	GetProcessorCollection(ctx context.Context, collectionID string) (*types.ProcessorCollection, error)
+	ListProcessorCollections(ctx context.Context) ([]types.ProcessorCollection, error)
 }
 
 // BindingGenerationService defines the interface for generating bindings from a Thing Description.
