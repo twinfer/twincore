@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 
@@ -11,7 +12,9 @@ import (
 
 // DefaultConfigProvider provides default configurations for TwinCore
 type DefaultConfigProvider struct {
-	// License features to determine which defaults to apply
+	// License checker for separated security domains
+	licenseChecker types.UnifiedLicenseChecker
+	// Legacy license features (deprecated)
 	licenseFeatures map[string]bool
 }
 
@@ -22,9 +25,22 @@ func NewDefaultConfigProvider() *DefaultConfigProvider {
 	}
 }
 
-// SetLicenseFeatures updates the available license features
+// NewDefaultConfigProviderWithLicense creates a new default config provider with license checker
+func NewDefaultConfigProviderWithLicense(licenseChecker types.UnifiedLicenseChecker) *DefaultConfigProvider {
+	return &DefaultConfigProvider{
+		licenseChecker:  licenseChecker,
+		licenseFeatures: make(map[string]bool),
+	}
+}
+
+// SetLicenseFeatures updates the available license features (deprecated)
 func (d *DefaultConfigProvider) SetLicenseFeatures(features map[string]bool) {
 	d.licenseFeatures = features
+}
+
+// SetLicenseChecker updates the license checker for separated security domains
+func (d *DefaultConfigProvider) SetLicenseChecker(licenseChecker types.UnifiedLicenseChecker) {
+	d.licenseChecker = licenseChecker
 }
 
 // GetDefaultHTTPConfig returns the default HTTP service configuration
@@ -109,7 +125,7 @@ func (d *DefaultConfigProvider) GetDefaultStreamConfig() types.StreamConfig {
 	}
 
 	// Add advanced features based on license
-	if d.licenseFeatures["enterprise_streaming"] {
+	if d.isFeatureEnabled("enterprise_streaming") {
 		streamConfig.Topics = append(streamConfig.Topics, types.StreamTopic{
 			Name: "analytics_stream",
 			Type: "kafka",
@@ -264,14 +280,14 @@ func (d *DefaultConfigProvider) GetDefaultSystemSecurityConfig() types.SystemSec
 		},
 	}
 
-	// Enable additional features based on license
-	if d.licenseFeatures["ldap_auth"] {
+	// Enable additional features based on separated license domains
+	if d.isSystemFeatureEnabled("ldap_auth") {
 		secConfig.AdminAuth.Providers = append(secConfig.AdminAuth.Providers, "ldap")
 	}
-	if d.licenseFeatures["mfa"] {
+	if d.isSystemFeatureEnabled("mfa") {
 		secConfig.AdminAuth.MFA = true
 	}
-	if d.licenseFeatures["rbac"] {
+	if d.isSystemFeatureEnabled("rbac") {
 		// RBAC is enabled by default if licensed
 		secConfig.APIAuth.Policies = append(secConfig.APIAuth.Policies, types.APIPolicy{
 			ID:          "rbac_operator",
@@ -316,4 +332,134 @@ func (d *DefaultConfigProvider) GetDefaultKafkaConfig() types.KafkaConfig {
 		Topic:         "twincore-events",
 		ConsumerGroup: "twincore-gateway",
 	}
+}
+
+// Helper methods for license feature checking
+
+// isFeatureEnabled checks if a general feature is enabled (legacy support)
+func (d *DefaultConfigProvider) isFeatureEnabled(feature string) bool {
+	// First try unified license checker for general features
+	if d.licenseChecker != nil {
+		return d.licenseChecker.IsGeneralFeatureEnabled(context.Background(), feature)
+	}
+	// Fall back to legacy feature map
+	return d.licenseFeatures[feature]
+}
+
+// isSystemFeatureEnabled checks if a system security feature is enabled
+func (d *DefaultConfigProvider) isSystemFeatureEnabled(feature string) bool {
+	if d.licenseChecker != nil {
+		return d.licenseChecker.IsSystemFeatureEnabled(context.Background(), feature)
+	}
+	// Fall back to legacy feature map
+	return d.licenseFeatures[feature]
+}
+
+// isWoTFeatureEnabled checks if a WoT security feature is enabled
+func (d *DefaultConfigProvider) isWoTFeatureEnabled(feature string) bool {
+	if d.licenseChecker != nil {
+		return d.licenseChecker.IsWoTFeatureEnabled(context.Background(), feature)
+	}
+	// Fall back to legacy feature map
+	return d.licenseFeatures[feature]
+}
+
+// GetDefaultWoTSecurityConfig returns default WoT security configuration based on license
+func (d *DefaultConfigProvider) GetDefaultWoTSecurityConfig() types.WoTSecurityConfig {
+	wotConfig := types.WoTSecurityConfig{
+		ThingPolicies:     make(map[string]types.ThingSecurityPolicy),
+		CredentialStores:  make(map[string]types.CredentialStore),
+		SecurityTemplates: make(map[string]types.SecurityTemplate),
+	}
+
+	// Add default credential stores based on license
+	if d.isWoTFeatureEnabled("credential_stores") {
+		// Default environment variable store (always available)
+		wotConfig.CredentialStores["env"] = types.CredentialStore{
+			Type:      "env",
+			Encrypted: false,
+			Config:    make(map[string]interface{}),
+		}
+
+		// Database store if encryption is licensed
+		if d.isWoTFeatureEnabled("credential_encryption") {
+			wotConfig.CredentialStores["db"] = types.CredentialStore{
+				Type:      "db",
+				Encrypted: true,
+				Config:    make(map[string]interface{}),
+			}
+		}
+
+		// Vault integration if licensed
+		if d.isWoTFeatureEnabled("vault_integration") {
+			wotConfig.CredentialStores["vault"] = types.CredentialStore{
+				Type:      "vault",
+				Encrypted: true,
+				Config: map[string]interface{}{
+					"address": "${VAULT_ADDR:http://localhost:8200}",
+					"path":    "secret/twincore",
+				},
+			}
+		}
+	}
+
+	// Add default security templates if licensed
+	if d.isWoTFeatureEnabled("security_templates") {
+		wotConfig.SecurityTemplates["basic_device"] = types.SecurityTemplate{
+			Name:        "basic_device",
+			Description: "Basic device authentication with username/password",
+			Schemes: []types.WoTSecurityScheme{
+				{
+					Scheme:      "basic",
+					Description: "HTTP Basic Authentication",
+				},
+			},
+			Credentials: map[string]types.CredentialRef{
+				"basic": {
+					Store: "env",
+					Key:   "DEVICE_BASIC",
+					Type:  "basic",
+				},
+			},
+		}
+
+		if d.isWoTFeatureEnabled("bearer_auth") {
+			wotConfig.SecurityTemplates["api_token"] = types.SecurityTemplate{
+				Name:        "api_token", 
+				Description: "API token-based authentication",
+				Schemes: []types.WoTSecurityScheme{
+					{
+						Scheme:      "bearer",
+						Description: "Bearer Token Authentication",
+					},
+				},
+				Credentials: map[string]types.CredentialRef{
+					"bearer": {
+						Store: "env",
+						Key:   "DEVICE_TOKEN",
+						Type:  "bearer",
+					},
+				},
+			}
+		}
+	}
+
+	// Add global policies if licensed
+	if d.isWoTFeatureEnabled("global_policies") {
+		wotConfig.GlobalPolicies = &types.GlobalWoTSecurityPolicy{
+			RequireAuthentication: true,
+			AllowedProtocols:      []string{"http", "https", "mqtt", "mqtts", "kafka"},
+			BlockedIPs:           []string{},
+		}
+
+		// Add rate limiting if licensed
+		if d.isWoTFeatureEnabled("wot_rate_limit") {
+			wotConfig.GlobalPolicies.DefaultRateLimit = &types.WoTRateLimit{
+				RequestsPerMinute: 100,
+				BurstSize:         10,
+			}
+		}
+	}
+
+	return wotConfig
 }

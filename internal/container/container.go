@@ -512,8 +512,8 @@ func (c *Container) getSystemSecurityConfig() (*types.SystemSecurityConfig, erro
 
 // getDefaultSystemSecurityConfig returns default system security configuration
 func (c *Container) getDefaultSystemSecurityConfig() *types.SystemSecurityConfig {
-	// Create default config provider and get default security config
-	defaultProvider := config.NewDefaultConfigProvider()
+	// Create default config provider with license checker and get default security config
+	defaultProvider := config.NewDefaultConfigProviderWithLicense(c.UnifiedLicenseChecker)
 	secConfig := defaultProvider.GetDefaultSystemSecurityConfig()
 	return &secConfig
 }

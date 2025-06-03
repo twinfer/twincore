@@ -1,5 +1,7 @@
 package wot
 
+import "fmt"
+
 // DataSchemaCore contains the structural and constraint fields of a DataSchema,
 // excluding common metadata like title and description to avoid conflicts when embedded.
 // These metadata fields are added back in the main DataSchema struct.
@@ -73,6 +75,14 @@ type Form interface {
 	GetHref() string
 	// GetContentType returns the content type of the form.
 	GetContentType() string
+	// GetSecurity returns form-level security overrides (optional).
+	GetSecurity() []string
+	// GetResponse returns expected response definition (optional).
+	GetResponse() *ExpectedResponse
+	// GetURIVariables returns URI template variables (optional).
+	GetURIVariables() map[string]*DataSchema
+	// GetSubprotocol returns protocol variation indicator (optional).
+	GetSubprotocol() string
 	// GenerateConfig produces a protocol-specific configuration map,
 	// often including Benthos YAML, based on the form's fields and security definitions.
 	GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]interface{}, error)
@@ -88,7 +98,7 @@ type ExpectedResponse struct {
 
 // SecurityScheme defines a security mechanism.
 type SecurityScheme struct {
-	Context      interface{}       `json:"@type,omitempty"` // e.g. "BasicSecurityScheme", "OAuth2SecurityScheme"
+	SemanticType interface{}       `json:"@type,omitempty"` // e.g. "BasicSecurityScheme", "OAuth2SecurityScheme"
 	Description  string            `json:"description,omitempty"`
 	Descriptions map[string]string `json:"descriptions,omitempty"`
 	Proxy        string            `json:"proxy,omitempty"` // URI
@@ -227,7 +237,7 @@ type AdditionalExpectedResponse struct {
 
 // ThingDescription is the top-level structure for a W3C WoT Thing Description.
 type ThingDescription struct {
-	Context             interface{}                    `json:"@context"`     // string or []interface{}
+	Context             interface{}                    `json:"@context"`     // string or []interface{} - should include "https://www.w3.org/2022/wot/td/v1.1"
 	ID                  string                         `json:"id,omitempty"` // Optional, but recommended for TDs published in a TD Directory
 	Title               string                         `json:"title"`        // Mandatory
 	Titles              map[string]string              `json:"titles,omitempty"`
@@ -235,7 +245,7 @@ type ThingDescription struct {
 	Descriptions        map[string]string              `json:"descriptions,omitempty"`
 	Version             *VersionInfo                   `json:"version,omitempty"` // Updated for W3C WoT TD 1.1
 	Created             string                         `json:"created,omitempty"` // Timestamp (string ISO8601)
-	Modified            string                         `json:"modified"`          // Timestamp (string ISO8601)
+	Modified            string                         `json:"modified,omitempty"` // Timestamp (string ISO8601) - Made optional for compliance
 	Support             string                         `json:"support,omitempty"` // Contact information (URI)
 	Base                string                         `json:"base,omitempty"`    // Base URI
 	Properties          map[string]*PropertyAffordance `json:"properties,omitempty"`
@@ -249,4 +259,116 @@ type ThingDescription struct {
 	Profile             []string                       `json:"profile,omitempty"` // URI identifying a profile
 	URIs                []string                       `json:"uris,omitempty"`    // External URIs for this TD
 	Comment             string                         `json:"$comment,omitempty"`
+}
+
+// Validation helpers and compliance methods
+
+// ValidateBasicCompliance checks if the Thing Description meets basic W3C WoT TD 1.1 requirements
+func (td *ThingDescription) ValidateBasicCompliance() []string {
+	var issues []string
+	
+	// Check mandatory fields
+	if td.Title == "" {
+		issues = append(issues, "missing mandatory 'title' field")
+	}
+	
+	if len(td.Security) == 0 {
+		issues = append(issues, "missing mandatory 'security' field")
+	}
+	
+	if len(td.SecurityDefinitions) == 0 && len(td.Security) > 0 {
+		// Check if security is not just "nosec"
+		hasNonNosec := false
+		for _, sec := range td.Security {
+			if sec != "nosec" {
+				hasNonNosec = true
+				break
+			}
+		}
+		if hasNonNosec {
+			issues = append(issues, "missing 'securityDefinitions' when security schemes other than 'nosec' are used")
+		}
+	}
+	
+	// Validate context
+	if td.Context == nil {
+		issues = append(issues, "missing mandatory '@context' field")
+	}
+	
+	// Check that at least one interaction affordance has forms
+	totalInteractions := len(td.Properties) + len(td.Actions) + len(td.Events)
+	if totalInteractions == 0 && len(td.Forms) == 0 {
+		issues = append(issues, "Thing Description should have at least one interaction affordance or global form")
+	}
+	
+	return issues
+}
+
+// ValidateOperationTypes checks if operation types in forms match their affordance context
+func (pa *PropertyAffordance) ValidateOperationTypes() []string {
+	var issues []string
+	validOps := []string{"readproperty", "writeproperty", "observeproperty", "unobserveproperty"}
+	
+	for _, form := range pa.Forms {
+		ops := form.GetOp()
+		for _, op := range ops {
+			valid := false
+			for _, validOp := range validOps {
+				if op == validOp {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				issues = append(issues, fmt.Sprintf("invalid operation '%s' for PropertyAffordance", op))
+			}
+		}
+	}
+	return issues
+}
+
+// ValidateOperationTypes checks if operation types in forms match their affordance context
+func (aa *ActionAffordance) ValidateOperationTypes() []string {
+	var issues []string
+	validOps := []string{"invokeaction", "queryaction", "cancelaction"}
+	
+	for _, form := range aa.Forms {
+		ops := form.GetOp()
+		for _, op := range ops {
+			valid := false
+			for _, validOp := range validOps {
+				if op == validOp {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				issues = append(issues, fmt.Sprintf("invalid operation '%s' for ActionAffordance", op))
+			}
+		}
+	}
+	return issues
+}
+
+// ValidateOperationTypes checks if operation types in forms match their affordance context  
+func (ea *EventAffordance) ValidateOperationTypes() []string {
+	var issues []string
+	validOps := []string{"subscribeevent", "unsubscribeevent"}
+	
+	for _, form := range ea.Forms {
+		ops := form.GetOp()
+		for _, op := range ops {
+			valid := false
+			for _, validOp := range validOps {
+				if op == validOp {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				issues = append(issues, fmt.Sprintf("invalid operation '%s' for EventAffordance", op))
+			}
+		}
+	}
+	return issues
 }

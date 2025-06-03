@@ -2,6 +2,7 @@
 package api
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,17 +13,35 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
+// Embed the WoT TD 1.1 JSON Schema for validation
+//
+//go:embed schema/td-json-schema-validation.json
+var wotTDSchema []byte
+
 // JSONSchemaValidator implements SchemaValidator using JSON Schema
 type JSONSchemaValidator struct {
 	schemaCache map[string]*gojsonschema.Schema
+	tdSchema    *gojsonschema.Schema // Compiled TD schema for validation
 	// logger logrus.FieldLogger // No longer storing logger in struct, passed via methods
 }
 
 func NewJSONSchemaValidator() *JSONSchemaValidator {
 	// Logger is no longer initialized here
-	return &JSONSchemaValidator{
+	validator := &JSONSchemaValidator{
 		schemaCache: make(map[string]*gojsonschema.Schema),
 	}
+
+	// Compile the embedded TD schema
+	schemaLoader := gojsonschema.NewBytesLoader(wotTDSchema)
+	if compiledSchema, err := gojsonschema.NewSchema(schemaLoader); err == nil {
+		validator.tdSchema = compiledSchema
+	} else {
+		// Log error but continue - validator can still work for property/action/event validation
+		// The TD validation will just be less comprehensive
+		validator.tdSchema = nil
+	}
+
+	return validator
 }
 
 // getCachedOrCompile attempts to retrieve a compiled schema from cache.
@@ -158,6 +177,163 @@ func (v *JSONSchemaValidator) ValidateEventData(logger logrus.FieldLogger, schem
 
 	logger.Debug("Schema validation successful for event data")
 	return nil
+}
+
+// ValidateThingDescription validates a complete Thing Description against WoT TD 1.1 specification
+func (v *JSONSchemaValidator) ValidateThingDescription(logger logrus.FieldLogger, td *wot.ThingDescription) error {
+	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateThingDescription", "thing_id": td.ID})
+	logger.Debug("Performing Thing Description validation")
+
+	// Layer 1: Fast basic compliance check (mandatory fields, basic structure)
+	if issues := td.ValidateBasicCompliance(); len(issues) > 0 {
+		logger.WithField("compliance_issues", issues).Warn("Basic compliance validation failed")
+		return fmt.Errorf("Thing Description validation failed: %s", strings.Join(issues, "; "))
+	}
+
+	// Layer 2: Comprehensive JSON Schema validation (if available)
+	if v.tdSchema != nil {
+		// Marshal the TD to JSON for validation
+		tdJSON, err := json.Marshal(td)
+		if err != nil {
+			logger.WithError(err).Error("Failed to marshal Thing Description for validation")
+			return fmt.Errorf("failed to marshal Thing Description: %w", err)
+		}
+
+		// Validate against the JSON Schema
+		documentLoader := gojsonschema.NewBytesLoader(tdJSON)
+		result, err := v.tdSchema.Validate(documentLoader)
+		if err != nil {
+			logger.WithError(err).Error("Error during Thing Description schema validation")
+			return fmt.Errorf("schema validation error: %w", err)
+		}
+
+		if !result.Valid() {
+			var errors []string
+			for _, desc := range result.Errors() {
+				errors = append(errors, fmt.Sprintf("- %s", desc))
+			}
+			logger.WithField("validation_errors", errors).Warn("Thing Description schema validation failed")
+			return fmt.Errorf("Thing Description does not match schema: %s", strings.Join(errors, "; "))
+		}
+	} else {
+		logger.Warn("TD schema not available, using basic validation only")
+	}
+
+	// Layer 3: Semantic validation beyond JSON Schema
+	if err := v.validateSemanticRules(logger, td); err != nil {
+		return fmt.Errorf("semantic validation failed: %w", err)
+	}
+
+	logger.Debug("Thing Description validation successful")
+	return nil
+}
+
+// validateSemanticRules performs semantic validation beyond what JSON Schema can provide
+func (v *JSONSchemaValidator) validateSemanticRules(logger logrus.FieldLogger, td *wot.ThingDescription) error {
+	// Validate security references
+	if err := v.validateSecurityReferences(logger, td); err != nil {
+		return err
+	}
+	
+	// Validate operation types for all affordances
+	if err := v.validateOperationTypes(logger, td); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+// validateSecurityReferences ensures all security references are defined
+func (v *JSONSchemaValidator) validateSecurityReferences(logger logrus.FieldLogger, td *wot.ThingDescription) error {
+	// Check each security declaration has a corresponding definition
+	for _, secName := range td.Security {
+		if secName == "nosec" {
+			continue // nosec doesn't need a definition
+		}
+
+		if _, exists := td.SecurityDefinitions[secName]; !exists {
+			return fmt.Errorf("security scheme '%s' is not defined in securityDefinitions", secName)
+		}
+	}
+
+	// Check security references in forms
+	var checkFormSecurity func(forms []wot.Form) error
+	checkFormSecurity = func(forms []wot.Form) error {
+		for _, form := range forms {
+			if secRefs := form.GetSecurity(); len(secRefs) > 0 {
+				for _, secRef := range secRefs {
+					if secRef != "nosec" && td.SecurityDefinitions != nil {
+						if _, exists := td.SecurityDefinitions[secRef]; !exists {
+							return fmt.Errorf("form references undefined security scheme '%s'", secRef)
+						}
+					}
+				}
+			}
+		}
+		return nil
+	}
+
+	// Check properties
+	for _, prop := range td.Properties {
+		if err := checkFormSecurity(prop.Forms); err != nil {
+			return err
+		}
+	}
+
+	// Check actions
+	for _, action := range td.Actions {
+		if err := checkFormSecurity(action.Forms); err != nil {
+			return err
+		}
+	}
+
+	// Check events
+	for _, event := range td.Events {
+		if err := checkFormSecurity(event.Forms); err != nil {
+			return err
+		}
+	}
+
+	// Check root forms
+	if err := checkFormSecurity(td.Forms); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateOperationTypes ensures operation types match their affordance context
+func (v *JSONSchemaValidator) validateOperationTypes(logger logrus.FieldLogger, td *wot.ThingDescription) error {
+	// Validate properties
+	for propName, prop := range td.Properties {
+		if issues := prop.ValidateOperationTypes(); len(issues) > 0 {
+			logger.WithField("property", propName).WithField("operation_issues", issues).Warn("Invalid operation types for property")
+			return fmt.Errorf("property '%s': %s", propName, issues[0])
+		}
+	}
+	
+	// Validate actions
+	for actionName, action := range td.Actions {
+		if issues := action.ValidateOperationTypes(); len(issues) > 0 {
+			logger.WithField("action", actionName).WithField("operation_issues", issues).Warn("Invalid operation types for action")
+			return fmt.Errorf("action '%s': %s", actionName, issues[0])
+		}
+	}
+	
+	// Validate events
+	for eventName, event := range td.Events {
+		if issues := event.ValidateOperationTypes(); len(issues) > 0 {
+			logger.WithField("event", eventName).WithField("operation_issues", issues).Warn("Invalid operation types for event")
+			return fmt.Errorf("event '%s': %s", eventName, issues[0])
+		}
+	}
+	
+	return nil
+}
+
+// GetTDSchema returns the compiled WoT TD schema for external use
+func (v *JSONSchemaValidator) GetTDSchema() *gojsonschema.Schema {
+	return v.tdSchema
 }
 
 // MetricsCollector collects metrics for monitoring

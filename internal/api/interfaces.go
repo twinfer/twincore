@@ -79,6 +79,7 @@ type SchemaValidator interface {
 	ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value interface{}) error
 	ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input interface{}) error
 	ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data interface{}) error
+	ValidateThingDescription(logger logrus.FieldLogger, td *wot.ThingDescription) error
 }
 
 // ThingRegistryExt extends ThingRegistry with registration methods
