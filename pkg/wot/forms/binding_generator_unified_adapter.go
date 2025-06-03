@@ -55,21 +55,3 @@ func (a *UnifiedBindingGeneratorAdapter) GenerateAllBindings(logger logrus.Field
 
 	return bindings, nil
 }
-
-// ConfigureFromLegacy configures the adapter based on legacy configuration parameters
-func (a *UnifiedBindingGeneratorAdapter) ConfigureFromLegacy(parquetConfig types.ParquetConfig, kafkaConfig types.KafkaConfig, mqttConfig types.MQTTConfig) {
-	// Convert legacy Parquet config to persistence config
-	if parquetConfig.BasePath != "" {
-		persistenceConfig := PersistenceConfig{
-			Enabled:    true,
-			Format:     "parquet",
-			BasePath:   parquetConfig.BasePath,
-			Partitions: []string{"year", "month", "day"},
-		}
-		a.SetPersistenceConfig(persistenceConfig)
-	}
-
-	// Note: Kafka and MQTT configs would be used by the stream generator
-	// when creating protocol-specific endpoints. These could be stored
-	// as default configurations if needed.
-}

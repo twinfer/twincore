@@ -310,37 +310,24 @@ func (c *Container) initBindingGenerator(cfg *Config) error {
 		return fmt.Errorf("failed to create license checker: %w", err)
 	}
 
-	// Create license adapter
-	licenseAdapter := forms.NewLicenseAdapter(simpleLicenseChecker, c.Logger)
-
-	// Create configuration structures
-	parquetConfig := types.ParquetConfig{
-		BasePath:        cfg.ParquetLogPath,
-		BatchSize:       1000,
-		BatchPeriod:     "5s",
-		Compression:     "gzip",
-		FileNamePattern: "%s_%s.parquet",
-	}
-
-	kafkaConfig := types.KafkaConfig{
-		Brokers: []string{"${KAFKA_BROKERS:localhost:9092}"},
-	}
-
-	mqttConfig := types.MQTTConfig{
-		Broker: "${MQTT_BROKER:tcp://localhost:1883}",
-		QoS:    1,
-	}
-
 	// Initialize binding generator with unified system
-	// Always use the new unified binding generator since legacy code has been removed
 	unifiedAdapter := forms.NewUnifiedBindingGeneratorAdapter(
 		c.Logger,
-		licenseAdapter,
+		simpleLicenseChecker,
 		c.BenthosStreamManager,
 	)
-	unifiedAdapter.ConfigureFromLegacy(parquetConfig, kafkaConfig, mqttConfig)
+	
+	// Configure persistence using modern approach (Bloblang pipelines)
+	persistenceConfig := forms.PersistenceConfig{
+		Enabled:    cfg.ParquetLogPath != "", // Enable if path is provided
+		Format:     "parquet",
+		BasePath:   cfg.ParquetLogPath,
+		Partitions: []string{"year", "month", "day"},
+	}
+	unifiedAdapter.SetPersistenceConfig(persistenceConfig)
+	
 	c.BindingGenerator = unifiedAdapter
-	c.Logger.Info("Using unified binding generator")
+	c.Logger.Info("Unified binding generator initialized with Bloblang pipelines")
 
 	c.Logger.Info("Centralized binding generator initialized")
 	return nil

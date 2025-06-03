@@ -16,6 +16,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified stream configuration
+
+	// Import all standard Benthos components (generate, drop, etc.)
+	_ "github.com/redpanda-data/benthos/v4/public/components/pure"
+	_ "github.com/redpanda-data/benthos/v4/public/components/io"
 )
 
 // SimpleBenthosStreamManager implements BenthosStreamManager for dynamic stream management

@@ -60,10 +60,14 @@ type MockForm struct {
 	protocol    string
 }
 
-func (f *MockForm) GetOp() []string        { return f.op }
-func (f *MockForm) GetHref() string        { return f.href }
-func (f *MockForm) GetContentType() string { return f.contentType }
-func (f *MockForm) GetProtocol() string    { return f.protocol }
+func (f *MockForm) GetOp() []string                           { return f.op }
+func (f *MockForm) GetHref() string                        { return f.href }
+func (f *MockForm) GetContentType() string                 { return f.contentType }
+func (f *MockForm) GetProtocol() string                    { return f.protocol }
+func (f *MockForm) GetSecurity() []string                  { return nil }
+func (f *MockForm) GetResponse() *wot.ExpectedResponse     { return nil }
+func (f *MockForm) GetURIVariables() map[string]*wot.DataSchema { return nil }
+func (f *MockForm) GetSubprotocol() string                 { return "" }
 func (f *MockForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"href":        f.href,

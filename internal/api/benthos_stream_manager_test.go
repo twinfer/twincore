@@ -140,8 +140,9 @@ func (suite *BenthosStreamManagerTestSuite) TestCreateStream_Success() {
 	testYAMLConfig := `
 input:
   generate:
-    mapping: 'root = {}'
-    interval: 1s # Added to make it a valid input config
+    mapping: 'root = {"message": "test", "timestamp": timestamp_unix()}'
+    interval: "1s"
+    count: 1
 output:
   drop: {}
 `
@@ -152,7 +153,7 @@ output:
 		InteractionName: "testProperty",
 		InteractionType: "properties",
 		Direction:       "input",
-		Input:           types.StreamEndpointConfig{Type: "generate", Config: map[string]interface{}{"mapping": "root = {}", "interval": "1s"}},
+		Input:           types.StreamEndpointConfig{Type: "generate", Config: map[string]interface{}{"mapping": "root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}", "interval": "1s", "count": 1}},
 		Output:          types.StreamEndpointConfig{Type: "drop", Config: map[string]interface{}{}},
 		ProcessorChain:  []types.ProcessorConfig{},
 		Metadata:        map[string]interface{}{"yaml_config": testYAMLConfig},
@@ -163,13 +164,13 @@ output:
 	// Also for created_at and updated_at.
 	suite.mockSql.ExpectExec("INSERT INTO stream_configs ( stream_id, thing_id, interaction_type, interaction_name, direction, input_config, output_config, processor_chain, status, created_at, updated_at, metadata, validation_error ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").
 		WithArgs(sqlmock.AnyArg(), request.ThingID, request.InteractionType, request.InteractionName, request.Direction,
-			`{"Type":"generate","Config":{"interval":"1s","mapping":"root = {}"}}`, // Marshalled Input
-			`{"Type":"drop","Config":{}}`,                                          // Marshalled Output
+			`{"type":"generate","config":{"count":1,"interval":"1s","mapping":"root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}"}}`, // Marshalled Input
+			`{"type":"drop","config":{}}`,                                          // Marshalled Output
 			`[]`,                                                                   // Marshalled ProcessorChain
 			"created",                                                              // Default status
 			sqlmock.AnyArg(),                                                       // created_at
 			sqlmock.AnyArg(),                                                       // updated_at
-			`{"yaml_config":"\ninput:\n  generate:\n    mapping: 'root = {}'\n    interval: 1s # Added to make it a valid input config\noutput:\n  drop: {}\n"}`, // Marshalled Metadata
+			`{"yaml_config":"\ninput:\n  generate:\n    mapping: 'root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}'\n    interval: \"1s\"\n    count: 1\noutput:\n  drop: {}\n"}`, // Marshalled Metadata
 			"", // No validation error
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))

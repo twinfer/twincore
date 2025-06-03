@@ -12,21 +12,19 @@ import (
 	"github.com/kazarena/json-gold/ld"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
+	"github.com/twinfer/twincore/internal/api"
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/xeipuuv/gojsonschema"
 )
 
-//go:embed td-schema-v1.1.json
-var tdSchemaJSONString string
 
 // ThingRegistry manages Thing Descriptions
 type ThingRegistry struct {
-	db       *sql.DB
-	logger   *logrus.Logger
-	jsonld   *ld.JsonLdProcessor
-	tdSchema *gojsonschema.Schema
-	cache    sync.Map // id -> *wot.ThingDescription
-	mapper   *WoTMapper
+	db        *sql.DB
+	logger    *logrus.Logger
+	jsonld    *ld.JsonLdProcessor
+	validator *api.JSONSchemaValidator
+	cache     sync.Map // id -> *wot.ThingDescription
+	mapper    *WoTMapper
 }
 
 func NewThingRegistry(db *sql.DB, logger *logrus.Logger) *ThingRegistry {
@@ -37,15 +35,8 @@ func NewThingRegistry(db *sql.DB, logger *logrus.Logger) *ThingRegistry {
 		mapper: NewWoTMapper(logger),
 	}
 
-	schemaLoader := gojsonschema.NewStringLoader(tdSchemaJSONString)
-	compiledSchema, err := gojsonschema.NewSchemaLoader().Compile(schemaLoader)
-	if err != nil {
-		logger.Warnf("Failed to compile TD JSON schema: %v. TD schema validation will be disabled.", err)
-		// r.tdSchema will remain nil, so validation will be skipped
-	} else {
-		r.tdSchema = compiledSchema
-		logger.Info("Successfully loaded and compiled TD JSON schema for validation.")
-	}
+	// Use the centralized schema validator
+	r.validator = api.NewJSONSchemaValidator()
 	return r
 }
 
@@ -329,32 +320,20 @@ func (r *ThingRegistry) parseTD(expanded interface{}) (*wot.ThingDescription, er
 }
 
 func (r *ThingRegistry) validateTD(jsonData interface{}) error {
-	// Basic validation (can be kept if jsonData is also parsed into TD struct for these checks later,
-	// but primary schema validation is on jsonData)
-	// For now, we focus on JSON schema validation.
-	// If jsonData is a map, one could check for presence of 'id', 'title', 'securityDefinitions' here as well.
-
-	if r.tdSchema != nil {
-		documentLoader := gojsonschema.NewGoLoader(jsonData) // Use jsonData directly
-		result, err := r.tdSchema.Validate(documentLoader)
-		if err != nil {
-			r.logger.Errorf("Error during TD schema validation: %v", err)
-			return fmt.Errorf("TD schema validation error: %w", err)
-		}
-
-		if !result.Valid() {
-			errorsStr := "TD does not conform to JSON schema:\n"
-			for _, desc := range result.Errors() {
-				errorsStr += fmt.Sprintf("- %s\n", desc)
-			}
-			r.logger.Error(errorsStr)
-			return fmt.Errorf("%s", errorsStr)
-		}
-		r.logger.Debug("TD successfully validated against JSON schema.")
-	} else {
-		r.logger.Debug("TD JSON schema not loaded, skipping schema validation.")
+	// Convert jsonData to TD struct for validation using centralized validator
+	tdJSON, err := json.Marshal(jsonData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal TD for validation: %w", err)
 	}
-	return nil
+	
+	var td wot.ThingDescription
+	if err := json.Unmarshal(tdJSON, &td); err != nil {
+		return fmt.Errorf("failed to unmarshal TD for validation: %w", err)
+	}
+	
+	// Use the centralized validator with 3-layer validation
+	logger := r.logger.WithField("component", "ThingRegistry")
+	return r.validator.ValidateThingDescription(logger, &td)
 }
 
 func (r *ThingRegistry) getJSONLDOptions() *ld.JsonLdOptions {
