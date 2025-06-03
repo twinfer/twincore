@@ -50,25 +50,23 @@ func (d *DefaultConfigProvider) GetDefaultHTTPConfig() types.HTTPConfig {
 					"upstream": "localhost:8090",
 				},
 			},
-			// API routes
+			// API routes - authentication now handled by SystemSecurityManager middleware
 			{
 				Path:         "/api/*",
 				Handler:      "reverse_proxy",
-				RequiresAuth: true,
+				// RequiresAuth removed - now handled by SystemSecurityManager
 				Config: map[string]interface{}{
 					"upstream": "localhost:8090",
 				},
 			},
-			// WoT routes
+			// WoT routes - authentication now handled by SystemSecurityManager middleware
 			{
 				Path:         "/things/*",
 				Handler:      "unified_wot_handler",
-				RequiresAuth: false, // Can be configured per deployment
+				// RequiresAuth removed - now handled by SystemSecurityManager
 			},
 		},
-		Security: types.SimpleSecurityConfig{
-			Enabled: false, // Disabled by default, enabled during setup
-		},
+		// Security is now handled separately via SystemSecurityManager
 	}
 
 	return httpConfig
@@ -200,28 +198,89 @@ func (d *DefaultConfigProvider) GetDefaultCaddyConfig() *caddy.Config {
 	return cfg
 }
 
-// GetDefaultSecurityConfig returns default security configuration based on license
-func (d *DefaultConfigProvider) GetDefaultSecurityConfig() types.SimpleSecurityConfig {
-	secConfig := types.SimpleSecurityConfig{
-		Enabled: true,
-		BasicAuth: &types.BasicAuthConfig{
-			Users: []types.BasicAuthUser{
-				// Default admin user (password should be changed on first login)
-				{
-					Username: "admin",
-					Password: "$2a$10$defaulthash", // This should be replaced during setup
+// GetDefaultSystemSecurityConfig returns default system security configuration based on license
+func (d *DefaultConfigProvider) GetDefaultSystemSecurityConfig() types.SystemSecurityConfig {
+	// Basic security configuration - disabled by default for security
+	secConfig := types.SystemSecurityConfig{
+		Enabled: false, // Must be explicitly enabled during setup
+		AdminAuth: &types.AdminAuthConfig{
+			Method:    "local",
+			Providers: []string{"local"},
+			MFA:       false,
+			Local: &types.LocalAuthConfig{
+				Users: []types.LocalUser{
+					// Default admin user (password should be changed on first login)
+					{
+						Username:     "admin", 
+						PasswordHash: "$2a$10$defaulthash", // This should be replaced during setup
+						Email:        "admin@twincore.local",
+						FullName:     "System Administrator",
+						Roles:        []string{"admin"},
+						Disabled:     false,
+					},
+				},
+				PasswordPolicy: &types.PasswordPolicy{
+					MinLength:        8,
+					RequireUppercase: true,
+					RequireLowercase: true,
+					RequireNumbers:   true,
+					RequireSymbols:   false,
 				},
 			},
 		},
+		APIAuth: &types.APIAuthConfig{
+			Methods: []string{"jwt"},
+			JWTConfig: &types.JWTConfig{
+				Algorithm: "RS256",
+				Issuer:    "twincore-gateway",
+				Audience:  "twincore-api",
+				// PublicKey will be set during initialization
+			},
+			Policies: []types.APIPolicy{
+				{
+					ID:          "default_admin",
+					Name:        "Default Admin Policy",
+					Description: "Full access for admin role",
+					Principal:   "role:admin",
+					Resources:   []string{"/api/*"},
+					Actions:     []string{"read", "write", "delete", "admin"},
+				},
+				{
+					ID:          "default_user",
+					Name:        "Default User Policy", 
+					Description: "Limited access for regular users",
+					Principal:   "role:user",
+					Resources:   []string{"/api/things/*", "/api/status"},
+					Actions:     []string{"read"},
+				},
+			},
+		},
+		SessionConfig: &types.SessionConfig{
+			Timeout:        3600000000000, // 1 hour in nanoseconds
+			MaxSessions:    5,
+			SecureCookies:  true,
+			SameSite:       "strict",
+			CSRFProtection: true,
+		},
 	}
 
-	// Add JWT support if licensed
-	if d.licenseFeatures["jwt_auth"] {
-		secConfig.JWTAuth = &types.JWTAuthConfig{
-			PublicKey: "", // To be configured during setup
-			Issuer:    "twincore-gateway",
-			Audience:  "twincore-api",
-		}
+	// Enable additional features based on license
+	if d.licenseFeatures["ldap_auth"] {
+		secConfig.AdminAuth.Providers = append(secConfig.AdminAuth.Providers, "ldap")
+	}
+	if d.licenseFeatures["mfa"] {
+		secConfig.AdminAuth.MFA = true
+	}
+	if d.licenseFeatures["rbac"] {
+		// RBAC is enabled by default if licensed
+		secConfig.APIAuth.Policies = append(secConfig.APIAuth.Policies, types.APIPolicy{
+			ID:          "rbac_operator",
+			Name:        "Operator Policy",
+			Description: "Operator level access",
+			Principal:   "role:operator", 
+			Resources:   []string{"/api/things/*", "/api/streams/*"},
+			Actions:     []string{"read", "write"},
+		})
 	}
 
 	return secConfig

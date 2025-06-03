@@ -198,7 +198,7 @@ func (lm *LifecycleManager) saveDefaultServiceConfigs() error {
 	}
 
 	// Security config
-	securityConfig := lm.defaultProvider.GetDefaultSecurityConfig()
+	securityConfig := lm.defaultProvider.GetDefaultSystemSecurityConfig()
 	securityConfigJSON, err := json.Marshal(securityConfig)
 	if err != nil {
 		return err

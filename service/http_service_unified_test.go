@@ -204,6 +204,9 @@ func TestHTTPServiceUnified_RouteBuilding(t *testing.T) {
 	}
 }
 
+// NOTE: Security configuration tests removed as part of Phase 2 security separation.
+// Authentication is now handled by SystemSecurityManager, not HTTP service.
+/*
 func TestHTTPServiceUnified_SecurityConfiguration(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
@@ -268,6 +271,7 @@ func TestHTTPServiceUnified_SecurityConfiguration(t *testing.T) {
 		})
 	}
 }
+*/
 
 func TestHTTPServiceUnified_UpdateConfig(t *testing.T) {
 	logger := logrus.New()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
@@ -26,8 +27,11 @@ type Container struct {
 	Logger *logrus.Logger
 
 	// Security
-	DeviceManager  *security.DeviceManager
-	LicenseManager types.LicenseManager
+	DeviceManager           *security.DeviceManager
+	LicenseManager          types.LicenseManager  // Legacy - to be removed
+	UnifiedLicenseChecker   types.UnifiedLicenseChecker
+	SystemSecurityManager   types.SystemSecurityManager
+	WoTSecurityManager      types.WoTSecurityManager
 
 	// Configuration
 	ConfigManager    *config.ConfigManager
@@ -133,53 +137,75 @@ func (c *Container) initDatabase(dbPath string) error {
 }
 
 func (c *Container) initSecurity(cfg *Config) error {
-	c.Logger.Debug("Initializing security components")
+	c.Logger.Debug("Initializing separated security components")
 
-	// Initialize simplified license checker (replacing OPA)
+	// Initialize unified license checker
+	unifiedChecker := license.NewDefaultUnifiedLicenseChecker(c.Logger, cfg.PublicKey)
+	c.UnifiedLicenseChecker = unifiedChecker
+
+	// Load and validate license if provided
+	if cfg.LicensePath != "" {
+		licenseData, err := os.ReadFile(cfg.LicensePath)
+		if err != nil {
+			c.Logger.WithError(err).Warn("Failed to read license file, using basic tier")
+		} else {
+			if _, err := unifiedChecker.ValidateLicense(context.Background(), string(licenseData)); err != nil {
+				c.Logger.WithError(err).Warn("Failed to validate license, using basic tier")
+			} else {
+				c.Logger.Info("License validated successfully")
+			}
+		}
+	}
+
+	// Initialize system security manager
+	systemSecurityMgr := security.NewDefaultSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
+	c.SystemSecurityManager = systemSecurityMgr
+
+	// Initialize WoT security manager  
+	wotSecurityMgr := security.NewDefaultWoTSecurityManager(c.DB, c.Logger, unifiedChecker)
+	c.WoTSecurityManager = wotSecurityMgr
+
+	// Register default credential stores for WoT security
+	envStore := types.CredentialStore{
+		Type:      "env",
+		Encrypted: false,
+		Config:    make(map[string]interface{}),
+	}
+	if err := wotSecurityMgr.RegisterCredentialStore(context.Background(), "default", envStore); err != nil {
+		c.Logger.WithError(err).Warn("Failed to register default credential store")
+	}
+
+	dbStore := types.CredentialStore{
+		Type:      "db", 
+		Encrypted: true,
+		Config:    make(map[string]interface{}),
+	}
+	if err := wotSecurityMgr.RegisterCredentialStore(context.Background(), "db", dbStore); err != nil {
+		c.Logger.WithError(err).Warn("Failed to register database credential store")
+	}
+
+	// Legacy components for backward compatibility (to be removed in future)
+	// Initialize simplified license checker for legacy components
 	simpleLicenseChecker, err := license.NewSimpleLicenseChecker(cfg.LicensePath, cfg.PublicKey, c.Logger)
 	if err != nil {
-		return fmt.Errorf("failed to create simplified license checker: %w", err)
-	}
-
-	// Validate license features
-	features, err := simpleLicenseChecker.GetAllowedFeatures()
-	if err != nil {
-		return fmt.Errorf("failed to get license features: %w", err)
-	}
-
-	c.Logger.WithFields(logrus.Fields{
-		"bindings":    len(features["bindings"].([]string)),
-		"processors":  len(features["processors"].([]string)),
-		"has_license": features["has_license"],
-	}).Info("License validated successfully with simplified JWT checker")
-
-	// Initialize legacy license manager for backward compatibility
-	// Note: This can be removed once all components use the simplified checker
-	var lm types.LicenseManager
-	var specificLm *security.LicenseManager
-	specificLm, err = security.NewLicenseManager(cfg.PublicKey)
-	if err != nil {
-		c.Logger.WithError(err).Warn("Failed to create legacy license manager, continuing with simplified checker")
-		// Create a minimal implementation that satisfies the interface
-		lm = NewMinimalLicenseManager(simpleLicenseChecker, c.Logger)
+		c.Logger.WithError(err).Warn("Failed to create legacy license checker")
+		c.LicenseManager = NewMinimalLicenseManager(nil, c.Logger)
 	} else {
-		lm = specificLm
+		c.LicenseManager = NewMinimalLicenseManager(simpleLicenseChecker, c.Logger)
 	}
-	c.LicenseManager = lm
 
-	// Initialize device manager using simplified license validation
+	// Initialize device manager (legacy)
 	dm, err := security.NewDeviceManager(cfg.LicensePath, cfg.PublicKey)
 	if err != nil {
-		return fmt.Errorf("failed to create device manager: %w", err)
+		c.Logger.WithError(err).Warn("Failed to create legacy device manager")
+	} else {
+		c.DeviceManager = dm
+		if err := c.DeviceManager.InitializeLicense(context.Background()); err != nil {
+			c.Logger.WithError(err).Warn("Legacy license validation failed")
+		}
 	}
-	c.DeviceManager = dm
 
-	// Validate license using device manager (legacy path)
-	if err := c.DeviceManager.InitializeLicense(context.Background()); err != nil {
-		c.Logger.WithError(err).Warn("Legacy license validation failed, but simplified checker succeeded")
-	}
-
-	c.Logger.Info("Security components initialized with simplified JWT license checking")
+	c.Logger.Info("Separated security components initialized successfully")
 	return nil
 }
 
@@ -367,6 +393,10 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 
 	// Create services
 	c.HTTPService = svc.NewHTTPServiceUnified(c.Logger) // Use the unified HTTP service without Admin API
+	
+	// Setup caddy-security integration
+	c.setupCaddySecurityIntegration(cfg)
+	
 	// NewStreamService was refactored to take *service.Environment.
 	// Constructor: NewStreamService(env *service.Environment, logger *logrus.Logger)
 	c.StreamService = svc.NewStreamService(c.BenthosEnvironment, c.Logger)
@@ -441,49 +471,75 @@ func (c *Container) Stop(ctx context.Context) error {
 	return nil
 }
 
+// setupCaddySecurityIntegration configures caddy-security integration with SystemSecurityManager
+func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
+	c.Logger.Debug("Setting up caddy-security integration")
+	
+	// Get system security configuration from the config manager
+	systemSecurityConfig, err := c.getSystemSecurityConfig()
+	if err != nil {
+		c.Logger.WithError(err).Warn("Failed to get system security config, using defaults")
+		systemSecurityConfig = c.getDefaultSystemSecurityConfig()
+	}
+	
+	// Create caddy-security bridge
+	securityBridge := security.NewCaddySecurityBridge(
+		c.SystemSecurityManager,
+		systemSecurityConfig,
+		c.Logger,
+	)
+	
+	// Set the security bridge on the HTTP service
+	if httpService, ok := c.HTTPService.(*svc.HTTPServiceUnified); ok {
+		httpService.SetSecurityBridge(securityBridge)
+		c.Logger.Info("Caddy-security integration configured successfully")
+		
+		// Sync users to caddy-security user store
+		if err := securityBridge.SyncUsersToUserStore(context.Background()); err != nil {
+			c.Logger.WithError(err).Warn("Failed to sync users to caddy-security user store")
+		}
+	} else {
+		c.Logger.Error("Failed to cast HTTP service to HTTPServiceUnified")
+	}
+}
+
+// getSystemSecurityConfig retrieves system security configuration
+func (c *Container) getSystemSecurityConfig() (*types.SystemSecurityConfig, error) {
+	// TODO: This should load from the database or configuration file
+	// For now, return default configuration
+	return c.getDefaultSystemSecurityConfig(), nil
+}
+
+// getDefaultSystemSecurityConfig returns default system security configuration
+func (c *Container) getDefaultSystemSecurityConfig() *types.SystemSecurityConfig {
+	// Create default config provider and get default security config
+	defaultProvider := config.NewDefaultConfigProvider()
+	secConfig := defaultProvider.GetDefaultSystemSecurityConfig()
+	return &secConfig
+}
+
 // buildInitialHTTPServiceConfig creates the default configuration for the HTTP service.
 // This is crucial for providing baseline settings, especially security configurations,
 // that are used when dynamically updating Caddy.
 func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceConfig {
-	// Default security configuration using the new SimpleSecurityConfig
-	// This can be further customized based on appCfg if needed.
-	secConfig := types.SimpleSecurityConfig{
-		Enabled: true, // Default to enabled, can be configurable
-		// BasicAuth, BearerAuth, JWTAuth will be nil by default.
-		// They can be configured via appCfg or dynamic configuration later.
-	}
-
-	// Initialize with the new HTTPConfig (formerly HTTPConfigV2)
-	// Note: types.HTTPConfig and types.HTTPRoute now refer to the
-	// structs defined in pkg/types/config.go.
+	// Security is now handled separately by SystemSecurityManager
+	// HTTP configuration no longer contains security settings
+	
+	// Initialize with the new HTTPConfig
+	// Security middleware will be handled by SystemSecurityManager
 	httpCfg := types.HTTPConfig{
 		Listen:   []string{":8080"},   // Default listen address, can be from appCfg
 		Routes:   []types.HTTPRoute{}, // Initialize with no routes
-		Security: secConfig,
+		// Security field removed - now handled by SystemSecurityManager
 	}
 
 	// Convert HTTPConfig to map[string]interface{} for proper serialization
 	// This ensures the config can be properly marshaled/unmarshaled when passed around
+	// Security configurations removed - now handled by SystemSecurityManager
 	httpCfgMap := map[string]interface{}{
 		"listen": httpCfg.Listen,
 		"routes": httpCfg.Routes,
-		"security": map[string]interface{}{
-			"enabled": httpCfg.Security.Enabled,
-		},
-	}
-
-	// Add optional security configurations if present
-	if httpCfg.Security.BasicAuth != nil {
-		secMap := httpCfgMap["security"].(map[string]interface{})
-		secMap["basic_auth"] = httpCfg.Security.BasicAuth
-	}
-	if httpCfg.Security.BearerAuth != nil {
-		secMap := httpCfgMap["security"].(map[string]interface{})
-		secMap["bearer_auth"] = httpCfg.Security.BearerAuth
-	}
-	if httpCfg.Security.JWTAuth != nil {
-		secMap := httpCfgMap["security"].(map[string]interface{})
-		secMap["jwt_auth"] = httpCfg.Security.JWTAuth
+		// Security field removed - authentication handled by SystemSecurityManager middleware
 	}
 
 	return types.ServiceConfig{
@@ -570,19 +626,84 @@ func runMigrations(db *sql.DB) error {
     CREATE INDEX IF NOT EXISTS idx_caddy_active ON caddy_configs(active);
     CREATE INDEX IF NOT EXISTS idx_action_status ON action_state(status);
 
-    -- Local users for caddy-security/go-authcrunch
+    -- Local users for system security
     CREATE TABLE IF NOT EXISTS local_users (
         username TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL, -- IMPORTANT: Store only hashed passwords
-        roles TEXT,                  -- Could be comma-separated string or JSON array
+        roles TEXT,                  -- JSON array of roles
         email TEXT UNIQUE,           -- Optional, but often useful
         name TEXT,                   -- Display name, optional
         disabled BOOLEAN DEFAULT FALSE,
+        last_login TIMESTAMP,        -- Track last login time
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_local_users_email ON local_users(email);
     CREATE INDEX IF NOT EXISTS idx_local_users_disabled ON local_users(disabled);
+    
+    -- System security sessions
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        refresh_token TEXT,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ip_address TEXT,
+        user_agent TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(token);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at);
+    
+    -- WoT security policies
+    CREATE TABLE IF NOT EXISTS thing_security_policies (
+        thing_id TEXT PRIMARY KEY,
+        policy_data TEXT NOT NULL,  -- JSON policy data
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- WoT device credentials
+    CREATE TABLE IF NOT EXISTS device_credentials (
+        credential_key TEXT PRIMARY KEY,
+        credentials_data TEXT NOT NULL,  -- JSON credential data
+        encrypted BOOLEAN DEFAULT FALSE,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_device_credentials_expires ON device_credentials(expires_at);
+    
+    -- WoT security templates
+    CREATE TABLE IF NOT EXISTS security_templates (
+        name TEXT PRIMARY KEY,
+        template_data TEXT NOT NULL,  -- JSON template data
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    -- Security audit events
+    CREATE TABLE IF NOT EXISTS security_audit_events (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,    -- 'system' or 'wot'
+        timestamp TIMESTAMP NOT NULL,
+        user_id TEXT,
+        thing_id TEXT,
+        operation TEXT NOT NULL,
+        resource TEXT,
+        success BOOLEAN NOT NULL,
+        error TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        details TEXT                 -- JSON details
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_events_type ON security_audit_events(event_type);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON security_audit_events(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_user ON security_audit_events(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_thing ON security_audit_events(thing_id);
     `
 
 	_, err := db.Exec(schema)

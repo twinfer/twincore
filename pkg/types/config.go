@@ -89,51 +89,12 @@ type ServiceStatus struct {
 	RequiredLicense []string `json:"required_license"`
 }
 
-// Definitions moved from pkg/types/config_v2.go:
-
-// SimpleSecurityConfig is a lightweight security configuration
-// that uses Caddy's built-in features instead of go-authcrunch
-type SimpleSecurityConfig struct {
-	Enabled bool `json:"enabled"`
-
-	// Basic authentication
-	BasicAuth *BasicAuthConfig `json:"basic_auth,omitempty"`
-
-	// Bearer token authentication
-	BearerAuth *BearerAuthConfig `json:"bearer_auth,omitempty"`
-
-	// JWT validation
-	JWTAuth *JWTAuthConfig `json:"jwt_auth,omitempty"`
-}
-
-// BasicAuthConfig holds basic authentication configuration
-type BasicAuthConfig struct {
-	Users []BasicAuthUser `json:"users"`
-}
-
-// BasicAuthUser represents a user for basic authentication
-type BasicAuthUser struct {
-	Username string `json:"username"`
-	Password string `json:"password"` // Should be hashed in production
-}
-
-// BearerAuthConfig holds bearer token configuration
-type BearerAuthConfig struct {
-	Tokens []string `json:"tokens"`
-}
-
-// JWTAuthConfig holds JWT validation configuration
-type JWTAuthConfig struct {
-	PublicKey string `json:"public_key"` // PEM-encoded public key
-	Issuer    string `json:"issuer,omitempty"`
-	Audience  string `json:"audience,omitempty"`
-}
-
 // HTTPConfig is a simplified HTTP configuration
+// Security is now handled separately via SystemSecurityManager
 type HTTPConfig struct {
-	Listen   []string             `json:"listen"`
-	Routes   []HTTPRoute          `json:"routes"`
-	Security SimpleSecurityConfig `json:"security"`
+	Listen   []string    `json:"listen"`
+	Routes   []HTTPRoute `json:"routes"`
+	// Security removed - now handled by SystemSecurityManager
 }
 
 // HTTPRoute is a simplified route configuration

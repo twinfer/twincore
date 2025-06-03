@@ -11,15 +11,17 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/josephburnett/jd/v2"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/security"
 	"github.com/twinfer/twincore/pkg/types"
 )
 
 // HTTPServiceUnified consolidates HTTP service functionality without Admin API
 type HTTPServiceUnified struct {
-	currentConfig *caddy.Config
-	running       bool
-	logger        logrus.FieldLogger
-	mu            sync.RWMutex
+	currentConfig  *caddy.Config
+	running        bool
+	logger         logrus.FieldLogger
+	mu             sync.RWMutex
+	securityBridge *security.CaddySecurityBridge // Integration with caddy-security
 }
 
 // NewHTTPServiceUnified creates a new unified HTTP service
@@ -27,6 +29,13 @@ func NewHTTPServiceUnified(logger logrus.FieldLogger) types.Service {
 	return &HTTPServiceUnified{
 		logger: logger,
 	}
+}
+
+// SetSecurityBridge sets the caddy-security integration bridge
+func (h *HTTPServiceUnified) SetSecurityBridge(bridge *security.CaddySecurityBridge) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.securityBridge = bridge
 }
 
 func (h *HTTPServiceUnified) Name() string {
@@ -208,24 +217,16 @@ func (h *HTTPServiceUnified) buildCaddyConfig(config types.ServiceConfig) (*cadd
 	// Build routes
 	var routes caddyhttp.RouteList
 
-	// Add authentication route if security is enabled
-	if httpConfig.Security.Enabled {
-		authRoute := h.buildAuthRoute(httpConfig.Security)
-		if authRoute != nil {
-			routes = append(routes, *authRoute)
-		}
-	}
-
 	// Add application routes
+	// Note: Authentication is now handled by SystemSecurityManager middleware
 	for _, route := range httpConfig.Routes {
 		caddyRoute := h.buildRoute(route)
 		routes = append(routes, caddyRoute)
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"routes_count":     len(routes),
-		"security_enabled": httpConfig.Security.Enabled,
-		"listen_addrs":     httpConfig.Listen,
+		"routes_count": len(routes),
+		"listen_addrs": httpConfig.Listen,
 	}).Debug("Building Caddy configuration")
 
 	// Build server configuration
@@ -281,90 +282,31 @@ func (h *HTTPServiceUnified) buildCaddyConfig(config types.ServiceConfig) (*cadd
 		return nil, fmt.Errorf("failed to marshal HTTP app: %w", err)
 	}
 
+	// Create apps configuration
+	apps := caddy.ModuleMap{
+		"http": json.RawMessage(httpAppJSON),
+	}
+
+	// Add caddy-security app if security bridge is configured
+	if h.securityBridge != nil {
+		securityAppJSON, err := h.securityBridge.GenerateSecurityApp(context.Background())
+		if err != nil {
+			h.logger.WithError(err).Warn("Failed to generate caddy-security app configuration")
+		} else if securityAppJSON != nil {
+			apps["security"] = securityAppJSON
+			h.logger.Debug("Added caddy-security app to Caddy configuration")
+		}
+	}
+
 	// Create Caddy config without Admin API for security
 	cfg := &caddy.Config{
 		Admin: &caddy.AdminConfig{
 			Disabled: true, // Disable Admin API for security
 		},
-		AppsRaw: caddy.ModuleMap{
-			"http": json.RawMessage(httpAppJSON),
-		},
+		AppsRaw: apps,
 	}
 
 	return cfg, nil
-}
-
-// buildAuthRoute creates authentication route using Caddy's built-in auth
-func (h *HTTPServiceUnified) buildAuthRoute(securityConfig types.SimpleSecurityConfig) *caddyhttp.Route {
-	var authHandlers []json.RawMessage
-
-	// Basic Auth
-	if securityConfig.BasicAuth != nil && len(securityConfig.BasicAuth.Users) > 0 {
-		accounts := make(map[string]interface{})
-		for _, user := range securityConfig.BasicAuth.Users {
-			accounts[user.Username] = user.Password
-		}
-
-		basicAuthConfig := map[string]interface{}{
-			"accounts": accounts,
-			"realm":    "TwinCore Protected Area",
-		}
-
-		authHandlers = append(authHandlers, caddyconfig.JSONModuleObject(
-			basicAuthConfig,
-			"handler", "authentication", nil,
-		))
-	}
-
-	// JWT Auth
-	if securityConfig.JWTAuth != nil && securityConfig.JWTAuth.PublicKey != "" {
-		jwtConfig := map[string]interface{}{
-			"providers": map[string]interface{}{
-				"jwt": map[string]interface{}{
-					"keys": []map[string]interface{}{
-						{
-							"source": securityConfig.JWTAuth.PublicKey,
-							"alg":    "RS256",
-						},
-					},
-				},
-			},
-		}
-
-		if securityConfig.JWTAuth.Issuer != "" {
-			jwtProvider := jwtConfig["providers"].(map[string]interface{})["jwt"].(map[string]interface{})
-			jwtProvider["trusted_issuers"] = []string{securityConfig.JWTAuth.Issuer}
-		}
-
-		if securityConfig.JWTAuth.Audience != "" {
-			jwtProvider := jwtConfig["providers"].(map[string]interface{})["jwt"].(map[string]interface{})
-			jwtProvider["trusted_audiences"] = []string{securityConfig.JWTAuth.Audience}
-		}
-
-		authHandlers = append(authHandlers, caddyconfig.JSONModuleObject(
-			jwtConfig,
-			"handler", "authentication", nil,
-		))
-	}
-
-	// Bearer Auth warning
-	if securityConfig.BearerAuth != nil && len(securityConfig.BearerAuth.Tokens) > 0 {
-		h.logger.Warn("Bearer token authentication configured but requires custom Caddy module for proper implementation")
-	}
-
-	if len(authHandlers) == 0 {
-		return nil
-	}
-
-	// Create global auth route
-	matcherSet := caddy.ModuleMap{
-		"path": caddyconfig.JSON([]string{"/*"}, nil),
-	}
-
-	return &caddyhttp.Route{
-		MatcherSetsRaw: []caddy.ModuleMap{matcherSet},
-		HandlersRaw:    authHandlers,
-	}
 }
 
 // buildRoute creates a route configuration for WoT endpoints
@@ -378,6 +320,17 @@ func (h *HTTPServiceUnified) buildRoute(route types.HTTPRoute) caddyhttp.Route {
 	// Method matcher
 	if len(route.Methods) > 0 {
 		matcherSet["method"] = caddyconfig.JSON(route.Methods, nil)
+	}
+
+	// Add authentication middleware if security bridge is configured and route should be protected
+	if h.securityBridge != nil {
+		authMiddleware, err := h.securityBridge.GenerateAuthenticationMiddleware(route)
+		if err != nil {
+			h.logger.WithError(err).Warn("Failed to generate authentication middleware")
+		} else if authMiddleware != nil {
+			handlers = append(handlers, authMiddleware)
+			h.logger.WithField("path", route.Path).Debug("Added authentication middleware to route")
+		}
 	}
 
 	// Build handler based on route type

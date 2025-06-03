@@ -28,9 +28,9 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 
 	config := &types.UnifiedConfig{
 		Version: "1.0",
-		HTTP: types.HTTPConfig{ // Will use new HTTPConfig from config_v2.go
-			Routes:   []types.HTTPRoute{},
-			Security: types.SimpleSecurityConfig{Enabled: false}, // Default, may be overridden
+		HTTP: types.HTTPConfig{
+			Routes: []types.HTTPRoute{},
+			// Security is now handled separately via SystemSecurityManager
 		},
 		Stream: types.StreamConfig{Topics: []types.StreamTopic{}, Commands: []types.CommandStream{}},
 	}
@@ -48,11 +48,12 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		forms := property.GetForms()
 
 		// HTTP route
+		// Note: RequiresAuth is now determined by SystemSecurityManager, not Thing security
 		route := types.HTTPRoute{
-			Path:         m.expandPattern(m.httpPattern, td.ID, "properties", name),
-			Methods:      m.getPropertyMethods(*property), // Dereference pointer
-			Handler:      "unified_wot_handler",
-			RequiresAuth: len(td.Security) > 0,
+			Path:    m.expandPattern(m.httpPattern, td.ID, "properties", name),
+			Methods: m.getPropertyMethods(*property), // Dereference pointer
+			Handler: "unified_wot_handler",
+			// RequiresAuth removed - now handled by SystemSecurityManager middleware
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":      td.ID,
 				"propertyName": name,
@@ -88,11 +89,12 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		forms := action.GetForms()
 
 		// HTTP route
+		// Note: RequiresAuth is now determined by SystemSecurityManager, not Thing security
 		route := types.HTTPRoute{
 			Path:         m.expandPattern(m.httpPattern, td.ID, "actions", name),
 			Methods:      []string{"POST"},
 			Handler:      "unified_wot_handler",
-			RequiresAuth: len(td.Security) > 0,
+			// RequiresAuth removed - now handled by SystemSecurityManager middleware
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":    td.ID,
 				"actionName": name,
@@ -130,11 +132,12 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		forms := event.GetForms()
 
 		// HTTP route (SSE)
+		// Note: RequiresAuth is now determined by SystemSecurityManager, not Thing security
 		route := types.HTTPRoute{
 			Path:         m.expandPattern(m.httpPattern, td.ID, "events", name),
 			Methods:      []string{"GET"},
 			Handler:      "unified_wot_handler",
-			RequiresAuth: len(td.Security) > 0,
+			// RequiresAuth removed - now handled by SystemSecurityManager middleware
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":   td.ID,
 				"eventName": name,
@@ -160,11 +163,8 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		m.logger.Debugf("Created routes for event %s", name)
 	}
 
-	// Add security configurations
-	if len(td.Security) > 0 {
-		config.HTTP.Security = m.mapSecuritySchemes(td.SecurityDefinitions)
-		m.logger.Debugf("Mapped %d security schemes", len(td.SecurityDefinitions))
-	}
+	// Security configurations are now handled separately by WoTSecurityManager
+	// WoT security schemes are processed by the WoTSecurityManager, not mixed with HTTP authentication
 
 	m.logger.Infof("Generated config for TD %s: %d HTTP routes, %d stream topics, %d commands",
 		td.ID, len(config.HTTP.Routes), len(config.Stream.Topics), len(config.Stream.Commands))
@@ -192,42 +192,7 @@ func (m *WoTMapper) expandPattern(pattern, thingID, interactionType, name string
 	return result
 }
 
-// mapSecuritySchemes translates WoT security definitions into a SimpleSecurityConfig.
-// This is a simplification, as SimpleSecurityConfig holds a single configuration
-// rather than a map of named schemes. It enables auth if any scheme is present.
-func (m *WoTMapper) mapSecuritySchemes(schemes map[string]wot.SecurityScheme) types.SimpleSecurityConfig {
-	if len(schemes) == 0 {
-		m.logger.Debug("No security schemes defined in TD, HTTP security will be disabled.")
-		return types.SimpleSecurityConfig{Enabled: false}
-	}
-
-	m.logger.Debugf("Processing %d security schemes for SimpleSecurityConfig.", len(schemes))
-	// For now, presence of any scheme enables the generic security flag.
-	// Detailed mapping to BasicAuth, BearerAuth, JWTAuth would require more context
-	// (e.g., where to get user lists, tokens, JWT keys) or assumptions.
-	// Example: if a "basic" scheme is found, one might initialize BasicAuth, but users are not in TD.
-	// Example: if a "bearer" scheme is "jwt", JWTAuth could be initialized, but public key is not in TD.
-
-	// Simplified: if any security scheme is defined, mark security as enabled.
-	// The actual methods (Basic, JWT) would need to be configured externally
-	// or through a more detailed mapping if possible.
-	secConfig := types.SimpleSecurityConfig{
-		Enabled: true,
-	}
-
-	// Potential future enhancement:
-	// Iterate through schemes and try to populate specific fields if possible.
-	// For example, if a 'basic' scheme exists, maybe set:
-	// secConfig.BasicAuth = &types.BasicAuthConfig{} // Users would be empty
-	// This indicates basic auth is expected.
-	// Similar for BearerAuth or JWTAuth if a 'bearer' scheme implies JWT.
-	// For now, just enabling is the most robust direct mapping.
-	for name, scheme := range schemes {
-		m.logger.Debugf("Found security scheme: %s (type: %s)", name, scheme.Scheme)
-		// If specific mappings are needed, they would go here.
-		// e.g., if scheme.Scheme == "basic", set secConfig.BasicAuth = ...
-	}
-
-	m.logger.Info("HTTP security enabled due to presence of security schemes in TD.")
-	return secConfig
-}
+// NOTE: mapSecuritySchemes method removed as part of security separation.
+// WoT security schemes are now handled by WoTSecurityManager, not mixed with HTTP authentication.
+// This separation ensures Thing-level security for device communication is separate from
+// system-level HTTP authentication for API access.
