@@ -132,7 +132,7 @@ func (bg *BindingGeneratorV2) generateHTTPRoute(form wot.Form, security []string
 func (bg *BindingGeneratorV2) generateProcessors(td *wot.ThingDescription, bindings *types.AllBindings) error {
 	// This is simplified - in practice, processors might be generated
 	// based on specific requirements or transformations needed
-	
+
 	// Example: Create a default processor chain for property updates
 	bindings.Processors["property_updates"] = types.ProcessorChain{
 		ID:   fmt.Sprintf("property_updates_%s", td.ID),

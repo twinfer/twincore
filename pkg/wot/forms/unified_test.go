@@ -85,17 +85,17 @@ func TestUnifiedStreamGenerator_PropertyObservation(t *testing.T) {
 	logger := logrus.New()
 	licenseChecker := new(MockLicenseCheckerV2)
 	streamManager := new(MockStreamManagerV2)
-	
+
 	generator := NewStreamGeneratorV2(logger, licenseChecker, streamManager)
-	
+
 	// Mock license check
 	licenseChecker.On("IsFeatureAvailable", "streams").Return(true)
-	
+
 	// Create test data
 	ctx := context.Background()
 	thingID := "test-thing"
 	propertyName := "temperature"
-	
+
 	property := &wot.PropertyAffordance{
 		InteractionAffordance: wot.InteractionAffordance{
 			Title:       "Temperature",
@@ -115,7 +115,7 @@ func TestUnifiedStreamGenerator_PropertyObservation(t *testing.T) {
 			Observable: true,
 		},
 	}
-	
+
 	// Expected stream info
 	expectedStreamInfo := &types.StreamInfo{
 		ID:              "test-thing_property_temperature_observation",
@@ -125,13 +125,13 @@ func TestUnifiedStreamGenerator_PropertyObservation(t *testing.T) {
 		Direction:       "input",
 		Status:          "created",
 	}
-	
+
 	// Mock stream creation
 	streamManager.On("CreateStream", ctx, mock.AnythingOfType("types.StreamCreationRequest")).Return(expectedStreamInfo, nil)
-	
+
 	// Execute
 	result, err := generator.GeneratePropertyObservationStream(ctx, thingID, property, propertyName, property.Forms[0])
-	
+
 	// Assert
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
@@ -139,11 +139,11 @@ func TestUnifiedStreamGenerator_PropertyObservation(t *testing.T) {
 	assert.Equal(t, thingID, result.ThingID)
 	assert.Equal(t, "property", result.InteractionType)
 	assert.Equal(t, propertyName, result.InteractionName)
-	
+
 	// Verify mocks
 	licenseChecker.AssertExpectations(t)
 	streamManager.AssertExpectations(t)
-	
+
 	// Verify the stream creation request
 	streamManager.AssertCalled(t, "CreateStream", ctx, mock.MatchedBy(func(req types.StreamCreationRequest) bool {
 		return req.ThingID == thingID &&
@@ -158,12 +158,12 @@ func TestUnifiedBindingGenerator_CompleteFlow(t *testing.T) {
 	logger := logrus.New()
 	licenseChecker := new(MockLicenseCheckerV2)
 	streamManager := new(MockStreamManagerV2)
-	
+
 	generator := NewBindingGeneratorV2(logger, licenseChecker, streamManager)
-	
+
 	// Mock license check
 	licenseChecker.On("IsFeatureAvailable", "streams").Return(true)
-	
+
 	// Create test Thing Description
 	td := &wot.ThingDescription{
 		ID:    "test-thing",
@@ -208,7 +208,7 @@ func TestUnifiedBindingGenerator_CompleteFlow(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Mock stream creations
 	streamManager.On("CreateStream", mock.Anything, mock.AnythingOfType("types.StreamCreationRequest")).
 		Return(&types.StreamInfo{
@@ -228,22 +228,22 @@ func TestUnifiedBindingGenerator_CompleteFlow(t *testing.T) {
 			ProcessorChain: []types.ProcessorConfig{},
 			Metadata:       map[string]interface{}{},
 		}, nil)
-	
+
 	// Execute
 	ctx := context.Background()
 	bindings, err := generator.GenerateAllBindings(ctx, td)
-	
+
 	// Assert
 	assert.NoError(t, err)
 	assert.NotNil(t, bindings)
 	assert.Equal(t, td.ID, bindings.ThingID)
 	assert.Greater(t, len(bindings.HTTPRoutes), 0)
 	assert.Greater(t, len(bindings.Streams), 0)
-	
+
 	// Verify HTTP routes were generated
 	assert.Contains(t, bindings.HTTPRoutes, "properties_temperature")
 	assert.Contains(t, bindings.HTTPRoutes, "actions_toggle")
-	
+
 	// Verify route details
 	tempRoute := bindings.HTTPRoutes["properties_temperature"]
 	assert.Equal(t, "/things/test-thing/properties/temperature", tempRoute.Path)

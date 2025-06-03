@@ -773,7 +773,7 @@ func (cm *ConfigManager) pathMatchesThing(path, thingID string) bool {
 	patterns := []string{
 		"/api/things/" + thingID + "/*",
 		"/api/things/" + thingID,
-		"/things/" + thingID + "/*", 
+		"/things/" + thingID + "/*",
 		"/things/" + thingID,
 	}
 

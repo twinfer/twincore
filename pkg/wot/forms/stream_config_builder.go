@@ -11,11 +11,11 @@ import (
 
 // StreamConfigBuilder provides a unified interface for building stream configurations
 type StreamConfigBuilder struct {
-	logger            logrus.FieldLogger
-	templateExecutor  *TemplateExecutor
-	outputFactory     *OutputConfigFactory
-	mappingEngine     *MappingEngine
-	schemaRegistry    *SchemaRegistry
+	logger           logrus.FieldLogger
+	templateExecutor *TemplateExecutor
+	outputFactory    *OutputConfigFactory
+	mappingEngine    *MappingEngine
+	schemaRegistry   *SchemaRegistry
 }
 
 // NewStreamConfigBuilder creates a new stream configuration builder
@@ -262,8 +262,8 @@ func (b *StreamConfigBuilder) buildHTTPInputConfig(params StreamEndpointParams) 
 // buildHTTPOutputConfig creates HTTP output configuration
 func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
 	config := map[string]interface{}{
-		"url":    params.FormConfig.Href,
-		"verb":   params.FormConfig.Method,
+		"url":  params.FormConfig.Href,
+		"verb": params.FormConfig.Method,
 		"headers": map[string]string{
 			"Content-Type": params.FormConfig.ContentType,
 		},
@@ -288,9 +288,9 @@ func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams)
 // buildMQTTInputConfig creates MQTT input configuration
 func (b *StreamConfigBuilder) buildMQTTInputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
 	config := map[string]interface{}{
-		"urls":  []string{params.FormConfig.Href},
+		"urls":   []string{params.FormConfig.Href},
 		"topics": []string{params.FormConfig.Topic},
-		"qos":   params.FormConfig.QoS,
+		"qos":    params.FormConfig.QoS,
 	}
 
 	// Merge custom config
@@ -388,13 +388,13 @@ func (b *StreamConfigBuilder) validateMapping(mapping string) error {
 // convertProcessorChain converts internal processor chain to types.ProcessorConfig format
 func (b *StreamConfigBuilder) convertProcessorChain(chain types.ProcessorChain) []types.ProcessorConfig {
 	processors := make([]types.ProcessorConfig, 0, len(chain.Processors))
-	
+
 	for _, p := range chain.Processors {
 		processors = append(processors, types.ProcessorConfig{
 			Type:   string(p.Type),
 			Config: p.Config,
 		})
 	}
-	
+
 	return processors
 }

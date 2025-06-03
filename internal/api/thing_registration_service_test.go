@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
-	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // MockThingRegistryExt is a mock for api.ThingRegistryExt interface.
@@ -190,7 +189,7 @@ func (suite *ThingRegistrationServiceTestSuite) SetupTest() {
 	// Provide nil or suitable mocks for BindingGenerator and BenthosStreamManager as needed for tests
 	// var mockBindingGenerator *forms.BindingGenerator = nil
 	var mockBenthosStreamManager BenthosStreamManager = nil
-	var mockBindingGenerator *forms.BindingGenerator = nil
+	var mockBindingGenerator BindingGenerationService = nil
 
 	// Constructor order: thingRegistry, streamComposer, configManager, bindingGenerator, benthosStreamManager, logger
 	suite.service = NewDefaultThingRegistrationService(

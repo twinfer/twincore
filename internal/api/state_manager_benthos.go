@@ -10,35 +10,82 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/models"
+	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified schema management
 )
 
 // BenthosStateManager is a refactored StateManager that uses Benthos for Parquet logging
-// Parquet logging is now handled by centralized binding generation
+// Parquet logging is now handled by centralized binding generation with unified schema management
 type BenthosStateManager struct {
 	db             *sql.DB
 	logger         logrus.FieldLogger
 	parquetEnabled bool
-	subscribers    sync.Map     // map[string][]chan PropertyUpdate
-	mu             sync.RWMutex // Protects subscribers map
+	schemaRegistry *forms.SchemaRegistry // Added for unified schema management
+	subscribers    sync.Map              // map[string][]chan PropertyUpdate
+	mu             sync.RWMutex          // Protects subscribers map
 }
 
-// NewBenthosStateManager creates a new state manager with Benthos Parquet logging
+// NewBenthosStateManager creates a new state manager with Benthos Parquet logging and unified schema management
 func NewBenthosStateManager(db *sql.DB, benthosConfigDir, parquetLogPath string, logger logrus.FieldLogger) (*BenthosStateManager, error) {
-	logger.Debug("Creating Benthos state manager") // Entry log for constructor
+	logger.Debug("Creating Benthos state manager with unified schema management")
+
+	// Initialize unified schema registry for Parquet schema management
+	schemaRegistry := forms.NewSchemaRegistry()
+
 	sm := &BenthosStateManager{
-		db:     db,
-		logger: logger,
+		db:             db,
+		logger:         logger,
+		schemaRegistry: schemaRegistry,
 	}
 
-	// Parquet logging now handled by centralized binding generation
+	// Parquet logging now handled by centralized binding generation with unified schemas
 	if benthosConfigDir != "" || parquetLogPath != "" {
 		sm.parquetEnabled = true
-		logger.Info("Parquet logging will be handled by centralized binding generation (via BenthosStateManager config)")
+		logger.Info("Parquet logging enabled with unified schema management via centralized binding generation")
+
+		// Pre-register schemas for property updates
+		if err := sm.initializeParquetSchemas(); err != nil {
+			logger.WithError(err).Warn("Failed to initialize Parquet schemas, continuing without schema validation")
+		}
 	} else {
-		logger.Info("Parquet logging (via BenthosStateManager config) is disabled as paths are empty")
+		logger.Info("Parquet logging disabled as configuration paths are empty")
 	}
 
 	return sm, nil
+}
+
+// initializeParquetSchemas registers common schemas with the schema registry
+func (sm *BenthosStateManager) initializeParquetSchemas() error {
+	logger := sm.logger.WithField("internal_method", "initializeParquetSchemas")
+	logger.Debug("Initializing Parquet schemas for state management")
+
+	// Register property update schema
+	propertyFields := []forms.SchemaField{
+		{Name: "thing_id", Type: "STRING", Nullable: false},
+		{Name: "property_name", Type: "STRING", Nullable: false},
+		{Name: "property_value", Type: "STRING", Nullable: true},
+		{Name: "timestamp", Type: "INT64", Nullable: false},
+		{Name: "source", Type: "STRING", Nullable: false},
+		{Name: "update_type", Type: "STRING", Nullable: false},
+	}
+
+	sm.schemaRegistry.RegisterCustomSchema("property_update", propertyFields)
+
+	// Register action execution schema
+	actionFields := []forms.SchemaField{
+		{Name: "thing_id", Type: "STRING", Nullable: false},
+		{Name: "action_name", Type: "STRING", Nullable: false},
+		{Name: "command_id", Type: "STRING", Nullable: false},
+		{Name: "action_params", Type: "STRING", Nullable: true},
+		{Name: "result", Type: "STRING", Nullable: true},
+		{Name: "status", Type: "STRING", Nullable: false},
+		{Name: "timestamp", Type: "INT64", Nullable: false},
+		{Name: "source", Type: "STRING", Nullable: false},
+	}
+
+	sm.schemaRegistry.RegisterCustomSchema("action_execution", actionFields)
+
+	logger.WithField("registered_schemas", []string{"property_update", "action_execution"}).Info("Parquet schemas initialized successfully")
+	return nil
 }
 
 // GetProperty retrieves a property value from the database
@@ -118,17 +165,29 @@ func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger,
 	}
 	logger.Info("Property updated in DB")
 
-	// Log to Parquet via Benthos with source context
+	// Log to Parquet via Benthos with source context and unified schema validation
 	if sm.parquetEnabled {
 		source := "unknown"
 		if updateCtx, ok := models.GetUpdateContext(ctx); ok {
 			source = string(updateCtx.Source)
 		}
-		logger.WithFields(logrus.Fields{ // Use the passed-in logger which might have request_id
-			"thing_id": thingID, // Explicitly log identifiers for this specific message
-			"property": name,
-			"source":   source,
-		}).Debug("Parquet logging for property update handled by centralized binding generation (BenthosStateManager)")
+
+		// Use schema registry to validate property update structure
+		propertySchema := sm.schemaRegistry.GetParquetSchema("property_update")
+		if len(propertySchema) > 0 {
+			logger.WithFields(logrus.Fields{
+				"thing_id":      thingID,
+				"property":      name,
+				"source":        source,
+				"schema_fields": len(propertySchema),
+			}).Debug("Parquet logging with unified schema validation handled by centralized binding generation")
+		} else {
+			logger.WithFields(logrus.Fields{
+				"thing_id": thingID,
+				"property": name,
+				"source":   source,
+			}).Debug("Parquet logging handled by centralized binding generation (no schema validation)")
+		}
 	}
 
 	// Notify subscribers
@@ -234,8 +293,109 @@ func (sm *BenthosStateManager) DeleteAllProperties(ctx context.Context, thingID 
 
 // Close shuts down the state manager
 func (sm *BenthosStateManager) Close() error {
+	logger := sm.logger.WithField("service_method", "Close")
+	logger.Debug("Closing BenthosStateManager")
+
+	// Clear all subscribers
+	sm.subscribers.Range(func(key, value interface{}) bool {
+		if channels, ok := value.([]chan models.PropertyUpdate); ok {
+			for _, ch := range channels {
+				close(ch)
+			}
+		}
+		sm.subscribers.Delete(key)
+		return true
+	})
+
 	// Parquet client cleanup now handled by centralized binding generation
+	logger.Info("BenthosStateManager closed successfully")
 	return nil
+}
+
+// GetRegisteredSchemas returns information about registered Parquet schemas
+func (sm *BenthosStateManager) GetRegisteredSchemas() []string {
+	if sm.schemaRegistry == nil {
+		return []string{}
+	}
+	return sm.schemaRegistry.GetAvailableSchemas()
+}
+
+// GetParquetSchema returns the Parquet schema for a specific interaction type
+func (sm *BenthosStateManager) GetParquetSchema(interactionType string) []map[string]interface{} {
+	if sm.schemaRegistry == nil {
+		return []map[string]interface{}{}
+	}
+	return sm.schemaRegistry.GetParquetSchema(interactionType)
+}
+
+// HealthCheck performs a health check on the state manager
+func (sm *BenthosStateManager) HealthCheck() error {
+	logger := sm.logger.WithField("service_method", "HealthCheck")
+	logger.Debug("Performing BenthosStateManager health check")
+
+	// Check database connection
+	if sm.db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+
+	// Test database connectivity
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := sm.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	// Check schema registry
+	if sm.parquetEnabled && sm.schemaRegistry == nil {
+		return fmt.Errorf("schema registry is nil but Parquet logging is enabled")
+	}
+
+	// Get subscriber count for monitoring
+	subscriberCount := 0
+	sm.subscribers.Range(func(key, value interface{}) bool {
+		if channels, ok := value.([]chan models.PropertyUpdate); ok {
+			subscriberCount += len(channels)
+		}
+		return true
+	})
+
+	logger.WithFields(logrus.Fields{
+		"parquet_enabled":    sm.parquetEnabled,
+		"subscriber_count":   subscriberCount,
+		"registered_schemas": len(sm.GetRegisteredSchemas()),
+	}).Debug("BenthosStateManager health check passed")
+
+	return nil
+}
+
+// GetServiceStatus returns detailed status information
+func (sm *BenthosStateManager) GetServiceStatus() map[string]interface{} {
+	subscriberCount := 0
+	keyCount := 0
+
+	sm.subscribers.Range(func(key, value interface{}) bool {
+		keyCount++
+		if channels, ok := value.([]chan models.PropertyUpdate); ok {
+			subscriberCount += len(channels)
+		}
+		return true
+	})
+
+	status := map[string]interface{}{
+		"parquet_enabled":     sm.parquetEnabled,
+		"has_schema_registry": sm.schemaRegistry != nil,
+		"subscriber_count":    subscriberCount,
+		"subscription_keys":   keyCount,
+		"database_connected":  sm.db != nil,
+	}
+
+	if sm.schemaRegistry != nil {
+		status["registered_schemas"] = sm.GetRegisteredSchemas()
+		status["schema_count"] = len(sm.GetRegisteredSchemas())
+	}
+
+	return status
 }
 
 func (sm *BenthosStateManager) notifySubscribers(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) {

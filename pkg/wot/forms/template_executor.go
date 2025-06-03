@@ -28,12 +28,12 @@ func NewTemplateExecutor() *TemplateExecutor {
 func (e *TemplateExecutor) loadTemplates() {
 	// Load protocol templates
 	protocolTemplates := map[string]string{
-		"http_client": "templates/http_client.yaml",
-		"http_server": "templates/http_server.yaml",
-		"kafka_input": "templates/kafka_input.yaml",
+		"http_client":  "templates/http_client.yaml",
+		"http_server":  "templates/http_server.yaml",
+		"kafka_input":  "templates/kafka_input.yaml",
 		"kafka_output": "templates/kafka_output.yaml",
-		"mqtt_input":  "templates/mqtt_input.yaml",
-		"mqtt_output": "templates/mqtt_output.yaml",
+		"mqtt_input":   "templates/mqtt_input.yaml",
+		"mqtt_output":  "templates/mqtt_output.yaml",
 	}
 
 	for name, path := range protocolTemplates {
@@ -50,7 +50,7 @@ func (e *TemplateExecutor) loadTemplates() {
 				return val
 			},
 		}
-		
+
 		tmpl, err := template.New(name).Funcs(funcMap).Parse(string(data))
 		if err != nil {
 			panic(fmt.Sprintf("failed to parse template %s: %v", name, err))

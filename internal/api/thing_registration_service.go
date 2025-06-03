@@ -42,9 +42,9 @@ type ThingRegistrationSummary struct {
 
 // ThingWithStreams contains a Thing Description along with its associated streams
 type ThingWithStreams struct {
-	ThingDescription *wot.ThingDescription      `json:"thing_description"`
-	Streams          []types.StreamInfo         `json:"streams"`
-	StreamStatus     *StreamCompositionStatus   `json:"stream_status"`
+	ThingDescription *wot.ThingDescription    `json:"thing_description"`
+	Streams          []types.StreamInfo       `json:"streams"`
+	StreamStatus     *StreamCompositionStatus `json:"stream_status"`
 }
 
 // DefaultThingRegistrationService implements ThingRegistrationService
@@ -198,7 +198,7 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 			apiRoute := types.HTTPRoute{
 				Path:    formRoute.Path,
 				Methods: []string{formRoute.Method}, // New HTTPRoute uses []string
-				Handler: "wot_handler",             // Mapped from old TargetService
+				Handler: "wot_handler",              // Mapped from old TargetService
 				// RequiresAuth needs to be determined, e.g., based on td.Security.
 				// Assuming true if security definitions exist, similar to wot_mapper.
 				RequiresAuth: len(td.Security) > 0,
@@ -353,7 +353,7 @@ func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger,
 			apiRoute := types.HTTPRoute{
 				Path:    formRoute.Path,
 				Methods: []string{formRoute.Method}, // New HTTPRoute uses []string
-				Handler: "wot_handler",             // Mapped from old TargetService
+				Handler: "wot_handler",              // Mapped from old TargetService
 				// RequiresAuth needs to be determined, e.g., based on td.Security
 				RequiresAuth: len(td.Security) > 0,
 				Config: map[string]interface{}{

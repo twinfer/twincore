@@ -47,10 +47,10 @@ func (a *UnifiedBindingGeneratorAdapter) GenerateAllBindings(logger logrus.Field
 	}
 
 	logger.WithFields(logrus.Fields{
-		"thing_id":     td.ID,
-		"http_routes":  len(bindings.HTTPRoutes),
-		"streams":      len(bindings.Streams),
-		"processors":   len(bindings.Processors),
+		"thing_id":    td.ID,
+		"http_routes": len(bindings.HTTPRoutes),
+		"streams":     len(bindings.Streams),
+		"processors":  len(bindings.Processors),
 	}).Info("Successfully generated bindings")
 
 	return bindings, nil

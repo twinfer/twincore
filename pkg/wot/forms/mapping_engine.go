@@ -22,8 +22,8 @@ func NewMappingEngine() *MappingEngine {
 
 // MappingConfig contains parameters for generating a mapping
 type MappingConfig struct {
-	Type            string                 // "property", "action", "event"
-	Purpose         string                 // "observation", "command", "persistence", etc.
+	Type            string // "property", "action", "event"
+	Purpose         string // "observation", "command", "persistence", etc.
 	ThingID         string
 	InteractionName string
 	Parameters      map[string]interface{}

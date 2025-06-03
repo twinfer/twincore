@@ -14,15 +14,15 @@ func ConvertFormToStreamEndpoint(form wot.Form) (map[string]interface{}, error) 
 
 	// Form interface already has GenerateConfig method
 	formConfig, err := form.GenerateConfig(nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate form config: %w", err)
-		}
-		if actualConfig, exists := formConfig["config"]; exists {
-			config["config"] = actualConfig
-		} else {
-			config["config"] = formConfig
-		}
-		return config, nil
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate form config: %w", err)
+	}
+	if actualConfig, exists := formConfig["config"]; exists {
+		config["config"] = actualConfig
+	} else {
+		config["config"] = formConfig
+	}
+	return config, nil
 
 	switch form.GetProtocol() {
 	case "kafka":

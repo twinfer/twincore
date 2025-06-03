@@ -41,10 +41,10 @@ type Container struct {
 	WoTService      types.Service
 
 	// WoT Components
-	StateManager       api.StateManager
-	StreamBridge       api.StreamBridge
-	EventBroker        *api.EventBroker
-	UnifiedWoTHandler  *api.UnifiedWoTHandler
+	StateManager      api.StateManager
+	StreamBridge      api.StreamBridge
+	EventBroker       *api.EventBroker
+	UnifiedWoTHandler *api.UnifiedWoTHandler
 
 	// Stream Composition Components
 	BenthosStreamManager api.BenthosStreamManager
@@ -86,7 +86,7 @@ func New(ctx context.Context, cfg *Config) (*Container, error) {
 	}
 
 	// Initialize configuration components
-	if err := c.initConfiguration(); err != nil {
+	if err := c.initConfiguration(cfg); err != nil {
 		return nil, fmt.Errorf("failed to init configuration: %w", err)
 	}
 
@@ -183,7 +183,7 @@ func (c *Container) initSecurity(cfg *Config) error {
 	return nil
 }
 
-func (c *Container) initConfiguration() error {
+func (c *Container) initConfiguration(cfg *Config) error {
 	c.Logger.Debug("Initializing configuration components")
 
 	// Initialize config manager (API-based, not file-based)
@@ -197,9 +197,28 @@ func (c *Container) initConfiguration() error {
 	tr := config.NewThingRegistry(c.DB, c.Logger)
 	c.ThingRegistry = tr
 
-	// Load configs from DB on startup
-	if err := cm.LoadFromDB(); err != nil {
-		c.Logger.Warnf("Failed to load configs from DB: %v", err)
+	// Create license validator adapter
+	var licenseValidator config.LicenseValidator
+	if simpleLicenseChecker, err := license.NewSimpleLicenseChecker(cfg.LicensePath, cfg.PublicKey, c.Logger); err == nil {
+		licenseValidator = config.NewSimpleLicenseValidatorAdapter(simpleLicenseChecker, c.Logger)
+	} else {
+		c.Logger.WithError(err).Warn("Failed to create license validator adapter")
+		licenseValidator = nil
+	}
+
+	// Initialize lifecycle manager
+	lifecycleManager := config.NewLifecycleManager(
+		c.DB,
+		cm,
+		licenseValidator,
+		cfg.DBPath, // Using DBPath as data directory
+		c.Logger,
+	)
+
+	// Initialize configuration lifecycle
+	if err := lifecycleManager.Initialize(); err != nil {
+		c.Logger.WithError(err).Error("Failed to initialize configuration lifecycle")
+		// Continue with defaults even if initialization fails
 	}
 
 	c.Logger.Info("Configuration components initialized")
@@ -343,20 +362,26 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 func (c *Container) initServices(cfg *Config) error { // Added cfg for consistency
 	c.Logger.Debug("Initializing services")
 
-	// Create service registry
-	c.ServiceRegistry = svc.NewServiceRegistry()
+	// Create service registry with container's logger
+	c.ServiceRegistry = svc.NewServiceRegistryWithLogger(c.Logger)
 
 	// Create services
-	c.HTTPService = svc.NewHTTPServiceSimple(c.Logger) // Use the available constructor
+	c.HTTPService = svc.NewHTTPServiceUnified(c.Logger) // Use the unified HTTP service without Admin API
 	// NewStreamService was refactored to take *service.Environment.
 	// Constructor: NewStreamService(env *service.Environment, logger *logrus.Logger)
 	c.StreamService = svc.NewStreamService(c.BenthosEnvironment, c.Logger)
 	c.WoTService = svc.NewWoTService(c.ThingRegistry, c.ConfigManager, c.Logger) // Assuming this constructor is correct
 
-	// Register services
-	c.ServiceRegistry.RegisterService("http", c.HTTPService)
-	c.ServiceRegistry.RegisterService("stream", c.StreamService)
-	c.ServiceRegistry.RegisterService("wot", c.WoTService)
+	// Register services with their configurations
+	c.ServiceRegistry.RegisterServiceWithConfig("http", c.HTTPService, c.InitialHTTPServiceConfig)
+	c.ServiceRegistry.RegisterServiceWithConfig("stream", c.StreamService, c.InitialStreamServiceConfig)
+
+	// WoT service doesn't need complex config for now
+	wotConfig := types.ServiceConfig{
+		Name:   "wot",
+		Config: make(map[string]interface{}),
+	}
+	c.ServiceRegistry.RegisterServiceWithConfig("wot", c.WoTService, wotConfig)
 
 	// Load permitted services based on license
 	license := c.DeviceManager.GetLicense()
@@ -437,23 +462,36 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 		Security: secConfig,
 	}
 
+	// Convert HTTPConfig to map[string]interface{} for proper serialization
+	// This ensures the config can be properly marshaled/unmarshaled when passed around
+	httpCfgMap := map[string]interface{}{
+		"listen": httpCfg.Listen,
+		"routes": httpCfg.Routes,
+		"security": map[string]interface{}{
+			"enabled": httpCfg.Security.Enabled,
+		},
+	}
+
+	// Add optional security configurations if present
+	if httpCfg.Security.BasicAuth != nil {
+		secMap := httpCfgMap["security"].(map[string]interface{})
+		secMap["basic_auth"] = httpCfg.Security.BasicAuth
+	}
+	if httpCfg.Security.BearerAuth != nil {
+		secMap := httpCfgMap["security"].(map[string]interface{})
+		secMap["bearer_auth"] = httpCfg.Security.BearerAuth
+	}
+	if httpCfg.Security.JWTAuth != nil {
+		secMap := httpCfgMap["security"].(map[string]interface{})
+		secMap["jwt_auth"] = httpCfg.Security.JWTAuth
+	}
+
 	return types.ServiceConfig{
 		Name: "http",
 		Type: "http_service",
 		Config: map[string]interface{}{
-			// The "http" key now holds the new types.HTTPConfig,
-			// which includes its own security settings.
-			"http": httpCfg,
-			// The old top-level "security" key might be deprecated or removed
-			// if all security config moves into httpCfg.Security.
-			// For now, let's keep it to see if other parts rely on it,
-			// but populate it from the new structure for consistency.
-			// Ideally, this would be refactored away later.
-			"security": map[string]interface{}{ // Reconstruct for potential legacy consumers
-				"enabled": secConfig.Enabled,
-				// Add other fields if necessary, e.g., from secConfig.BasicAuth etc.
-				// This is a transitional step.
-			},
+			// Store as map for proper serialization/deserialization
+			"http": httpCfgMap,
 		},
 	}
 }

@@ -69,9 +69,24 @@ type LicenseManager interface {
 // ServiceRegistry defines the interface for managing application services.
 type ServiceRegistry interface {
 	RegisterService(name string, service Service)
+	RegisterServiceWithConfig(name string, service Service, config ServiceConfig)
+	SetServiceConfig(name string, config ServiceConfig) error
 	LoadPermittedServices(license License) error
 	StartService(ctx context.Context, name string) error
+	StartServiceWithConfig(ctx context.Context, name string, config ServiceConfig) error
 	StopService(ctx context.Context, name string) error
+	GetServiceStatus() map[string]ServiceStatus
+}
+
+// ServiceStatus represents the status of a service
+type ServiceStatus struct {
+	Name            string   `json:"name"`
+	Registered      bool     `json:"registered"`
+	Permitted       bool     `json:"permitted"`
+	HasConfig       bool     `json:"has_config"`
+	ServiceType     string   `json:"service_type"`
+	Dependencies    []string `json:"dependencies"`
+	RequiredLicense []string `json:"required_license"`
 }
 
 // Definitions moved from pkg/types/config_v2.go:

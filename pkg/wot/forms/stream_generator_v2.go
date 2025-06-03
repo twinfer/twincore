@@ -395,7 +395,7 @@ func (g *StreamGeneratorV2) extractFormConfig(form wot.Form, security []string) 
 
 	// TODO: Extract MQTT/Kafka topic from href or form-specific fields
 	// This would require type assertion to specific form types
-	
+
 	return config
 }
 

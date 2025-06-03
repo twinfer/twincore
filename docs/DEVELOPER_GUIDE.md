@@ -4,7 +4,8 @@
 
 1.  [Introduction](#introduction)
 2.  [Core Architecture Overview](#core-architecture-overview)
-3.  [Main Interfaces](#main-interfaces)
+3.  [Configuration Lifecycle](#configuration-lifecycle)
+4.  [Main Interfaces](#main-interfaces)
     *   [api.ConfigurationManager](#apiconfigurationmanager)
     *   [api.BenthosStreamManager](#apibenthosstreammanager)
     *   [api.BindingGenerationService](#apibindinggenerationservice)
@@ -19,7 +20,7 @@
     *   [types.License / types.LicenseManager](#typeslicense--typeslicensemanager)
     *   [types.ServiceRegistry](#typesserviceregistry)
     *   [wot.Form](#wotform)
-4.  [Key Sequence Flows](#key-sequence-flows)
+5.  [Key Sequence Flows](#key-sequence-flows)
     *   [Registering a New Thing](#registering-a-new-thing)
     *   [Property Update Flow](#property-update-flow)
     *   [Action Invocation Flow](#action-invocation-flow)
@@ -32,12 +33,115 @@ This guide provides technical details for developers working with the TwinCore G
 
 TwinCore Gateway integrates a Web of Things (WoT) layer with a Caddy web server and Benthos stream processing. Key aspects include:
 -   **Dependency Injection:** The `internal/container` package initializes and wires together all core components.
--   **Caddy Integration:** The `internal/caddy_app` module makes core services available within the Caddy environment. Caddy handles HTTP routing and can be dynamically configured by `ConfigurationManager`.
+-   **Configuration Lifecycle:** `internal/config/lifecycle_manager.go` manages startup configuration, checking for existing config and license in database, falling back to defaults if none exist.
+-   **Caddy Integration:** The `internal/caddy_app` module makes core services available within the Caddy environment. Caddy handles HTTP routing with Admin API disabled for security.
 -   **WoT Abstraction:** `pkg/wot` provides Go structures for Thing Descriptions. Services like `ThingRegistrationService` and `TDStreamCompositionService` process these TDs to configure the system.
 -   **Stream Processing:** Benthos is used for data stream processing. `BenthosStreamManager` and `BindingGenerator` are central to creating and managing these streams based on TD affordances.
 -   **Service Management:** The `types.Service` interface and `types.ServiceRegistry` manage the lifecycle of different services (e.g., HTTP, Stream, WoT).
 
-## 3. Main Interfaces
+## 3. Configuration Lifecycle
+
+TwinCore Gateway implements an automatic configuration lifecycle management system that handles startup initialization, license validation, and fallback to defaults.
+
+### Startup Flow
+
+```mermaid
+flowchart TD
+    A[Application Start] --> B[Initialize Database]
+    B --> C[Check Existing Configuration]
+    C --> D{Config Exists in DB?}
+    D -->|Yes| E[Check License Validity]
+    D -->|No| F[Check License File/DB]
+    F --> G{Valid License Found?}
+    G -->|Yes| H[Load License Features]
+    G -->|No| I[Use Default Features]
+    E --> J{License Valid?}
+    J -->|Yes| H
+    J -->|No| I
+    H --> K[Apply License-Aware Defaults]
+    I --> L[Apply Basic Defaults]
+    K --> M[Create Required Directories]
+    L --> M
+    M --> N[Mark System Initialized]
+    N --> O[Start Services]
+    
+    D -->|Yes| P[Load Existing Config]
+    P --> E
+```
+
+### Key Components
+
+#### LifecycleManager (`internal/config/lifecycle_manager.go`)
+- **Purpose**: Manages configuration initialization and lifecycle
+- **Key Features**:
+  - Checks for existing configuration in database
+  - Validates and loads license from database or filesystem
+  - Falls back to defaults when no configuration exists
+  - Creates required directories
+  - Supports configuration import/export
+
+#### DefaultConfigProvider (`internal/config/default_config.go`)
+- **Purpose**: Provides license-aware default configurations
+- **Features**:
+  - Uses Caddy's `AppDataDir()` for data storage paths
+  - License-based feature enablement
+  - Default configurations for HTTP, Stream, Security, Parquet, MQTT, and Kafka
+  - Admin API disabled by default for security
+
+#### LicenseValidator (`internal/config/license_validator_adapter.go`)
+- **Purpose**: Adapts SimpleLicenseChecker to unified interface
+- **Features**:
+  - Validates license data
+  - Extracts and converts license features to boolean map
+  - Provides unified interface for license validation
+
+### Configuration Storage
+
+All configurations are stored in DuckDB with the following schema:
+
+```sql
+-- Configuration storage
+CREATE TABLE configs (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,                -- 'license', 'service_config', 'system_flag'
+    data TEXT NOT NULL,               -- JSON configuration data
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Caddy configuration with versioning
+CREATE TABLE caddy_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config TEXT NOT NULL,            -- JSON configuration
+    patches TEXT,                    -- JD patches for rollback
+    version INTEGER,
+    active BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Default Configurations
+
+The system provides intelligent defaults based on license features:
+
+- **HTTP Service**: Portal, API, and WoT routes with security disabled by default
+- **Stream Service**: Kafka and MQTT topics for property updates and actions
+- **Security**: Basic auth with license-based JWT support
+- **Parquet Logging**: Data storage in Caddy's app data directory
+- **Caddy**: Minimal configuration with Admin API disabled
+
+### Security Considerations
+
+The configuration lifecycle system implements several security best practices:
+
+1. **Admin API Disabled**: Caddy's Admin API is disabled by default (`AdminConfig.Disabled = true`) to prevent unauthorized configuration changes
+2. **License Validation**: All license operations go through the `LicenseValidator` interface with proper validation
+3. **Database Storage**: Sensitive configuration data is stored in DuckDB with versioning support
+4. **Default Security**: Security features are disabled by default and must be explicitly enabled during setup
+5. **Filesystem Isolation**: Uses Caddy's standard data directories for proper permission handling
+
+## 4. Main Interfaces
 
 This section describes the main interfaces that define the contracts between different components of the TwinCore Gateway.
 
@@ -155,7 +259,7 @@ This section describes the main interfaces that define the contracts between dif
 *   **Implemented by:** `pkg/wot/forms.HTTPForm`, `pkg/wot/forms.KafkaForm`, etc.
 *   **Key Methods:** `GetOp`, `GetHref`, `GetContentType`, `GenerateConfig`, `GetProtocol`.
 
-## 4. Key Sequence Flows
+## 5. Key Sequence Flows
 
 ### Registering a New Thing
 This flow describes how a new Thing Description (TD) is submitted, processed, and how its streams and routes are configured.

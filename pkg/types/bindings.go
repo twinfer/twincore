@@ -4,11 +4,11 @@ import "time"
 
 // AllBindings contains all generated bindings for a Thing Description
 type AllBindings struct {
-	ThingID     string                          `json:"thing_id"`
-	HTTPRoutes  map[string]BindingHTTPRoute     `json:"http_routes"`
-	Streams     map[string]BenthosStreamConfig  `json:"streams"`
-	Processors  map[string]ProcessorChain       `json:"processors"`
-	GeneratedAt time.Time                       `json:"generated_at"`
+	ThingID     string                         `json:"thing_id"`
+	HTTPRoutes  map[string]BindingHTTPRoute    `json:"http_routes"`
+	Streams     map[string]BenthosStreamConfig `json:"streams"`
+	Processors  map[string]ProcessorChain      `json:"processors"`
+	GeneratedAt time.Time                      `json:"generated_at"`
 }
 
 // BindingHTTPRoute represents an HTTP endpoint configuration for WoT bindings
@@ -22,13 +22,13 @@ type BindingHTTPRoute struct {
 
 // BenthosStreamConfig represents a complete Benthos stream configuration
 type BenthosStreamConfig struct {
-	ID             string                  `json:"id"`
-	Type           BenthosStreamType       `json:"type"`
-	Direction      StreamDirection         `json:"direction"`
-	Input          StreamEndpoint          `json:"input"`
-	Output         StreamEndpoint          `json:"output"`
-	ProcessorChain ProcessorChain          `json:"processor_chain"`
-	YAML           string                  `json:"yaml"`
+	ID             string            `json:"id"`
+	Type           BenthosStreamType `json:"type"`
+	Direction      StreamDirection   `json:"direction"`
+	Input          StreamEndpoint    `json:"input"`
+	Output         StreamEndpoint    `json:"output"`
+	ProcessorChain ProcessorChain    `json:"processor_chain"`
+	YAML           string            `json:"yaml"`
 }
 
 // StreamEndpoint represents input/output configuration for streams
