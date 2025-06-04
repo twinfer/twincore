@@ -13,29 +13,29 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	
+
 	"github.com/twinfer/twincore/pkg/types"
 )
 
 // DefaultWoTSecurityManager implements WoTSecurityManager interface
 type DefaultWoTSecurityManager struct {
-	db             *sql.DB
-	logger         *logrus.Logger
-	config         *types.WoTSecurityConfig
-	licenseChecker types.UnifiedLicenseChecker
+	db               *sql.DB
+	logger           *logrus.Logger
+	config           *types.WoTSecurityConfig
+	licenseChecker   types.UnifiedLicenseChecker
 	credentialStores map[string]types.CredentialStore
 }
 
 // NewDefaultWoTSecurityManager creates a new WoT security manager
 func NewDefaultWoTSecurityManager(db *sql.DB, logger *logrus.Logger, licenseChecker types.UnifiedLicenseChecker) *DefaultWoTSecurityManager {
 	return &DefaultWoTSecurityManager{
-		db:             db,
-		logger:         logger,
-		licenseChecker: licenseChecker,
+		db:               db,
+		logger:           logger,
+		licenseChecker:   licenseChecker,
 		credentialStores: make(map[string]types.CredentialStore),
 		config: &types.WoTSecurityConfig{
-			ThingPolicies:    make(map[string]types.ThingSecurityPolicy),
-			CredentialStores: make(map[string]types.CredentialStore),
+			ThingPolicies:     make(map[string]types.ThingSecurityPolicy),
+			CredentialStores:  make(map[string]types.CredentialStore),
 			SecurityTemplates: make(map[string]types.SecurityTemplate),
 		},
 	}
@@ -105,8 +105,8 @@ func (wsm *DefaultWoTSecurityManager) SetThingCredentials(ctx context.Context, t
 	}
 
 	wsm.logger.WithFields(logrus.Fields{
-		"thing_id": thingID,
-		"protocol": protocolType,
+		"thing_id":  thingID,
+		"protocol":  protocolType,
 		"cred_type": credentials.Type,
 	}).Debug("Setting Thing credentials")
 
@@ -755,7 +755,7 @@ func (wsm *DefaultWoTSecurityManager) checkTimeRestrictions(restrictions []types
 func (wsm *DefaultWoTSecurityManager) isTimeAllowed(restriction types.TimeRestriction, timestamp time.Time) bool {
 	// Simple implementation - would need more sophisticated time handling in production
 	weekday := strings.ToLower(timestamp.Weekday().String())
-	
+
 	// Check if current day is allowed
 	for _, day := range restriction.Days {
 		if day == weekday || day == "weekday" && timestamp.Weekday() >= time.Monday && timestamp.Weekday() <= time.Friday {
@@ -766,17 +766,17 @@ func (wsm *DefaultWoTSecurityManager) isTimeAllowed(restriction types.TimeRestri
 			}
 		}
 	}
-	
+
 	return false
 }
 
 func (wsm *DefaultWoTSecurityManager) checkRateLimit(accessCtx *types.WoTAccessContext, rateLimit *types.WoTRateLimit) error {
 	// TODO: Implement rate limiting logic with proper storage and counters
 	wsm.logger.WithFields(logrus.Fields{
-		"thing_id": accessCtx.ThingID,
+		"thing_id":   accessCtx.ThingID,
 		"rate_limit": rateLimit.RequestsPerMinute,
 	}).Debug("Rate limit check (not implemented)")
-	
+
 	return nil
 }
 

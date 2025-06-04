@@ -11,11 +11,10 @@ import (
 
 	"github.com/kazarena/json-gold/ld"
 	"github.com/sirupsen/logrus"
-	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/internal/api"
+	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
-
 
 // ThingRegistry manages Thing Descriptions
 type ThingRegistry struct {
@@ -325,12 +324,12 @@ func (r *ThingRegistry) validateTD(jsonData interface{}) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal TD for validation: %w", err)
 	}
-	
+
 	var td wot.ThingDescription
 	if err := json.Unmarshal(tdJSON, &td); err != nil {
 		return fmt.Errorf("failed to unmarshal TD for validation: %w", err)
 	}
-	
+
 	// Use the centralized validator with 3-layer validation
 	logger := r.logger.WithField("component", "ThingRegistry")
 	return r.validator.ValidateThingDescription(logger, &td)

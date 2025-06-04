@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	
+
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
@@ -102,7 +102,7 @@ func (psm *ProtocolSecurityManager) ConfigureTLS(ctx context.Context, protocol s
 		if config.MinVersion == "" {
 			config.MinVersion = "1.2" // Default to TLS 1.2 minimum
 		}
-		
+
 		// Set secure cipher suites if none specified
 		if len(config.CipherSuites) == 0 {
 			config.CipherSuites = []string{
@@ -165,22 +165,22 @@ type HTTPOAuth2Config struct {
 
 // HTTPAPIKeyConfig represents API key configuration for HTTP
 type HTTPAPIKeyConfig struct {
-	Key       string `json:"key"`
-	Value     string `json:"value"`
-	In        string `json:"in"`        // "header", "query", "cookie"
-	Name      string `json:"name"`      // Header name or query parameter name
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	In    string `json:"in"`   // "header", "query", "cookie"
+	Name  string `json:"name"` // Header name or query parameter name
 }
 
 // MQTT Authentication Configuration Types
 
 // MQTTAuthConfig represents MQTT authentication configuration
 type MQTTAuthConfig struct {
-	Username    string              `json:"username,omitempty"`
-	Password    string              `json:"password,omitempty"`
-	ClientCert  *types.TLSConfig    `json:"client_cert,omitempty"`
-	TLS         *TLSConfig          `json:"tls,omitempty"`
-	PSK         *MQTTPSKConfig      `json:"psk,omitempty"`
-	Custom      map[string]interface{} `json:"custom,omitempty"`
+	Username   string                 `json:"username,omitempty"`
+	Password   string                 `json:"password,omitempty"`
+	ClientCert *types.TLSConfig       `json:"client_cert,omitempty"`
+	TLS        *TLSConfig             `json:"tls,omitempty"`
+	PSK        *MQTTPSKConfig         `json:"psk,omitempty"`
+	Custom     map[string]interface{} `json:"custom,omitempty"`
 }
 
 // MQTTPSKConfig represents MQTT Pre-Shared Key configuration
@@ -193,10 +193,10 @@ type MQTTPSKConfig struct {
 
 // KafkaAuthConfig represents Kafka authentication configuration
 type KafkaAuthConfig struct {
-	SASL        *KafkaSASLConfig       `json:"sasl,omitempty"`
-	TLS         *TLSConfig             `json:"tls,omitempty"`
-	OAuth2      *KafkaOAuth2Config     `json:"oauth2,omitempty"`
-	Custom      map[string]interface{} `json:"custom,omitempty"`
+	SASL   *KafkaSASLConfig       `json:"sasl,omitempty"`
+	TLS    *TLSConfig             `json:"tls,omitempty"`
+	OAuth2 *KafkaOAuth2Config     `json:"oauth2,omitempty"`
+	Custom map[string]interface{} `json:"custom,omitempty"`
 }
 
 // KafkaSASLConfig represents Kafka SASL configuration
@@ -273,21 +273,21 @@ func (psm *ProtocolSecurityManager) generateHTTPAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "basic_auth") {
 			return nil, fmt.Errorf("basic authentication not licensed")
 		}
-		
+
 		config.BasicAuth = &HTTPBasicAuth{
 			Username: credentials.Username,
 			Password: credentials.Password,
 		}
-		
+
 		// Generate Authorization header value for Benthos
-		config.Headers["Authorization"] = fmt.Sprintf("Basic ${base64:%s:%s}", 
+		config.Headers["Authorization"] = fmt.Sprintf("Basic ${base64:%s:%s}",
 			credentials.Username, credentials.Password)
 
 	case "bearer":
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "bearer_auth") {
 			return nil, fmt.Errorf("bearer authentication not licensed")
 		}
-		
+
 		token := credentials.Token
 		config.BearerToken = &token
 		config.Headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
@@ -296,7 +296,7 @@ func (psm *ProtocolSecurityManager) generateHTTPAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "api_key_auth") {
 			return nil, fmt.Errorf("API key authentication not licensed")
 		}
-		
+
 		apiKeyConfig := &HTTPAPIKeyConfig{
 			Key:   credentials.APIKey,
 			Value: credentials.APIKey,
@@ -314,7 +314,7 @@ func (psm *ProtocolSecurityManager) generateHTTPAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "oauth2_auth") {
 			return nil, fmt.Errorf("OAuth2 authentication not licensed")
 		}
-		
+
 		if credentials.OAuth2 != nil {
 			config.OAuth2 = &HTTPOAuth2Config{
 				ClientID:     credentials.OAuth2.ClientID,
@@ -323,7 +323,7 @@ func (psm *ProtocolSecurityManager) generateHTTPAuthForScheme(ctx context.Contex
 				Scopes:       credentials.OAuth2.Scopes,
 				GrantType:    "client_credentials", // Default
 			}
-			
+
 			// Use the access token if available
 			if credentials.OAuth2.AccessToken != "" {
 				config.Headers["Authorization"] = fmt.Sprintf("Bearer %s", credentials.OAuth2.AccessToken)
@@ -334,7 +334,7 @@ func (psm *ProtocolSecurityManager) generateHTTPAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "custom_auth") {
 			return nil, fmt.Errorf("custom authentication schemes not licensed")
 		}
-		
+
 		config.Custom = map[string]interface{}{
 			"scheme": scheme.Scheme,
 			"config": credentials.Metadata,
@@ -354,7 +354,7 @@ func (psm *ProtocolSecurityManager) generateMQTTAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "basic_auth") {
 			return nil, fmt.Errorf("basic authentication not licensed")
 		}
-		
+
 		config.Username = credentials.Username
 		config.Password = credentials.Password
 
@@ -362,7 +362,7 @@ func (psm *ProtocolSecurityManager) generateMQTTAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "certificate_auth") {
 			return nil, fmt.Errorf("certificate authentication not licensed")
 		}
-		
+
 		if credentials.Certificate != nil {
 			config.ClientCert = &types.TLSConfig{
 				Enabled:  true,
@@ -376,7 +376,7 @@ func (psm *ProtocolSecurityManager) generateMQTTAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "psk_auth") {
 			return nil, fmt.Errorf("PSK authentication not licensed")
 		}
-		
+
 		// PSK configuration from credentials metadata
 		if identity, ok := credentials.Metadata["psk_identity"].(string); ok {
 			if key, ok := credentials.Metadata["psk_key"].(string); ok {
@@ -391,7 +391,7 @@ func (psm *ProtocolSecurityManager) generateMQTTAuthForScheme(ctx context.Contex
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "custom_auth") {
 			return nil, fmt.Errorf("custom authentication schemes not licensed")
 		}
-		
+
 		config.Custom = map[string]interface{}{
 			"scheme": scheme.Scheme,
 			"config": credentials.Metadata,
@@ -411,12 +411,12 @@ func (psm *ProtocolSecurityManager) generateKafkaAuthForScheme(ctx context.Conte
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "basic_auth") {
 			return nil, fmt.Errorf("SASL authentication not licensed")
 		}
-		
+
 		mechanism := "PLAIN" // Default
 		if mech, ok := credentials.Metadata["sasl_mechanism"].(string); ok {
 			mechanism = mech
 		}
-		
+
 		config.SASL = &KafkaSASLConfig{
 			Mechanism: mechanism,
 			Username:  credentials.Username,
@@ -427,7 +427,7 @@ func (psm *ProtocolSecurityManager) generateKafkaAuthForScheme(ctx context.Conte
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "oauth2_auth") {
 			return nil, fmt.Errorf("OAuth2 authentication not licensed")
 		}
-		
+
 		if credentials.OAuth2 != nil {
 			config.OAuth2 = &KafkaOAuth2Config{
 				ClientID:     credentials.OAuth2.ClientID,
@@ -441,7 +441,7 @@ func (psm *ProtocolSecurityManager) generateKafkaAuthForScheme(ctx context.Conte
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "certificate_auth") {
 			return nil, fmt.Errorf("certificate authentication not licensed")
 		}
-		
+
 		if credentials.Certificate != nil {
 			config.TLS = &TLSConfig{
 				Enabled:  true,
@@ -455,7 +455,7 @@ func (psm *ProtocolSecurityManager) generateKafkaAuthForScheme(ctx context.Conte
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "custom_auth") {
 			return nil, fmt.Errorf("custom authentication schemes not licensed")
 		}
-		
+
 		config.Custom = map[string]interface{}{
 			"scheme": scheme.Scheme,
 			"config": credentials.Metadata,
@@ -529,7 +529,7 @@ func (psm *ProtocolSecurityManager) validateKafkaSecurity(ctx context.Context, c
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "basic_auth") {
 			return fmt.Errorf("Kafka SASL authentication not licensed")
 		}
-		
+
 		// Validate SASL mechanism
 		if mechanism, ok := saslConfig["mechanism"].(string); ok {
 			switch mechanism {

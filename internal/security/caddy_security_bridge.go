@@ -13,16 +13,16 @@ import (
 // CaddySecurityBridge connects TwinCore's SystemSecurityManager with caddy-security module
 type CaddySecurityBridge struct {
 	systemSecurityManager types.SystemSecurityManager
-	logger                 *logrus.Logger
-	config                 *types.SystemSecurityConfig
+	logger                *logrus.Logger
+	config                *types.SystemSecurityConfig
 }
 
 // NewCaddySecurityBridge creates a new bridge between SystemSecurityManager and caddy-security
 func NewCaddySecurityBridge(systemSecurityManager types.SystemSecurityManager, config *types.SystemSecurityConfig, logger *logrus.Logger) *CaddySecurityBridge {
 	return &CaddySecurityBridge{
 		systemSecurityManager: systemSecurityManager,
-		config:                 config,
-		logger:                 logger,
+		config:                config,
+		logger:                logger,
 	}
 }
 
@@ -132,9 +132,9 @@ func (csb *CaddySecurityBridge) generateLDAPAuthBackend() map[string]interface{}
 					"email":     ldapConfig.Attributes.Email,
 				},
 				"username_search_filter": fmt.Sprintf("(%s=%s)", ldapConfig.Attributes.Username, "{{.username}}"),
-				"search_base_dn":        ldapConfig.BaseDN,
-				"search_user_dn":        ldapConfig.BindDN,
-				"search_user_password":  ldapConfig.BindPassword,
+				"search_base_dn":         ldapConfig.BaseDN,
+				"search_user_dn":         ldapConfig.BindDN,
+				"search_user_password":   ldapConfig.BindPassword,
 			},
 		},
 	}

@@ -92,8 +92,8 @@ type ServiceStatus struct {
 // HTTPConfig is a simplified HTTP configuration
 // Security is now handled separately via SystemSecurityManager
 type HTTPConfig struct {
-	Listen   []string    `json:"listen"`
-	Routes   []HTTPRoute `json:"routes"`
+	Listen []string    `json:"listen"`
+	Routes []HTTPRoute `json:"routes"`
 	// Security removed - now handled by SystemSecurityManager
 }
 

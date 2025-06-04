@@ -234,12 +234,12 @@ func (v *JSONSchemaValidator) validateSemanticRules(logger logrus.FieldLogger, t
 	if err := v.validateSecurityReferences(logger, td); err != nil {
 		return err
 	}
-	
+
 	// Validate operation types for all affordances
 	if err := v.validateOperationTypes(logger, td); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -311,7 +311,7 @@ func (v *JSONSchemaValidator) validateOperationTypes(logger logrus.FieldLogger, 
 			return fmt.Errorf("property '%s': %s", propName, issues[0])
 		}
 	}
-	
+
 	// Validate actions
 	for actionName, action := range td.Actions {
 		if issues := action.ValidateOperationTypes(); len(issues) > 0 {
@@ -319,7 +319,7 @@ func (v *JSONSchemaValidator) validateOperationTypes(logger logrus.FieldLogger, 
 			return fmt.Errorf("action '%s': %s", actionName, issues[0])
 		}
 	}
-	
+
 	// Validate events
 	for eventName, event := range td.Events {
 		if issues := event.ValidateOperationTypes(); len(issues) > 0 {
@@ -327,7 +327,7 @@ func (v *JSONSchemaValidator) validateOperationTypes(logger logrus.FieldLogger, 
 			return fmt.Errorf("event '%s': %s", eventName, issues[0])
 		}
 	}
-	
+
 	return nil
 }
 

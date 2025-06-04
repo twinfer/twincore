@@ -186,11 +186,11 @@ func TestCaddySecurityBridge(t *testing.T) {
 			Methods: []string{"jwt"},
 			Policies: []types.APIPolicy{
 				{
-					ID:          "admin_policy",
-					Name:        "Admin Policy",
-					Principal:   "role:admin",
-					Resources:   []string{"/api/*"},
-					Actions:     []string{"read", "write", "delete", "admin"},
+					ID:        "admin_policy",
+					Name:      "Admin Policy",
+					Principal: "role:admin",
+					Resources: []string{"/api/*"},
+					Actions:   []string{"read", "write", "delete", "admin"},
 				},
 			},
 		},
@@ -201,11 +201,11 @@ func TestCaddySecurityBridge(t *testing.T) {
 
 	t.Run("GenerateSecurityApp", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		appJSON, err := bridge.GenerateSecurityApp(ctx)
 		assert.NoError(t, err)
 		assert.NotNil(t, appJSON)
-		
+
 		// Verify the JSON contains expected structure
 		assert.Contains(t, string(appJSON), "authentication_portals")
 		assert.Contains(t, string(appJSON), "authorization_policies")
@@ -220,11 +220,11 @@ func TestCaddySecurityBridge(t *testing.T) {
 			Methods: []string{"GET", "POST"},
 			Handler: "reverse_proxy",
 		}
-		
+
 		middleware, err := bridge.GenerateAuthenticationMiddleware(route)
 		assert.NoError(t, err)
 		assert.NotNil(t, middleware)
-		
+
 		// Verify middleware configuration
 		assert.Contains(t, string(middleware), "authentication")
 		assert.Contains(t, string(middleware), "twincore_portal")
@@ -238,7 +238,7 @@ func TestCaddySecurityBridge(t *testing.T) {
 			Methods: []string{"GET"},
 			Handler: "file_server",
 		}
-		
+
 		middleware, err := bridge.GenerateAuthenticationMiddleware(route)
 		assert.NoError(t, err)
 		assert.Nil(t, middleware) // Should not protect public routes
@@ -246,7 +246,7 @@ func TestCaddySecurityBridge(t *testing.T) {
 
 	t.Run("SyncUsersToUserStore", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		// Mock the ListUsers call
 		testUsers := []*types.User{
 			{
@@ -264,12 +264,12 @@ func TestCaddySecurityBridge(t *testing.T) {
 				Roles:    []string{"user"},
 			},
 		}
-		
+
 		mockSSM.On("ListUsers", ctx).Return(testUsers, nil)
-		
+
 		err := bridge.SyncUsersToUserStore(ctx)
 		assert.NoError(t, err)
-		
+
 		mockSSM.AssertExpectations(t)
 	})
 
@@ -278,14 +278,14 @@ func TestCaddySecurityBridge(t *testing.T) {
 		disabledConfig := &types.SystemSecurityConfig{
 			Enabled: false,
 		}
-		
+
 		disabledBridge := NewCaddySecurityBridge(mockSSM, disabledConfig, logger)
-		
+
 		// Should return nil for security app
 		appJSON, err := disabledBridge.GenerateSecurityApp(context.Background())
 		assert.NoError(t, err)
 		assert.Nil(t, appJSON)
-		
+
 		// Should return nil for authentication middleware
 		route := types.HTTPRoute{Path: "/api/test"}
 		middleware, err := disabledBridge.GenerateAuthenticationMiddleware(route)
@@ -301,9 +301,9 @@ func TestCaddySecurityBridge_RouteProtection(t *testing.T) {
 	bridge := NewCaddySecurityBridge(mockSSM, secConfig, logger)
 
 	testCases := []struct {
-		name           string
-		path           string
-		shouldProtect  bool
+		name          string
+		path          string
+		shouldProtect bool
 	}{
 		{"API route", "/api/things", true},
 		{"Admin route", "/admin/config", true},
@@ -323,10 +323,10 @@ func TestCaddySecurityBridge_RouteProtection(t *testing.T) {
 				Methods: []string{"GET"},
 				Handler: "reverse_proxy",
 			}
-			
+
 			middleware, err := bridge.GenerateAuthenticationMiddleware(route)
 			assert.NoError(t, err)
-			
+
 			if tc.shouldProtect {
 				assert.NotNil(t, middleware, "Route %s should be protected", tc.path)
 				assert.Contains(t, string(middleware), "authentication")

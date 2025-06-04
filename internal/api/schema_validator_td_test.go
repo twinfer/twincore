@@ -22,9 +22,9 @@ func TestJSONSchemaValidator_ValidateThingDescription(t *testing.T) {
 		{
 			name: "Valid minimal TD",
 			td: &wot.ThingDescription{
-				Context:             "https://www.w3.org/2022/wot/td/v1.1",
-				Title:               "Test Thing",
-				Security:            []string{"nosec"},
+				Context:  "https://www.w3.org/2022/wot/td/v1.1",
+				Title:    "Test Thing",
+				Security: []string{"nosec"},
 				SecurityDefinitions: map[string]wot.SecurityScheme{
 					"nosec": {
 						Scheme: "nosec",
@@ -84,8 +84,8 @@ func TestJSONSchemaValidator_ValidateThingDescription(t *testing.T) {
 		{
 			name: "Missing title",
 			td: &wot.ThingDescription{
-				Context:             "https://www.w3.org/2022/wot/td/v1.1",
-				Security:            []string{"nosec"},
+				Context:  "https://www.w3.org/2022/wot/td/v1.1",
+				Security: []string{"nosec"},
 				SecurityDefinitions: map[string]wot.SecurityScheme{
 					"nosec": {
 						Scheme: "nosec",
@@ -145,9 +145,9 @@ func TestJSONSchemaValidator_ValidateThingDescription(t *testing.T) {
 		{
 			name: "Invalid property operation",
 			td: &wot.ThingDescription{
-				Context:  "https://www.w3.org/2022/wot/td/v1.1",
-				Title:    "Test Thing",
-				Security: []string{"nosec"},
+				Context:             "https://www.w3.org/2022/wot/td/v1.1",
+				Title:               "Test Thing",
+				Security:            []string{"nosec"},
 				SecurityDefinitions: map[string]wot.SecurityScheme{},
 				Properties: map[string]*wot.PropertyAffordance{
 					"test": {
@@ -168,9 +168,9 @@ func TestJSONSchemaValidator_ValidateThingDescription(t *testing.T) {
 		{
 			name: "Property without forms",
 			td: &wot.ThingDescription{
-				Context:  "https://www.w3.org/2022/wot/td/v1.1",
-				Title:    "Test Thing",
-				Security: []string{"nosec"},
+				Context:             "https://www.w3.org/2022/wot/td/v1.1",
+				Title:               "Test Thing",
+				Security:            []string{"nosec"},
 				SecurityDefinitions: map[string]wot.SecurityScheme{},
 				Properties: map[string]*wot.PropertyAffordance{
 					"test": {
@@ -197,4 +197,3 @@ func TestJSONSchemaValidator_ValidateThingDescription(t *testing.T) {
 		})
 	}
 }
-

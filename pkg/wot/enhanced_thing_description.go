@@ -28,13 +28,13 @@ func (etd *EnhancedThingDescription) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("JSON-LD processing failed: %w", err)
 	}
 	etd.jsonldResult = result
-	
+
 	// Then unmarshal into base ThingDescription
 	err = json.Unmarshal(data, &etd.ThingDescription)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal Thing Description: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -75,36 +75,36 @@ func (etd *EnhancedThingDescription) ParseFormsWithVocabulary() (map[string][]Fo
 	if etd.jsonldResult == nil {
 		return nil, fmt.Errorf("JSON-LD processing not performed")
 	}
-	
+
 	// Use the FormParser from binding_forms.go for W3C-compliant parsing
 	formParser := &FormParser{}
 	result := make(map[string][]FormWithVocabulary)
-	
+
 	// Parse forms from the expanded JSON-LD document for proper vocabulary access
 	expandedDoc := etd.jsonldResult.ExpandedDoc
-	
+
 	// Process property forms
 	if props, ok := expandedDoc["https://www.w3.org/2019/wot/td#hasPropertyAffordance"]; ok {
 		result["properties"] = etd.parseExpandedForms(props, formParser)
 	}
-	
-	// Process action forms  
+
+	// Process action forms
 	if actions, ok := expandedDoc["https://www.w3.org/2019/wot/td#hasActionAffordance"]; ok {
 		result["actions"] = etd.parseExpandedForms(actions, formParser)
 	}
-	
+
 	// Process event forms
 	if events, ok := expandedDoc["https://www.w3.org/2019/wot/td#hasEventAffordance"]; ok {
 		result["events"] = etd.parseExpandedForms(events, formParser)
 	}
-	
+
 	return result, nil
 }
 
 // parseExpandedForms extracts forms from expanded JSON-LD and parses them with binding forms
 func (etd *EnhancedThingDescription) parseExpandedForms(affordances interface{}, formParser *FormParser) []FormWithVocabulary {
 	var formsWithVocab []FormWithVocabulary
-	
+
 	// Handle the case where affordances is an array
 	if affordanceArray, ok := affordances.([]interface{}); ok {
 		for _, affordance := range affordanceArray {
@@ -115,12 +115,12 @@ func (etd *EnhancedThingDescription) parseExpandedForms(affordances interface{},
 							if formMap, ok := formData.(map[string]interface{}); ok {
 								// Convert expanded form back to compact form for parsing
 								compactForm := etd.compactForm(formMap)
-								
+
 								// Parse with FormParser from binding_forms.go
 								if parsedForm, err := formParser.ParseForm(compactForm); err == nil {
 									vocab := etd.jsonldResult.ExtractFormVocabulary(compactForm)
 									protocol := etd.detectProtocolFromVocab(vocab)
-									
+
 									formsWithVocab = append(formsWithVocab, FormWithVocabulary{
 										Form:       parsedForm,
 										Vocabulary: vocab,
@@ -134,23 +134,23 @@ func (etd *EnhancedThingDescription) parseExpandedForms(affordances interface{},
 			}
 		}
 	}
-	
+
 	return formsWithVocab
 }
 
 // compactForm converts an expanded form back to compact form for parsing
 func (etd *EnhancedThingDescription) compactForm(expandedForm map[string]interface{}) map[string]interface{} {
 	compactForm := make(map[string]interface{})
-	
+
 	// Map common expanded URIs back to compact terms
 	uriMappings := map[string]string{
-		"https://www.w3.org/2019/wot/hypermedia#hasTarget":    "href",
+		"https://www.w3.org/2019/wot/hypermedia#hasTarget":      "href",
 		"https://www.w3.org/2019/wot/hypermedia#forContentType": "contentType",
-		"http://www.w3.org/2011/http#methodName":              "htv:methodName",
-		"http://www.w3.org/2018/wot/mqtt#qos":                 "mqv:qos",
-		"http://www.w3.org/2018/wot/mqtt#topic":               "mqv:topic",
+		"http://www.w3.org/2011/http#methodName":                "htv:methodName",
+		"http://www.w3.org/2018/wot/mqtt#qos":                   "mqv:qos",
+		"http://www.w3.org/2018/wot/mqtt#topic":                 "mqv:topic",
 	}
-	
+
 	for expandedURI, value := range expandedForm {
 		if compactTerm, exists := uriMappings[expandedURI]; exists {
 			compactForm[compactTerm] = value
@@ -159,7 +159,7 @@ func (etd *EnhancedThingDescription) compactForm(expandedForm map[string]interfa
 			compactForm[expandedURI] = value
 		}
 	}
-	
+
 	return compactForm
 }
 
@@ -185,7 +185,6 @@ type FormWithVocabulary struct {
 	Protocol   string                 // Detected protocol
 }
 
-
 // GetProtocolVocabulary returns vocabulary for a specific protocol
 func (etd *EnhancedThingDescription) GetProtocolVocabulary(protocol string) map[string]interface{} {
 	if etd.jsonldResult == nil {
@@ -199,7 +198,7 @@ func (etd *EnhancedThingDescription) ExpandProperty(property string) string {
 	if etd.jsonldResult == nil {
 		return property
 	}
-	
+
 	// Use the JSON-LD namespaces to expand
 	parts := strings.SplitN(property, ":", 2)
 	if len(parts) == 2 {
@@ -208,6 +207,6 @@ func (etd *EnhancedThingDescription) ExpandProperty(property string) string {
 			return namespace + localName
 		}
 	}
-	
+
 	return property
 }

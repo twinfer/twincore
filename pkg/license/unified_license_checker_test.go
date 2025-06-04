@@ -27,7 +27,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 		// Test System Security Features - Basic tier should have limited features
 		assert.True(t, checker.IsSystemFeatureEnabled(ctx, "local_auth"), "Basic tier should support local auth")
 		assert.True(t, checker.IsSystemFeatureEnabled(ctx, "session_mgmt"), "Basic tier should support session management")
-		
+
 		// Advanced system features should be disabled in basic tier
 		assert.False(t, checker.IsSystemFeatureEnabled(ctx, "ldap_auth"), "Basic tier should not support LDAP")
 		assert.False(t, checker.IsSystemFeatureEnabled(ctx, "saml_auth"), "Basic tier should not support SAML")
@@ -51,7 +51,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 		// Test WoT Security Features - Basic tier should have basic authentication
 		assert.True(t, checker.IsWoTFeatureEnabled(ctx, "basic_auth"), "Basic tier should support basic auth")
 		assert.True(t, checker.IsWoTFeatureEnabled(ctx, "bearer_auth"), "Basic tier should support bearer auth")
-		
+
 		// Advanced WoT features should be disabled
 		assert.False(t, checker.IsWoTFeatureEnabled(ctx, "oauth2_auth"), "Basic tier should not support OAuth2")
 		assert.False(t, checker.IsWoTFeatureEnabled(ctx, "certificate_auth"), "Basic tier should not support certificates")
@@ -174,10 +174,10 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 -----END PUBLIC KEY-----`)
 
 		checker := NewDefaultUnifiedLicenseChecker(logger, publicKey)
-		
+
 		// Verify interface compliance
 		var _ types.UnifiedLicenseChecker = checker
-		
+
 		ctx := context.Background()
 
 		// Test all main interface methods work

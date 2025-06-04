@@ -68,8 +68,8 @@ func (d *DefaultConfigProvider) GetDefaultHTTPConfig() types.HTTPConfig {
 			},
 			// API routes - authentication now handled by SystemSecurityManager middleware
 			{
-				Path:         "/api/*",
-				Handler:      "reverse_proxy",
+				Path:    "/api/*",
+				Handler: "reverse_proxy",
 				// RequiresAuth removed - now handled by SystemSecurityManager
 				Config: map[string]interface{}{
 					"upstream": "localhost:8090",
@@ -77,8 +77,8 @@ func (d *DefaultConfigProvider) GetDefaultHTTPConfig() types.HTTPConfig {
 			},
 			// WoT routes - authentication now handled by SystemSecurityManager middleware
 			{
-				Path:         "/things/*",
-				Handler:      "unified_wot_handler",
+				Path:    "/things/*",
+				Handler: "unified_wot_handler",
 				// RequiresAuth removed - now handled by SystemSecurityManager
 			},
 		},
@@ -227,7 +227,7 @@ func (d *DefaultConfigProvider) GetDefaultSystemSecurityConfig() types.SystemSec
 				Users: []types.LocalUser{
 					// Default admin user (password should be changed on first login)
 					{
-						Username:     "admin", 
+						Username:     "admin",
 						PasswordHash: "$2a$10$defaulthash", // This should be replaced during setup
 						Email:        "admin@twincore.local",
 						FullName:     "System Administrator",
@@ -263,7 +263,7 @@ func (d *DefaultConfigProvider) GetDefaultSystemSecurityConfig() types.SystemSec
 				},
 				{
 					ID:          "default_user",
-					Name:        "Default User Policy", 
+					Name:        "Default User Policy",
 					Description: "Limited access for regular users",
 					Principal:   "role:user",
 					Resources:   []string{"/api/things/*", "/api/status"},
@@ -293,7 +293,7 @@ func (d *DefaultConfigProvider) GetDefaultSystemSecurityConfig() types.SystemSec
 			ID:          "rbac_operator",
 			Name:        "Operator Policy",
 			Description: "Operator level access",
-			Principal:   "role:operator", 
+			Principal:   "role:operator",
 			Resources:   []string{"/api/things/*", "/api/streams/*"},
 			Actions:     []string{"read", "write"},
 		})
@@ -425,7 +425,7 @@ func (d *DefaultConfigProvider) GetDefaultWoTSecurityConfig() types.WoTSecurityC
 
 		if d.isWoTFeatureEnabled("bearer_auth") {
 			wotConfig.SecurityTemplates["api_token"] = types.SecurityTemplate{
-				Name:        "api_token", 
+				Name:        "api_token",
 				Description: "API token-based authentication",
 				Schemes: []types.WoTSecurityScheme{
 					{
@@ -449,7 +449,7 @@ func (d *DefaultConfigProvider) GetDefaultWoTSecurityConfig() types.WoTSecurityC
 		wotConfig.GlobalPolicies = &types.GlobalWoTSecurityPolicy{
 			RequireAuthentication: true,
 			AllowedProtocols:      []string{"http", "https", "mqtt", "mqtts", "kafka"},
-			BlockedIPs:           []string{},
+			BlockedIPs:            []string{},
 		}
 
 		// Add rate limiting if licensed

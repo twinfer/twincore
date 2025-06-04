@@ -42,7 +42,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 
 		// Should have basic policies but not advanced RBAC
 		assert.Len(t, secConfig.APIAuth.Policies, 2, "Basic tier should have default admin and user policies")
-		
+
 		// Check for default admin and user policies (no RBAC operator policy)
 		policyNames := make([]string, len(secConfig.APIAuth.Policies))
 		for i, policy := range secConfig.APIAuth.Policies {
@@ -52,7 +52,6 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 		assert.Contains(t, policyNames, "default_user")
 		assert.NotContains(t, policyNames, "rbac_operator", "Basic tier should not have RBAC operator policy")
 	})
-
 
 	t.Run("BasicTier_WoTSecurityConfig", func(t *testing.T) {
 		// Create license checker with basic tier (default)
@@ -74,11 +73,10 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 		assert.Nil(t, wotConfig.GlobalPolicies, "Basic tier should not have global policies")
 	})
 
-
 	t.Run("LegacyLicenseFeatures_Fallback", func(t *testing.T) {
 		// Test fallback to legacy license feature map when no unified checker is provided
 		provider := NewDefaultConfigProvider()
-		
+
 		// Set legacy license features
 		legacyFeatures := map[string]bool{
 			"ldap_auth": true,
@@ -94,11 +92,10 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 		require.NotNil(t, secConfig.AdminAuth)
 		assert.Contains(t, secConfig.AdminAuth.Providers, "ldap", "Should use legacy LDAP feature")
 		assert.True(t, secConfig.AdminAuth.MFA, "Should use legacy MFA feature")
-		
+
 		// RBAC should be disabled
 		assert.Len(t, secConfig.APIAuth.Policies, 2, "Should not have RBAC policy when disabled")
 	})
-
 
 	t.Run("NoLicenseChecker_BasicDefaults", func(t *testing.T) {
 		// Test behavior when no license checker is provided
@@ -116,7 +113,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 
 		// Security should be disabled by default
 		assert.False(t, secConfig.Enabled, "Security should be disabled without license")
-		
+
 		// WoT config should have minimal features (no credential stores without license)
 		assert.Len(t, wotConfig.CredentialStores, 0, "Should have no credential stores without license")
 	})
@@ -150,12 +147,12 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 
 	t.Run("FeatureChecking_WithLegacyFeatures", func(t *testing.T) {
 		provider := NewDefaultConfigProvider()
-		
+
 		// Set legacy features
 		legacyFeatures := map[string]bool{
 			"ldap_auth":         true,
-			"mfa":              true,
-			"oauth2_auth":      false,
+			"mfa":               true,
+			"oauth2_auth":       false,
 			"vault_integration": false,
 		}
 		provider.SetLicenseFeatures(legacyFeatures)
@@ -169,7 +166,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890abcdef...
 
 	t.Run("LicenseChecker_SetterAndGetter", func(t *testing.T) {
 		provider := NewDefaultConfigProvider()
-		
+
 		// Initially no license checker
 		assert.Nil(t, provider.licenseChecker)
 

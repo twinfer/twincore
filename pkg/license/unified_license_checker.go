@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
-	
+
 	"github.com/twinfer/twincore/pkg/types"
 )
 
@@ -187,16 +187,16 @@ func (ulc *DefaultUnifiedLicenseChecker) GetSystemSecurityFeatures(ctx context.C
 func (ulc *DefaultUnifiedLicenseChecker) ValidateSystemOperation(ctx context.Context, operation string) error {
 	// Map operations to required features
 	requiredFeatures := map[string]string{
-		"create_user":       "local_auth",
-		"ldap_login":        "ldap_auth",
-		"saml_login":        "saml_auth",
-		"oidc_login":        "oidc_auth",
-		"mfa_verify":        "mfa",
-		"create_api_key":    "api_keys",
-		"create_policy":     "rbac",
-		"advanced_policy":   "policy_engine",
-		"audit_query":       "audit_logging",
-		"set_rate_limit":    "rate_limit",
+		"create_user":     "local_auth",
+		"ldap_login":      "ldap_auth",
+		"saml_login":      "saml_auth",
+		"oidc_login":      "oidc_auth",
+		"mfa_verify":      "mfa",
+		"create_api_key":  "api_keys",
+		"create_policy":   "rbac",
+		"advanced_policy": "policy_engine",
+		"audit_query":     "audit_logging",
+		"set_rate_limit":  "rate_limit",
 	}
 
 	if feature, exists := requiredFeatures[operation]; exists {
@@ -558,7 +558,7 @@ func (ulc *DefaultUnifiedLicenseChecker) GetCurrentTier(ctx context.Context) (*t
 
 func (ulc *DefaultUnifiedLicenseChecker) CompareTiers(ctx context.Context, currentTier, targetTier string) (*types.TierComparison, error) {
 	tiers := types.GetPredefinedTiers()
-	
+
 	var current, target *types.LicenseTier
 	for _, tier := range tiers {
 		if tier.Name == currentTier {
@@ -651,7 +651,7 @@ func (ulc *DefaultUnifiedLicenseChecker) parseLicenseInfo(claims jwt.MapClaims) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal features: %w", err)
 		}
-		
+
 		if err := json.Unmarshal(featuresJSON, &info.Features); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal features: %w", err)
 		}
@@ -666,7 +666,7 @@ func (ulc *DefaultUnifiedLicenseChecker) parseLicenseInfo(claims jwt.MapClaims) 
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal limits: %w", err)
 		}
-		
+
 		if err := json.Unmarshal(limitsJSON, &info.Limits); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal limits: %w", err)
 		}

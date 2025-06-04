@@ -91,9 +91,9 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		// HTTP route
 		// Note: RequiresAuth is now determined by SystemSecurityManager, not Thing security
 		route := types.HTTPRoute{
-			Path:         m.expandPattern(m.httpPattern, td.ID, "actions", name),
-			Methods:      []string{"POST"},
-			Handler:      "unified_wot_handler",
+			Path:    m.expandPattern(m.httpPattern, td.ID, "actions", name),
+			Methods: []string{"POST"},
+			Handler: "unified_wot_handler",
 			// RequiresAuth removed - now handled by SystemSecurityManager middleware
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":    td.ID,
@@ -134,9 +134,9 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		// HTTP route (SSE)
 		// Note: RequiresAuth is now determined by SystemSecurityManager, not Thing security
 		route := types.HTTPRoute{
-			Path:         m.expandPattern(m.httpPattern, td.ID, "events", name),
-			Methods:      []string{"GET"},
-			Handler:      "unified_wot_handler",
+			Path:    m.expandPattern(m.httpPattern, td.ID, "events", name),
+			Methods: []string{"GET"},
+			Handler: "unified_wot_handler",
 			// RequiresAuth removed - now handled by SystemSecurityManager middleware
 			Config: map[string]interface{}{ // Changed Metadata to Config
 				"thingId":   td.ID,

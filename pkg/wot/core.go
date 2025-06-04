@@ -243,11 +243,11 @@ type ThingDescription struct {
 	Titles              map[string]string              `json:"titles,omitempty"`
 	Description         string                         `json:"description,omitempty"`
 	Descriptions        map[string]string              `json:"descriptions,omitempty"`
-	Version             *VersionInfo                   `json:"version,omitempty"` // Updated for W3C WoT TD 1.1
-	Created             string                         `json:"created,omitempty"` // Timestamp (string ISO8601)
+	Version             *VersionInfo                   `json:"version,omitempty"`  // Updated for W3C WoT TD 1.1
+	Created             string                         `json:"created,omitempty"`  // Timestamp (string ISO8601)
 	Modified            string                         `json:"modified,omitempty"` // Timestamp (string ISO8601) - Made optional for compliance
-	Support             string                         `json:"support,omitempty"` // Contact information (URI)
-	Base                string                         `json:"base,omitempty"`    // Base URI
+	Support             string                         `json:"support,omitempty"`  // Contact information (URI)
+	Base                string                         `json:"base,omitempty"`     // Base URI
 	Properties          map[string]*PropertyAffordance `json:"properties,omitempty"`
 	Actions             map[string]*ActionAffordance   `json:"actions,omitempty"`
 	Events              map[string]*EventAffordance    `json:"events,omitempty"`
@@ -266,16 +266,16 @@ type ThingDescription struct {
 // ValidateBasicCompliance checks if the Thing Description meets basic W3C WoT TD 1.1 requirements
 func (td *ThingDescription) ValidateBasicCompliance() []string {
 	var issues []string
-	
+
 	// Check mandatory fields
 	if td.Title == "" {
 		issues = append(issues, "missing mandatory 'title' field")
 	}
-	
+
 	if len(td.Security) == 0 {
 		issues = append(issues, "missing mandatory 'security' field")
 	}
-	
+
 	if len(td.SecurityDefinitions) == 0 && len(td.Security) > 0 {
 		// Check if security is not just "nosec"
 		hasNonNosec := false
@@ -289,18 +289,18 @@ func (td *ThingDescription) ValidateBasicCompliance() []string {
 			issues = append(issues, "missing 'securityDefinitions' when security schemes other than 'nosec' are used")
 		}
 	}
-	
+
 	// Validate context
 	if td.Context == nil {
 		issues = append(issues, "missing mandatory '@context' field")
 	}
-	
+
 	// Check that at least one interaction affordance has forms
 	totalInteractions := len(td.Properties) + len(td.Actions) + len(td.Events)
 	if totalInteractions == 0 && len(td.Forms) == 0 {
 		issues = append(issues, "Thing Description should have at least one interaction affordance or global form")
 	}
-	
+
 	return issues
 }
 
@@ -308,7 +308,7 @@ func (td *ThingDescription) ValidateBasicCompliance() []string {
 func (pa *PropertyAffordance) ValidateOperationTypes() []string {
 	var issues []string
 	validOps := []string{"readproperty", "writeproperty", "observeproperty", "unobserveproperty"}
-	
+
 	for _, form := range pa.Forms {
 		ops := form.GetOp()
 		for _, op := range ops {
@@ -331,7 +331,7 @@ func (pa *PropertyAffordance) ValidateOperationTypes() []string {
 func (aa *ActionAffordance) ValidateOperationTypes() []string {
 	var issues []string
 	validOps := []string{"invokeaction", "queryaction", "cancelaction"}
-	
+
 	for _, form := range aa.Forms {
 		ops := form.GetOp()
 		for _, op := range ops {
@@ -350,11 +350,11 @@ func (aa *ActionAffordance) ValidateOperationTypes() []string {
 	return issues
 }
 
-// ValidateOperationTypes checks if operation types in forms match their affordance context  
+// ValidateOperationTypes checks if operation types in forms match their affordance context
 func (ea *EventAffordance) ValidateOperationTypes() []string {
 	var issues []string
 	validOps := []string{"subscribeevent", "unsubscribeevent"}
-	
+
 	for _, form := range ea.Forms {
 		ops := form.GetOp()
 		for _, op := range ops {

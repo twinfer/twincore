@@ -27,11 +27,11 @@ type Container struct {
 	Logger *logrus.Logger
 
 	// Security
-	DeviceManager           *security.DeviceManager
-	LicenseManager          types.LicenseManager  // Legacy - to be removed
-	UnifiedLicenseChecker   types.UnifiedLicenseChecker
-	SystemSecurityManager   types.SystemSecurityManager
-	WoTSecurityManager      types.WoTSecurityManager
+	DeviceManager         *security.DeviceManager
+	LicenseManager        types.LicenseManager // Legacy - to be removed
+	UnifiedLicenseChecker types.UnifiedLicenseChecker
+	SystemSecurityManager types.SystemSecurityManager
+	WoTSecurityManager    types.WoTSecurityManager
 
 	// Configuration
 	ConfigManager    *config.ConfigManager
@@ -161,7 +161,7 @@ func (c *Container) initSecurity(cfg *Config) error {
 	systemSecurityMgr := security.NewDefaultSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
-	// Initialize WoT security manager  
+	// Initialize WoT security manager
 	wotSecurityMgr := security.NewDefaultWoTSecurityManager(c.DB, c.Logger, unifiedChecker)
 	c.WoTSecurityManager = wotSecurityMgr
 
@@ -176,7 +176,7 @@ func (c *Container) initSecurity(cfg *Config) error {
 	}
 
 	dbStore := types.CredentialStore{
-		Type:      "db", 
+		Type:      "db",
 		Encrypted: true,
 		Config:    make(map[string]interface{}),
 	}
@@ -316,7 +316,7 @@ func (c *Container) initBindingGenerator(cfg *Config) error {
 		simpleLicenseChecker,
 		c.BenthosStreamManager,
 	)
-	
+
 	// Configure persistence using modern approach (Bloblang pipelines)
 	persistenceConfig := forms.PersistenceConfig{
 		Enabled:    cfg.ParquetLogPath != "", // Enable if path is provided
@@ -325,7 +325,7 @@ func (c *Container) initBindingGenerator(cfg *Config) error {
 		Partitions: []string{"year", "month", "day"},
 	}
 	unifiedAdapter.SetPersistenceConfig(persistenceConfig)
-	
+
 	c.BindingGenerator = unifiedAdapter
 	c.Logger.Info("Unified binding generator initialized with Bloblang pipelines")
 
@@ -380,10 +380,10 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 
 	// Create services
 	c.HTTPService = svc.NewHTTPServiceUnified(c.Logger) // Use the unified HTTP service without Admin API
-	
+
 	// Setup caddy-security integration
 	c.setupCaddySecurityIntegration(cfg)
-	
+
 	// NewStreamService was refactored to take *service.Environment.
 	// Constructor: NewStreamService(env *service.Environment, logger *logrus.Logger)
 	c.StreamService = svc.NewStreamService(c.BenthosEnvironment, c.Logger)
@@ -461,26 +461,26 @@ func (c *Container) Stop(ctx context.Context) error {
 // setupCaddySecurityIntegration configures caddy-security integration with SystemSecurityManager
 func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
 	c.Logger.Debug("Setting up caddy-security integration")
-	
+
 	// Get system security configuration from the config manager
 	systemSecurityConfig, err := c.getSystemSecurityConfig()
 	if err != nil {
 		c.Logger.WithError(err).Warn("Failed to get system security config, using defaults")
 		systemSecurityConfig = c.getDefaultSystemSecurityConfig()
 	}
-	
+
 	// Create caddy-security bridge
 	securityBridge := security.NewCaddySecurityBridge(
 		c.SystemSecurityManager,
 		systemSecurityConfig,
 		c.Logger,
 	)
-	
+
 	// Set the security bridge on the HTTP service
 	if httpService, ok := c.HTTPService.(*svc.HTTPServiceUnified); ok {
 		httpService.SetSecurityBridge(securityBridge)
 		c.Logger.Info("Caddy-security integration configured successfully")
-		
+
 		// Sync users to caddy-security user store
 		if err := securityBridge.SyncUsersToUserStore(context.Background()); err != nil {
 			c.Logger.WithError(err).Warn("Failed to sync users to caddy-security user store")
@@ -511,12 +511,12 @@ func (c *Container) getDefaultSystemSecurityConfig() *types.SystemSecurityConfig
 func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceConfig {
 	// Security is now handled separately by SystemSecurityManager
 	// HTTP configuration no longer contains security settings
-	
+
 	// Initialize with the new HTTPConfig
 	// Security middleware will be handled by SystemSecurityManager
 	httpCfg := types.HTTPConfig{
-		Listen:   []string{":8080"},   // Default listen address, can be from appCfg
-		Routes:   []types.HTTPRoute{}, // Initialize with no routes
+		Listen: []string{":8080"},   // Default listen address, can be from appCfg
+		Routes: []types.HTTPRoute{}, // Initialize with no routes
 		// Security field removed - now handled by SystemSecurityManager
 	}
 

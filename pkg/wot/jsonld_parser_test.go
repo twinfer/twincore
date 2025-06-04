@@ -137,7 +137,7 @@ func TestJSONLDParser_vs_NaiveParser(t *testing.T) {
 		expanded := jsonldResult.ExpandedDoc
 		assert.NotEmpty(t, expanded)
 
-		// Enhanced TD can expand properties via JSON-LD  
+		// Enhanced TD can expand properties via JSON-LD
 		expandedProp := etd.ExpandProperty("ex:temperatureProperty")
 		assert.Contains(t, expandedProp, "example.com/vocab#temperatureProperty")
 

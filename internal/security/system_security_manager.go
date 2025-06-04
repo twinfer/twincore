@@ -10,20 +10,20 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
-	
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/twinfer/twincore/pkg/types"
 )
 
 // DefaultSystemSecurityManager implements SystemSecurityManager interface
 type DefaultSystemSecurityManager struct {
-	db          *sql.DB
-	logger      *logrus.Logger
-	config      *types.SystemSecurityConfig
-	jwtSecret   []byte
-	sessions    map[string]*types.UserSession // In-memory session store (TODO: move to persistent store)
+	db             *sql.DB
+	logger         *logrus.Logger
+	config         *types.SystemSecurityConfig
+	jwtSecret      []byte
+	sessions       map[string]*types.UserSession // In-memory session store (TODO: move to persistent store)
 	licenseChecker types.UnifiedLicenseChecker
 }
 
@@ -180,8 +180,8 @@ func (sm *DefaultSystemSecurityManager) ListUsers(ctx context.Context) ([]*types
 	for rows.Next() {
 		var user types.LocalUser
 		var rolesJSON string
-		
-		err := rows.Scan(&user.Username, &user.Email, &user.FullName, &rolesJSON, 
+
+		err := rows.Scan(&user.Username, &user.Email, &user.FullName, &rolesJSON,
 			&user.Disabled, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			continue
@@ -227,7 +227,7 @@ func (sm *DefaultSystemSecurityManager) CreateUser(ctx context.Context, user *ty
 	_, err = sm.db.ExecContext(ctx, `
 		INSERT INTO local_users (username, password_hash, email, name, roles, disabled, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, user.Username, string(hashedPassword), user.Email, user.FullName, string(rolesJSON), 
+	`, user.Username, string(hashedPassword), user.Email, user.FullName, string(rolesJSON),
 		false, time.Now(), time.Now())
 
 	if err != nil {
@@ -248,7 +248,7 @@ func (sm *DefaultSystemSecurityManager) UpdateUser(ctx context.Context, userID s
 	// Build dynamic update query
 	setParts := []string{}
 	args := []interface{}{}
-	
+
 	for field, value := range updates {
 		switch field {
 		case "email", "name", "disabled":
@@ -272,7 +272,7 @@ func (sm *DefaultSystemSecurityManager) UpdateUser(ctx context.Context, userID s
 	args = append(args, userID)
 
 	query := fmt.Sprintf("UPDATE local_users SET %s WHERE username = ?", strings.Join(setParts, ", "))
-	
+
 	_, err := sm.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
@@ -333,7 +333,7 @@ func (sm *DefaultSystemSecurityManager) ChangePassword(ctx context.Context, user
 	}
 
 	// Update password
-	_, err = sm.db.ExecContext(ctx, "UPDATE local_users SET password_hash = ?, updated_at = ? WHERE username = ?", 
+	_, err = sm.db.ExecContext(ctx, "UPDATE local_users SET password_hash = ?, updated_at = ? WHERE username = ?",
 		string(hashedPassword), time.Now(), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
@@ -354,7 +354,7 @@ func (sm *DefaultSystemSecurityManager) ChangePassword(ctx context.Context, user
 func (sm *DefaultSystemSecurityManager) CreateSession(ctx context.Context, user *types.User) (*types.UserSession, error) {
 	sessionID := sm.generateSessionID()
 	token := sm.generateToken(user)
-	
+
 	expiresAt := time.Now().Add(24 * time.Hour) // Default 24h
 	if sm.config.SessionConfig != nil && sm.config.SessionConfig.Timeout > 0 {
 		expiresAt = time.Now().Add(sm.config.SessionConfig.Timeout)
@@ -454,11 +454,11 @@ func (sm *DefaultSystemSecurityManager) RevokeAllUserSessions(ctx context.Contex
 	}
 
 	sm.logAuditEvent(ctx, types.AuditEvent{
-		Type:     "session",
-		Action:   "revoke_all",
-		UserID:   userID,
-		Success:  true,
-		Details:  map[string]interface{}{"sessions_revoked": count},
+		Type:    "session",
+		Action:  "revoke_all",
+		UserID:  userID,
+		Success: true,
+		Details: map[string]interface{}{"sessions_revoked": count},
 	})
 
 	return nil
@@ -568,10 +568,10 @@ func (sm *DefaultSystemSecurityManager) HealthCheck(ctx context.Context) error {
 
 func (sm *DefaultSystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]interface{}, error) {
 	metrics := map[string]interface{}{
-		"active_sessions": len(sm.sessions),
-		"total_users":     sm.getUserCount(ctx),
+		"active_sessions":  len(sm.sessions),
+		"total_users":      sm.getUserCount(ctx),
 		"security_enabled": sm.config.Enabled,
-		"license_valid":   sm.licenseChecker.IsLicenseValid(ctx),
+		"license_valid":    sm.licenseChecker.IsLicenseValid(ctx),
 	}
 
 	return metrics, nil
@@ -591,7 +591,7 @@ func (sm *DefaultSystemSecurityManager) getUserByUsername(ctx context.Context, u
 	err := sm.db.QueryRowContext(ctx, `
 		SELECT username, password_hash, email, name, roles, disabled, last_login, created_at, updated_at 
 		FROM local_users WHERE username = ?
-	`, username).Scan(&user.Username, &user.PasswordHash, &user.Email, &user.FullName, 
+	`, username).Scan(&user.Username, &user.PasswordHash, &user.Email, &user.FullName,
 		&rolesJSON, &user.Disabled, &user.LastLogin, &user.CreatedAt, &user.UpdatedAt)
 
 	if err != nil {
@@ -622,7 +622,7 @@ func (sm *DefaultSystemSecurityManager) getUserByID(ctx context.Context, userID 
 }
 
 func (sm *DefaultSystemSecurityManager) updateLastLogin(ctx context.Context, userID string) error {
-	_, err := sm.db.ExecContext(ctx, "UPDATE local_users SET last_login = ? WHERE username = ?", 
+	_, err := sm.db.ExecContext(ctx, "UPDATE local_users SET last_login = ? WHERE username = ?",
 		time.Now(), userID)
 	return err
 }
@@ -719,14 +719,14 @@ func (sm *DefaultSystemSecurityManager) logAuditEvent(ctx context.Context, event
 	// Log to structured logger
 	sm.logger.WithFields(logrus.Fields{
 		"audit_event_id": event.ID,
-		"type":          event.Type,
-		"action":        event.Action,
-		"user_id":       event.UserID,
-		"username":      event.Username,
-		"resource":      event.Resource,
-		"success":       event.Success,
-		"error":         event.Error,
-		"ip_address":    event.IPAddress,
+		"type":           event.Type,
+		"action":         event.Action,
+		"user_id":        event.UserID,
+		"username":       event.Username,
+		"resource":       event.Resource,
+		"success":        event.Success,
+		"error":          event.Error,
+		"ip_address":     event.IPAddress,
 	}).Info("Security audit event")
 
 	// TODO: Store in audit log table for persistence
