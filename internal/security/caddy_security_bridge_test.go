@@ -216,9 +216,10 @@ func TestCaddySecurityBridge(t *testing.T) {
 	t.Run("GenerateAuthenticationMiddleware_ProtectedRoute", func(t *testing.T) {
 		// Test with a protected API route
 		route := types.HTTPRoute{
-			Path:    "/api/things",
-			Methods: []string{"GET", "POST"},
-			Handler: "reverse_proxy",
+			Path:         "/api/things",
+			Methods:      []string{"GET", "POST"},
+			Handler:      "reverse_proxy",
+			RequiresAuth: true,
 		}
 
 		middleware, err := bridge.GenerateAuthenticationMiddleware(route)
@@ -234,9 +235,10 @@ func TestCaddySecurityBridge(t *testing.T) {
 	t.Run("GenerateAuthenticationMiddleware_PublicRoute", func(t *testing.T) {
 		// Test with a public portal route
 		route := types.HTTPRoute{
-			Path:    "/portal/index.html",
-			Methods: []string{"GET"},
-			Handler: "file_server",
+			Path:         "/portal/index.html",
+			Methods:      []string{"GET"},
+			Handler:      "file_server",
+			RequiresAuth: false,
 		}
 
 		middleware, err := bridge.GenerateAuthenticationMiddleware(route)
@@ -303,35 +305,40 @@ func TestCaddySecurityBridge_RouteProtection(t *testing.T) {
 	testCases := []struct {
 		name          string
 		path          string
+		requiresAuth  bool
 		shouldProtect bool
 	}{
-		{"API route", "/api/things", true},
-		{"Admin route", "/admin/config", true},
-		{"Setup route", "/setup/initialize", true},
-		{"Portal route", "/portal/index.html", false},
-		{"WoT route", "/things/sensor1/properties/temperature", false},
-		{"Login route", "/login", false},
-		{"Logout route", "/logout", false},
-		{"Assets route", "/assets/logo.png", false},
-		{"Unknown route", "/unknown/path", true}, // Default to protected
+		{"API route", "/api/things", true, true},
+		{"Admin route", "/admin/config", true, true},
+		{"Setup route", "/setup/initialize", true, true},
+		{"Portal route", "/portal/index.html", false, false},
+		{"WoT route protected", "/things/sensor1/properties/temperature", true, true},
+		{"WoT route public", "/things/sensor1/properties/temperature", false, false},
+		{"Login route", "/auth/login", false, false},
+		{"Logout route", "/auth/logout", false, false},
+		{"Assets route", "/assets/logo.png", false, false},
+		{"Health route", "/health", false, false},
+		{"Unknown route protected", "/unknown/path", true, true},
+		{"Unknown route public", "/unknown/path", false, false},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			route := types.HTTPRoute{
-				Path:    tc.path,
-				Methods: []string{"GET"},
-				Handler: "reverse_proxy",
+				Path:         tc.path,
+				Methods:      []string{"GET"},
+				Handler:      "reverse_proxy",
+				RequiresAuth: tc.requiresAuth,
 			}
 
 			middleware, err := bridge.GenerateAuthenticationMiddleware(route)
 			assert.NoError(t, err)
 
 			if tc.shouldProtect {
-				assert.NotNil(t, middleware, "Route %s should be protected", tc.path)
+				assert.NotNil(t, middleware, "Route %s should be protected when RequiresAuth=%v", tc.path, tc.requiresAuth)
 				assert.Contains(t, string(middleware), "authentication")
 			} else {
-				assert.Nil(t, middleware, "Route %s should not be protected", tc.path)
+				assert.Nil(t, middleware, "Route %s should not be protected when RequiresAuth=%v", tc.path, tc.requiresAuth)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
@@ -502,6 +503,52 @@ func (c *Container) getDefaultSystemSecurityConfig() *types.SystemSecurityConfig
 	// Create default config provider with license checker and get default security config
 	defaultProvider := config.NewDefaultConfigProviderWithLicense(c.UnifiedLicenseChecker)
 	secConfig := defaultProvider.GetDefaultSystemSecurityConfig()
+
+	// Enable security for caddy-security integration
+	secConfig.Enabled = true
+
+	// Configure API authentication settings for JWT tokens
+	if secConfig.APIAuth == nil {
+		secConfig.APIAuth = &types.APIAuthConfig{
+			Methods: []string{"bearer"},
+			JWTConfig: &types.JWTConfig{
+				Algorithm:    "HS256",
+				Issuer:       "twincore-gateway",
+				Audience:     "twincore-api",
+				Expiry:       time.Hour, // 1 hour
+				RefreshToken: true,
+			},
+			Policies: []types.APIPolicy{
+				{
+					Principal: "role:admin",
+					Resources: []string{"/api/*"},
+					Actions:   []string{"read", "write", "delete"},
+				},
+				{
+					Principal: "role:operator",
+					Resources: []string{"/api/things/*", "/api/streams/*"},
+					Actions:   []string{"read", "write"},
+				},
+				{
+					Principal: "role:viewer",
+					Resources: []string{"/api/things/*", "/api/streams/*"},
+					Actions:   []string{"read"},
+				},
+			},
+		}
+	}
+
+	// Configure session settings
+	if secConfig.SessionConfig == nil {
+		secConfig.SessionConfig = &types.SessionConfig{
+			Timeout:        3600,  // 1 hour
+			MaxSessions:    5,     // Max 5 concurrent sessions per user
+			SecureCookies:  true,  // HTTPS only in production
+			SameSite:       "lax", // CSRF protection
+			CSRFProtection: true,
+		}
+	}
+
 	return &secConfig
 }
 

@@ -1,0 +1,390 @@
+{
+  "http": {
+    "listen": [":8080"],
+    "routes": [
+      {
+        "path": "/auth/*",
+        "handler": "authentication_portal",
+        "requires_auth": false,
+        "config": {
+          "portal_name": "twincore_portal"
+        }
+      },
+      {
+        "path": "/portal/*",
+        "handler": "file_server",
+        "requires_auth": false,
+        "config": {
+          "root": "./portal/dist",
+          "strip_prefix": "/portal"
+        }
+      },
+      {
+        "path": "/setup/*",
+        "handler": "reverse_proxy",
+        "requires_auth": false,
+        "config": {
+          "upstream": "localhost:8090"
+        }
+      },
+      {
+        "path": "/health",
+        "handler": "static_response",
+        "requires_auth": false,
+        "config": {
+          "body": "{\"status\":\"ok\",\"service\":\"twincore\"}",
+          "status_code": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        }
+      },
+      {
+        "path": "/api/*",
+        "handler": "reverse_proxy",
+        "requires_auth": true,
+        "config": {
+          "upstream": "localhost:8090",
+          "auth_policy": "twincore_policy"
+        }
+      },
+      {
+        "path": "/things/*",
+        "handler": "unified_wot_handler",
+        "requires_auth": true,
+        "config": {
+          "auth_policy": "twincore_policy"
+        }
+      }
+    ]
+  },
+  "stream": {
+    "topics": [
+      {
+        "name": "property_updates",
+        "type": "kafka",
+        "config": {
+          "brokers": ["localhost:9092"],
+          "topic": "twincore.property.updates"
+        }
+      },
+      {
+        "name": "action_invocations",
+        "type": "kafka",
+        "config": {
+          "brokers": ["localhost:9092"],
+          "topic": "twincore.action.invocations"
+        }
+      },
+      {
+        "name": "event_notifications",
+        "type": "kafka",
+        "config": {
+          "brokers": ["localhost:9092"],
+          "topic": "twincore.event.notifications"
+        }
+      }
+    ],
+    "processing": {
+      "batch_size": 100,
+      "timeout": "5s",
+      "max_retries": 3
+    }
+  },
+  "wot": {
+    "discovery": {
+      "enabled": true,
+      "port": 8081,
+      "multicast": {
+        "enabled": true,
+        "address": "224.0.1.187",
+        "port": 5683
+      }
+    },
+    "schema_validation": {
+      "enabled": true,
+      "strict_mode": false,
+      "cache_schemas": true
+    },
+    "binding_templates": {
+      "http": {
+        "default_port": 8080,
+        "timeout": "30s",
+        "rate_limit": "100/s"
+      },
+      "mqtt": {
+        "broker": "localhost:1883",
+        "qos": 1,
+        "retain": false
+      },
+      "kafka": {
+        "brokers": ["localhost:9092"],
+        "partition_strategy": "round_robin"
+      }
+    }
+  },
+  "system_security": {
+    "enabled": true,
+    "admin_auth": {
+      "method": "local",
+      "providers": ["local"],
+      "mfa": false,
+      "local": {
+        "users": [
+          {
+            "username": "admin",
+            "password_hash": "$2a$10$defaulthash",
+            "email": "admin@twincore.local",
+            "full_name": "System Administrator",
+            "roles": ["admin"],
+            "disabled": false
+          }
+        ],
+        "password_policy": {
+          "min_length": 8,
+          "require_uppercase": true,
+          "require_lowercase": true,
+          "require_numbers": true,
+          "require_symbols": false,
+          "max_age_days": 90,
+          "prevent_reuse": 5
+        },
+        "account_lockout": {
+          "enabled": true,
+          "max_attempts": 5,
+          "lockout_duration": 300,
+          "reset_duration": 3600
+        }
+      }
+    },
+    "api_auth": {
+      "methods": ["bearer"],
+      "jwt_config": {
+        "algorithm": "HS256",
+        "issuer": "twincore-gateway",
+        "audience": "twincore-api",
+        "expiry": "1h",
+        "refresh_token": true
+      },
+      "policies": [
+        {
+          "id": "admin_policy",
+          "name": "Administrator Access",
+          "description": "Full access to all APIs",
+          "principal": "role:admin",
+          "resources": ["/api/*"],
+          "actions": ["read", "write", "delete"]
+        },
+        {
+          "id": "operator_policy", 
+          "name": "Operator Access",
+          "description": "Access to Things and Streams",
+          "principal": "role:operator",
+          "resources": ["/api/things/*", "/api/streams/*"],
+          "actions": ["read", "write"]
+        },
+        {
+          "id": "viewer_policy",
+          "name": "Viewer Access", 
+          "description": "Read-only access",
+          "principal": "role:viewer",
+          "resources": ["/api/things/*", "/api/streams/*"],
+          "actions": ["read"]
+        }
+      ],
+      "rate_limit": {
+        "enabled": true,
+        "requests_per_minute": 1000,
+        "burst": 100
+      }
+    },
+    "session_config": {
+      "timeout": 3600,
+      "max_sessions": 5,
+      "secure_cookies": true,
+      "same_site": "lax",
+      "csrf_protection": true
+    }
+  },
+  "wot_security": {
+    "enabled": true,
+    "default_security_scheme": "nosec",
+    "credential_stores": [
+      {
+        "name": "env_store",
+        "type": "env",
+        "encrypted": false,
+        "config": {}
+      },
+      {
+        "name": "db_store",
+        "type": "db", 
+        "encrypted": true,
+        "config": {
+          "table": "device_credentials"
+        }
+      }
+    ],
+    "security_templates": [
+      {
+        "name": "basic_auth",
+        "scheme": "basic",
+        "config": {
+          "realm": "TwinCore Device"
+        }
+      },
+      {
+        "name": "api_key",
+        "scheme": "apikey",
+        "config": {
+          "in": "header",
+          "name": "X-API-Key"
+        }
+      },
+      {
+        "name": "bearer_token",
+        "scheme": "bearer", 
+        "config": {
+          "format": "jwt"
+        }
+      }
+    ],
+    "device_policies": {
+      "default_access": "deny",
+      "require_authentication": true,
+      "audit_all_access": true
+    }
+  },
+  "caddy_security": {
+    "portal": {
+      "user_interface": {
+        "title": "TwinCore Gateway",
+        "logo_url": "/portal/assets/logo.png"
+      },
+      "cookie": {
+        "domain": "",
+        "path": "/",
+        "lifetime": 86400,
+        "secure": true,
+        "httponly": true,
+        "samesite": "lax"
+      },
+      "token": {
+        "jwt": {
+          "token_name": "access_token",
+          "token_secret": "twincore-jwt-secret-change-in-production",
+          "token_issuer": "twincore-gateway",
+          "token_audience": ["twincore-api", "twincore-portal"],
+          "token_lifetime": 3600,
+          "token_origins": ["twincore"]
+        }
+      },
+      "crypto": {
+        "key": {
+          "sign_verify": "twincore-jwt-secret-change-in-production"
+        },
+        "default": {
+          "token_name": "access_token",
+          "token_lifetime": 3600
+        }
+      },
+      "transform": {
+        "match": {
+          "action": "exact",
+          "realm": "twincore"
+        },
+        "ui": {
+          "links": [
+            {
+              "title": "TwinCore Portal",
+              "link": "/portal",
+              "icon": "las la-home"
+            }
+          ]
+        }
+      }
+    },
+    "authorization": {
+      "default_action": "deny",
+      "acl": {
+        "rules": [
+          {
+            "comment": "Admin full access",
+            "conditions": ["match roles admin"],
+            "action": "allow"
+          },
+          {
+            "comment": "Operator access to WoT and streams",
+            "conditions": [
+              "match roles operator",
+              "match path /api/things*"
+            ],
+            "action": "allow"
+          },
+          {
+            "comment": "Operator access to streams",
+            "conditions": [
+              "match roles operator", 
+              "match path /api/streams*"
+            ],
+            "action": "allow"
+          },
+          {
+            "comment": "Viewer read-only access",
+            "conditions": [
+              "match roles viewer",
+              "match method GET", 
+              "match path /api/things*"
+            ],
+            "action": "allow"
+          },
+          {
+            "comment": "Viewer read-only streams",
+            "conditions": [
+              "match roles viewer",
+              "match method GET",
+              "match path /api/streams*" 
+            ],
+            "action": "allow"
+          },
+          {
+            "comment": "Public health check",
+            "conditions": ["match path /health*"],
+            "action": "allow"
+          }
+        ]
+      }
+    },
+    "user_registry": {
+      "type": "local",
+      "config": {
+        "path": "./twincore_users.json",
+        "realm": "twincore"
+      }
+    }
+  },
+  "licensing": {
+    "tiers": {
+      "basic": {
+        "max_things": 100,
+        "max_streams": 10,
+        "features": ["http", "local_auth", "basic_monitoring"]
+      },
+      "professional": {
+        "max_things": 1000,
+        "max_streams": 100,
+        "features": ["http", "mqtt", "kafka", "ldap_auth", "advanced_monitoring", "clustering"]
+      },
+      "enterprise": {
+        "max_things": -1,
+        "max_streams": -1,
+        "features": ["http", "mqtt", "kafka", "coap", "ldap_auth", "saml_auth", "oauth2_auth", "advanced_monitoring", "clustering", "high_availability", "backup_restore"]
+      }
+    },
+    "enforcement": {
+      "strict_limits": false,
+      "grace_period_days": 30,
+      "notification_threshold": 0.9
+    }
+  }
+}

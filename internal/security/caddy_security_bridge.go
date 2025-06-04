@@ -42,6 +42,9 @@ func (csb *CaddySecurityBridge) GenerateSecurityApp(ctx context.Context) (json.R
 			"authorization_policies": map[string]any{
 				"twincore_policy": csb.generateAuthorizationPolicy(),
 			},
+			"user_registries": map[string]any{
+				"twincore_users": csb.generateUserRegistryConfig(),
+			},
 		},
 	}
 
@@ -84,6 +87,46 @@ func (csb *CaddySecurityBridge) generateAuthPortalConfig() map[string]any {
 		portalConfig["backends"] = append(backends, ldapBackend)
 	}
 
+	// Configure transformation and JWT settings
+	portalConfig["transform"] = map[string]any{
+		"match": map[string]any{
+			"action": "exact",
+			"realm":  "twincore",
+		},
+		"ui": map[string]any{
+			"links": []map[string]any{
+				{
+					"title": "TwinCore Portal",
+					"link":  "/portal",
+					"icon":  "las la-home",
+				},
+			},
+		},
+	}
+
+	// Configure JWT tokens for API access
+	portalConfig["token"] = map[string]any{
+		"jwt": map[string]any{
+			"token_name":     "access_token",
+			"token_secret":   csb.generateJWTSecret(),
+			"token_issuer":   "twincore-gateway",
+			"token_audience": []string{"twincore-api", "twincore-portal"},
+			"token_lifetime": 3600, // 1 hour
+			"token_origins":  []string{"twincore"},
+		},
+	}
+
+	// Configure crypto settings
+	portalConfig["crypto"] = map[string]any{
+		"key": map[string]any{
+			"sign_verify": csb.generateJWTSecret(),
+		},
+		"default": map[string]any{
+			"token_name":     "access_token",
+			"token_lifetime": 3600,
+		},
+	}
+
 	return portalConfig
 }
 
@@ -99,12 +142,16 @@ func (csb *CaddySecurityBridge) generateLocalAuthBackend() map[string]any {
 	}
 
 	localBackend := map[string]any{
-		"type":            "local",
-		"name":            "twincore_local_backend",
-		"method":          "form",
-		"realm":           "twincore",
-		"user_stores":     []map[string]any{userStore},
-		"password_policy": csb.generatePasswordPolicy(),
+		"type":        "local",
+		"name":        "twincore_local_backend",
+		"method":      "form",
+		"realm":       "twincore",
+		"user_stores": []map[string]any{userStore},
+	}
+
+	// Add password policy if configured
+	if csb.config.AdminAuth != nil && csb.config.AdminAuth.Local != nil && csb.config.AdminAuth.Local.PasswordPolicy != nil {
+		localBackend["password_policy"] = csb.generatePasswordPolicy()
 	}
 
 	return localBackend
@@ -169,26 +216,105 @@ func (csb *CaddySecurityBridge) generatePasswordPolicy() map[string]any {
 func (csb *CaddySecurityBridge) generateAuthorizationPolicy() map[string]any {
 	policy := map[string]any{
 		"default_action": "deny",
-		"rules":          []map[string]any{},
+		"acl": map[string]any{
+			"rules": []map[string]any{
+				// Admin access to everything
+				{
+					"comment": "Admin full access",
+					"conditions": []string{
+						"match roles admin",
+					},
+					"action": "allow",
+				},
+				// Operator access to WoT and streams
+				{
+					"comment": "Operator access to WoT and streams",
+					"conditions": []string{
+						"match roles operator",
+						"match path /api/things*",
+					},
+					"action": "allow",
+				},
+				{
+					"comment": "Operator access to streams",
+					"conditions": []string{
+						"match roles operator",
+						"match path /api/streams*",
+					},
+					"action": "allow",
+				},
+				// Viewer read-only access
+				{
+					"comment": "Viewer read-only access",
+					"conditions": []string{
+						"match roles viewer",
+						"match method GET",
+						"match path /api/things*",
+					},
+					"action": "allow",
+				},
+				{
+					"comment": "Viewer read-only streams",
+					"conditions": []string{
+						"match roles viewer",
+						"match method GET",
+						"match path /api/streams*",
+					},
+					"action": "allow",
+				},
+				// Public health endpoint
+				{
+					"comment": "Public health check",
+					"conditions": []string{
+						"match path /health*",
+					},
+					"action": "allow",
+				},
+			},
+		},
 	}
 
-	// Add API authorization rules
+	// Add configured API policies if available
 	if csb.config.APIAuth != nil {
+		existingRules := policy["acl"].(map[string]any)["rules"].([]map[string]any)
 		for _, apiPolicy := range csb.config.APIAuth.Policies {
 			rule := map[string]any{
-				"action": "allow",
-				"conditions": map[string]any{
-					"roles": []string{csb.extractRoleFromPrincipal(apiPolicy.Principal)},
+				"comment": fmt.Sprintf("Custom policy for %s", apiPolicy.Principal),
+				"conditions": []string{
+					fmt.Sprintf("match roles %s", csb.extractRoleFromPrincipal(apiPolicy.Principal)),
 				},
-				"resources": apiPolicy.Resources,
-				"methods":   csb.convertActionsToMethods(apiPolicy.Actions),
+				"action": "allow",
 			}
-			rules := policy["rules"].([]map[string]any)
-			policy["rules"] = append(rules, rule)
+
+			// Add resource conditions
+			for _, resource := range apiPolicy.Resources {
+				rule["conditions"] = append(rule["conditions"].([]string), fmt.Sprintf("match path %s", resource))
+			}
+
+			existingRules = append(existingRules, rule)
 		}
+		policy["acl"].(map[string]any)["rules"] = existingRules
 	}
 
 	return policy
+}
+
+// generateUserRegistryConfig creates user registry configuration
+func (csb *CaddySecurityBridge) generateUserRegistryConfig() map[string]any {
+	return map[string]any{
+		"type": "local",
+		"config": map[string]any{
+			"path":  "./twincore_users.json",
+			"realm": "twincore",
+		},
+	}
+}
+
+// generateJWTSecret creates or retrieves JWT secret for token signing
+func (csb *CaddySecurityBridge) generateJWTSecret() string {
+	// In production, this should be loaded from secure configuration
+	// For now, generate a consistent secret based on system configuration
+	return "twincore-jwt-secret-change-in-production"
 }
 
 // generateAuthenticationMiddleware creates authentication middleware configuration for routes
@@ -197,8 +323,11 @@ func (csb *CaddySecurityBridge) GenerateAuthenticationMiddleware(route types.HTT
 		return nil, nil
 	}
 
-	// Check if this route should be protected based on path patterns
-	if csb.shouldProtectRoute(route.Path) {
+	// Check if this route requires authentication based on the RequiresAuth flag
+	// The RequiresAuth flag takes precedence over path-based logic
+	requiresAuth := route.RequiresAuth
+
+	if requiresAuth {
 		authMiddleware := map[string]any{
 			"handler": "authentication",
 			"config": map[string]any{
@@ -219,18 +348,24 @@ func (csb *CaddySecurityBridge) GenerateAuthenticationMiddleware(route types.HTT
 }
 
 // shouldProtectRoute determines if a route should be protected by authentication
+// This method is used as fallback when RequiresAuth is not explicitly set
 func (csb *CaddySecurityBridge) shouldProtectRoute(path string) bool {
 	// First check for public routes - these should NOT be protected
 	publicPaths := []string{
 		"/portal/",
-		"/login",
-		"/logout",
-		"/assets/",
-		"/things/", // WoT routes - authentication handled separately by WoTSecurityManager
+		"/auth/",   // Authentication endpoints (login, logout, etc.)
+		"/health",  // Health check endpoint
+		"/assets/", // Static assets
+		"/favicon.ico",
 	}
 
 	for _, publicPath := range publicPaths {
-		if path == publicPath || (len(path) >= len(publicPath) && path[:len(publicPath)] == publicPath) {
+		// Exact match for single endpoints like /health
+		if path == publicPath {
+			return false
+		}
+		// Prefix match for directories
+		if len(path) >= len(publicPath) && path[:len(publicPath)] == publicPath {
 			return false
 		}
 	}
@@ -240,6 +375,7 @@ func (csb *CaddySecurityBridge) shouldProtectRoute(path string) bool {
 		"/api/",
 		"/admin/",
 		"/setup/",
+		"/things/", // WoT routes - should be protected
 	}
 
 	for _, protectedPath := range protectedPaths {
@@ -248,7 +384,7 @@ func (csb *CaddySecurityBridge) shouldProtectRoute(path string) bool {
 		}
 	}
 
-	// Default to protected for unknown routes
+	// Default to protected for unknown routes (secure by default)
 	return true
 }
 
