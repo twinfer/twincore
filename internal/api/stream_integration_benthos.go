@@ -119,7 +119,7 @@ func (si *BenthosStreamIntegration) ProcessPropertyUpdate(ctx context.Context, u
 	event := models.Event{
 		ThingID:   update.ThingID,
 		EventName: "property_changed",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"property": update.PropertyName,
 			"value":    update.Value,
 			"source":   update.Source,
@@ -164,7 +164,7 @@ func (si *BenthosStreamIntegration) ProcessActionResult(ctx context.Context, res
 	event := models.Event{
 		ThingID:   result.ThingID,
 		EventName: "action_completed",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"action":   result.ActionName,
 			"actionId": result.ActionID,
 			"output":   result.Output,
@@ -249,8 +249,8 @@ func (si *BenthosStreamIntegration) GetRegisteredSchemas() []string {
 }
 
 // GetServiceStatus returns detailed status information
-func (si *BenthosStreamIntegration) GetServiceStatus() map[string]interface{} {
-	status := map[string]interface{}{
+func (si *BenthosStreamIntegration) GetServiceStatus() map[string]any {
+	status := map[string]any{
 		"has_state_manager":   si.stateManager != nil,
 		"has_stream_bridge":   si.streamBridge != nil,
 		"has_event_broker":    si.eventBroker != nil,

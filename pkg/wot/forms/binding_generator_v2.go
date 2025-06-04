@@ -141,14 +141,14 @@ func (bg *BindingGeneratorV2) generateProcessors(td *wot.ThingDescription, bindi
 			{
 				Type:  types.BenthosProcessorType("bloblang"),
 				Label: "add_metadata",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"bloblang": `root = this
 root.processed_at = timestamp_unix_nano()
 root.processor_version = "1.0"`,
 				},
 			},
 		},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"generated_for": td.ID,
 		},
 	}

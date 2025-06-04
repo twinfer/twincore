@@ -83,7 +83,7 @@ func (b *SimpleStreamBridge) initializeBridgeSchemas() error {
 }
 
 // PublishPropertyUpdate sends a property update with unified schema validation
-func (b *SimpleStreamBridge) PublishPropertyUpdate(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) error {
+func (b *SimpleStreamBridge) PublishPropertyUpdate(logger logrus.FieldLogger, thingID, propertyName string, value any) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "PublishPropertyUpdate", "thing_id": thingID, "property_name": propertyName, "value": value})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
 
@@ -101,13 +101,13 @@ func (b *SimpleStreamBridge) PublishPropertyUpdate(logger logrus.FieldLogger, th
 }
 
 // PublishPropertyUpdateWithContext sends a property update with context
-func (b *SimpleStreamBridge) PublishPropertyUpdateWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value interface{}) error {
+func (b *SimpleStreamBridge) PublishPropertyUpdateWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value any) error {
 	// In this simple bridge, context isn't used beyond being a placeholder.
 	return b.PublishPropertyUpdate(logger, thingID, propertyName, value)
 }
 
 // PublishActionInvocation sends an action invocation (placeholder implementation)
-func (b *SimpleStreamBridge) PublishActionInvocation(logger logrus.FieldLogger, thingID, actionName string, input interface{}) (string, error) {
+func (b *SimpleStreamBridge) PublishActionInvocation(logger logrus.FieldLogger, thingID, actionName string, input any) (string, error) {
 	actionID := uuid.New().String()
 	entryLogger := logger.WithFields(logrus.Fields{
 		"service_method": "PublishActionInvocation",
@@ -119,7 +119,7 @@ func (b *SimpleStreamBridge) PublishActionInvocation(logger logrus.FieldLogger, 
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
 
 	// Create a channel for the result (basic implementation)
-	resultChan := make(chan interface{}, 1)
+	resultChan := make(chan any, 1)
 	b.pendingActions.Store(actionID, resultChan)
 	entryLogger.Info("Action invocation received by bridge, created pending action (placeholder, actual send via Benthos config)")
 
@@ -127,7 +127,7 @@ func (b *SimpleStreamBridge) PublishActionInvocation(logger logrus.FieldLogger, 
 }
 
 // PublishEvent sends an event (placeholder implementation)
-func (b *SimpleStreamBridge) PublishEvent(logger logrus.FieldLogger, thingID, eventName string, data interface{}) error {
+func (b *SimpleStreamBridge) PublishEvent(logger logrus.FieldLogger, thingID, eventName string, data any) error {
 	entryLogger := logger.WithFields(logrus.Fields{
 		"service_method": "PublishEvent",
 		"thing_id":       thingID,
@@ -140,7 +140,7 @@ func (b *SimpleStreamBridge) PublishEvent(logger logrus.FieldLogger, thingID, ev
 }
 
 // GetActionResult waits for the result of an action
-func (b *SimpleStreamBridge) GetActionResult(logger logrus.FieldLogger, actionID string, timeout time.Duration) (interface{}, error) {
+func (b *SimpleStreamBridge) GetActionResult(logger logrus.FieldLogger, actionID string, timeout time.Duration) (any, error) {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetActionResult", "action_id": actionID, "timeout": timeout.String()})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
 	startTime := time.Now()
@@ -153,7 +153,7 @@ func (b *SimpleStreamBridge) GetActionResult(logger logrus.FieldLogger, actionID
 		entryLogger.Warn("No pending action found")
 		return nil, fmt.Errorf("no pending action found for actionID %s", actionID)
 	}
-	resultChan := val.(chan interface{})
+	resultChan := val.(chan any)
 
 	select {
 	case result := <-resultChan:
@@ -169,7 +169,7 @@ func (b *SimpleStreamBridge) GetActionResult(logger logrus.FieldLogger, actionID
 
 // ProcessActionResult processes action results (for compatibility)
 // This method is typically called by a Benthos input that receives action results.
-func (b *SimpleStreamBridge) ProcessActionResult(logger logrus.FieldLogger, result map[string]interface{}) error {
+func (b *SimpleStreamBridge) ProcessActionResult(logger logrus.FieldLogger, result map[string]any) error {
 	actionID, ok := result["actionId"].(string)
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ProcessActionResult", "action_id": actionID})
 	entryLogger.Debug("Service method called (SimpleStreamBridge)")
@@ -186,7 +186,7 @@ func (b *SimpleStreamBridge) ProcessActionResult(logger logrus.FieldLogger, resu
 	entryLogger.WithField("result_payload", result).Debug("Received action result payload")
 
 	if val, loaded := b.pendingActions.Load(actionID); loaded {
-		resultChan := val.(chan interface{})
+		resultChan := val.(chan any)
 		select {
 		case resultChan <- result:
 			entryLogger.Info("Forwarded action result to internal channel")
@@ -237,8 +237,8 @@ func (b *SimpleStreamBridge) GetRegisteredSchemas() []string {
 }
 
 // GetServiceStatus returns detailed status information
-func (b *SimpleStreamBridge) GetServiceStatus() map[string]interface{} {
-	status := map[string]interface{}{
+func (b *SimpleStreamBridge) GetServiceStatus() map[string]any {
+	status := map[string]any{
 		"has_environment":     b.env != nil,
 		"has_logger":          b.logger != nil,
 		"has_pending_actions": b.pendingActions != nil,
@@ -253,7 +253,7 @@ func (b *SimpleStreamBridge) GetServiceStatus() map[string]interface{} {
 	// Count pending actions
 	if b.pendingActions != nil {
 		pendingCount := 0
-		b.pendingActions.Range(func(_, _ interface{}) bool {
+		b.pendingActions.Range(func(_, _ any) bool {
 			pendingCount++
 			return true
 		})

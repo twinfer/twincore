@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/twinfer/twincore/pkg/types"
+	"slices"
 )
 
 // DefaultUnifiedLicenseChecker implements the UnifiedLicenseChecker interface
@@ -37,7 +38,7 @@ func (ulc *DefaultUnifiedLicenseChecker) ValidateLicense(ctx context.Context, li
 	ulc.logger.Debug("Validating license")
 
 	// Parse JWT token
-	token, err := jwt.Parse(licenseData, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(licenseData, func(token *jwt.Token) (any, error) {
 		// Validate signing method
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -613,7 +614,7 @@ func (ulc *DefaultUnifiedLicenseChecker) CompareTiers(ctx context.Context, curre
 
 func (ulc *DefaultUnifiedLicenseChecker) parseLicenseInfo(claims jwt.MapClaims) (*types.LicenseInfo, error) {
 	info := &types.LicenseInfo{
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	// Extract standard JWT claims
@@ -713,32 +714,17 @@ func (ulc *DefaultUnifiedLicenseChecker) getLimitChangeType(current, target int)
 
 func (ulc *DefaultUnifiedLicenseChecker) isBasicSystemFeature(feature string) bool {
 	basicFeatures := []string{"local_auth", "session_mgmt", "audit_logging", "rate_limit"}
-	for _, f := range basicFeatures {
-		if f == feature {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(basicFeatures, feature)
 }
 
 func (ulc *DefaultUnifiedLicenseChecker) isBasicWoTFeature(feature string) bool {
 	basicFeatures := []string{"basic_auth", "bearer_auth", "security_audit", "wot_rate_limit"}
-	for _, f := range basicFeatures {
-		if f == feature {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(basicFeatures, feature)
 }
 
 func (ulc *DefaultUnifiedLicenseChecker) isBasicGeneralFeature(feature string) bool {
 	basicFeatures := []string{"tls_required", "security_headers", "global_rate_limit"}
-	for _, f := range basicFeatures {
-		if f == feature {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(basicFeatures, feature)
 }
 
 // Ensure interface compliance

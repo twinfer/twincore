@@ -170,7 +170,7 @@ func (suite *ConfigManagerTestSuite) TestGetAuthProviders() {
 func (suite *ConfigManagerTestSuite) TestConfigureAuth_Success_LocalProvider() {
 	req := AuthConfigRequest{
 		Provider: "local",
-		Config:   map[string]interface{}{}, // No specific config needed for local
+		Config:   map[string]any{}, // No specific config needed for local
 		License:  suite.mockLicense,
 	}
 
@@ -199,10 +199,10 @@ func (suite *ConfigManagerTestSuite) TestConfigureAuth_Success_LocalProvider() {
 	})).Return(mockHTTPRoutesResp, nil).Once()
 
 	// Mock for getCaddyConfig call within updateHTTPRoutes
-	initialHTTPConfig := map[string]interface{}{
-		"servers": map[string]interface{}{
-			"srv0": map[string]interface{}{
-				"routes": []map[string]interface{}{}, // Empty initial routes
+	initialHTTPConfig := map[string]any{
+		"servers": map[string]any{
+			"srv0": map[string]any{
+				"routes": []map[string]any{}, // Empty initial routes
 			},
 		},
 	}

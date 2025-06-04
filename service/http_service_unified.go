@@ -202,7 +202,7 @@ func (h *HTTPServiceUnified) buildCaddyConfig(config types.ServiceConfig) (*cadd
 		// Check if it's already the right type
 		if hc, ok := httpCfgRaw.(types.HTTPConfig); ok {
 			httpConfig = hc
-		} else if httpMap, ok := httpCfgRaw.(map[string]interface{}); ok {
+		} else if httpMap, ok := httpCfgRaw.(map[string]any); ok {
 			// Convert from map to HTTPConfig
 			if err := h.mapToHTTPConfig(httpMap, &httpConfig); err != nil {
 				return nil, fmt.Errorf("failed to parse HTTP configuration: %w", err)
@@ -337,8 +337,8 @@ func (h *HTTPServiceUnified) buildRoute(route types.HTTPRoute) caddyhttp.Route {
 	switch route.Handler {
 	case "reverse_proxy":
 		if upstream, ok := route.Config["upstream"].(string); ok {
-			reverseProxyConfig := map[string]interface{}{
-				"upstreams": []map[string]interface{}{
+			reverseProxyConfig := map[string]any{
+				"upstreams": []map[string]any{
 					{"dial": upstream},
 				},
 			}
@@ -383,7 +383,7 @@ func (h *HTTPServiceUnified) buildRoute(route types.HTTPRoute) caddyhttp.Route {
 }
 
 // mapToHTTPConfig converts a map to HTTPConfig struct
-func (h *HTTPServiceUnified) mapToHTTPConfig(m map[string]interface{}, cfg *types.HTTPConfig) error {
+func (h *HTTPServiceUnified) mapToHTTPConfig(m map[string]any, cfg *types.HTTPConfig) error {
 	// Convert map to JSON then unmarshal to struct
 	jsonBytes, err := json.Marshal(m)
 	if err != nil {

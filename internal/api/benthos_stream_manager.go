@@ -174,11 +174,11 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 			continue
 		}
 
-		var metadata map[string]interface{}
+		var metadata map[string]any
 		if metadataJSON != "" { // metadata can be null
 			if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
 				logger.WithError(err).WithField("stream_id", streamID).Warn("Failed to unmarshal metadata for loaded stream, using empty")
-				metadata = make(map[string]interface{}) // Default to empty map if unmarshalling fails
+				metadata = make(map[string]any) // Default to empty map if unmarshalling fails
 			}
 		}
 
@@ -842,7 +842,7 @@ func (sm *SimpleBenthosStreamManager) GetStreamStatus(ctx context.Context, strea
 	}
 
 	// Get metrics from running stream if available
-	metrics := map[string]interface{}{
+	metrics := map[string]any{
 		"messages_processed": 0,    // Placeholder
 		"errors":             0,    // Placeholder
 		"uptime":             "0s", // Placeholder

@@ -28,7 +28,7 @@ func NewOutputConfigFactory() *OutputConfigFactory {
 func (f *OutputConfigFactory) registerDefaultHandlers() {
 	// File output handler
 	f.handlers["file"] = func(params StreamEndpointParams) (types.StreamEndpointConfig, error) {
-		config := map[string]interface{}{
+		config := map[string]any{
 			"path": params.Config["path"],
 		}
 
@@ -55,7 +55,7 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 			return types.StreamEndpointConfig{}, fmt.Errorf("s3 output requires 'path' parameter")
 		}
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"bucket": bucket,
 			"path":   path,
 			"region": params.Config["region"],
@@ -79,7 +79,7 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 			return types.StreamEndpointConfig{}, fmt.Errorf("parquet output requires 'path' parameter")
 		}
 
-		schema, ok := params.Config["schema"].([]map[string]interface{})
+		schema, ok := params.Config["schema"].([]map[string]any)
 		if !ok {
 			return types.StreamEndpointConfig{}, fmt.Errorf("parquet output requires 'schema' parameter")
 		}
@@ -87,10 +87,10 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 		// Wrap in file output
 		return types.StreamEndpointConfig{
 			Type: "file",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"path": path,
-				"codec": map[string]interface{}{
-					"parquet": map[string]interface{}{
+				"codec": map[string]any{
+					"parquet": map[string]any{
 						"schema":            schema,
 						"compression":       params.Config["compression"],
 						"compression_level": params.Config["compression_level"],
@@ -109,7 +109,7 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 
 		return types.StreamEndpointConfig{
 			Type: "resource",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"stream_bridge": stream,
 			},
 		}, nil
@@ -117,7 +117,7 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 
 	// Stdout output handler (for debugging)
 	f.handlers["stdout"] = func(params StreamEndpointParams) (types.StreamEndpointConfig, error) {
-		config := map[string]interface{}{}
+		config := map[string]any{}
 
 		if codec, ok := params.Config["codec"]; ok {
 			config["codec"] = codec
@@ -133,20 +133,20 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 	f.handlers["drop"] = func(params StreamEndpointParams) (types.StreamEndpointConfig, error) {
 		return types.StreamEndpointConfig{
 			Type:   "drop",
-			Config: map[string]interface{}{},
+			Config: map[string]any{},
 		}, nil
 	}
 
 	// Switch output handler (conditional routing)
 	f.handlers["switch"] = func(params StreamEndpointParams) (types.StreamEndpointConfig, error) {
-		cases, ok := params.Config["cases"].([]interface{})
+		cases, ok := params.Config["cases"].([]any)
 		if !ok {
 			return types.StreamEndpointConfig{}, fmt.Errorf("switch output requires 'cases' parameter")
 		}
 
 		return types.StreamEndpointConfig{
 			Type: "switch",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"cases": cases,
 			},
 		}, nil
@@ -181,14 +181,14 @@ func (f *OutputConfigFactory) GetSupportedTypes() []string {
 }
 
 // GeneratePersistenceOutput creates output configuration for data persistence
-func (f *OutputConfigFactory) GeneratePersistenceOutput(format string, basePath string, thingID string, interactionType string, interactionName string, schema interface{}) (types.StreamEndpointConfig, error) {
+func (f *OutputConfigFactory) GeneratePersistenceOutput(format string, basePath string, thingID string, interactionType string, interactionName string, schema any) (types.StreamEndpointConfig, error) {
 	// Build path
 	pathPattern := fmt.Sprintf("%s/%s/%s/%s/${!timestamp(\"2006/01/02\")}/data_${!timestamp(\"20060102_150405\")}.%s",
 		basePath, thingID, interactionType, interactionName, format)
 
 	params := StreamEndpointParams{
 		Type: format,
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"path": pathPattern,
 		},
 	}
@@ -200,12 +200,12 @@ func (f *OutputConfigFactory) GeneratePersistenceOutput(format string, basePath 
 		params.Config["compression"] = "snappy"
 		params.Config["compression_level"] = 0
 	case "json":
-		params.Config["codec"] = map[string]interface{}{
-			"json_lines": map[string]interface{}{},
+		params.Config["codec"] = map[string]any{
+			"json_lines": map[string]any{},
 		}
 	case "csv":
-		params.Config["codec"] = map[string]interface{}{
-			"csv": map[string]interface{}{},
+		params.Config["codec"] = map[string]any{
+			"csv": map[string]any{},
 		}
 	}
 

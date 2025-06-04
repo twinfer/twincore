@@ -1,5 +1,7 @@
 package wot
 
+import "slices"
+
 import "fmt"
 
 // DataSchemaCore contains the structural and constraint fields of a DataSchema,
@@ -7,12 +9,12 @@ import "fmt"
 // These metadata fields are added back in the main DataSchema struct.
 type DataSchemaCore struct {
 	// Type and format
-	Type    string        `json:"type,omitempty"`   // e.g., "object", "array", "string", "number", "integer", "boolean", "null"
-	Format  string        `json:"format,omitempty"` // e.g., "date-time", "uri", "email"
-	Unit    string        `json:"unit,omitempty"`
-	Enum    []interface{} `json:"enum,omitempty"`
-	Const   interface{}   `json:"const,omitempty"`
-	Default interface{}   `json:"default,omitempty"`
+	Type    string `json:"type,omitempty"`   // e.g., "object", "array", "string", "number", "integer", "boolean", "null"
+	Format  string `json:"format,omitempty"` // e.g., "date-time", "uri", "email"
+	Unit    string `json:"unit,omitempty"`
+	Enum    []any  `json:"enum,omitempty"`
+	Const   any    `json:"const,omitempty"`
+	Default any    `json:"default,omitempty"`
 
 	// String-specific
 	Pattern          string `json:"pattern,omitempty"`
@@ -31,14 +33,14 @@ type DataSchemaCore struct {
 	// Object-specific
 	Properties           map[string]*DataSchema `json:"properties,omitempty"` // Pointer to allow recursive defs
 	Required             []string               `json:"required,omitempty"`
-	AdditionalProperties interface{}            `json:"additionalProperties,omitempty"` // bool or *DataSchema
+	AdditionalProperties any                    `json:"additionalProperties,omitempty"` // bool or *DataSchema
 	PropertyNames        *DataSchema            `json:"propertyNames,omitempty"`
 
 	// Array-specific
-	Items       interface{} `json:"items,omitempty"` // *DataSchema or []*DataSchema (tuple validation)
-	MinItems    *uint       `json:"minItems,omitempty"`
-	MaxItems    *uint       `json:"maxItems,omitempty"`
-	UniqueItems bool        `json:"uniqueItems,omitempty"`
+	Items       any   `json:"items,omitempty"` // *DataSchema or []*DataSchema (tuple validation)
+	MinItems    *uint `json:"minItems,omitempty"`
+	MaxItems    *uint `json:"maxItems,omitempty"`
+	UniqueItems bool  `json:"uniqueItems,omitempty"`
 
 	// Logical keywords
 	OneOf []DataSchema `json:"oneOf,omitempty"`
@@ -85,7 +87,7 @@ type Form interface {
 	GetSubprotocol() string
 	// GenerateConfig produces a protocol-specific configuration map,
 	// often including Benthos YAML, based on the form's fields and security definitions.
-	GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]interface{}, error)
+	GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]any, error)
 	// GetProtocol returns a string identifying the protocol (e.g., "http", "kafka").
 	// This was added as it's commonly needed by form implementations.
 	GetProtocol() string
@@ -98,7 +100,7 @@ type ExpectedResponse struct {
 
 // SecurityScheme defines a security mechanism.
 type SecurityScheme struct {
-	SemanticType interface{}       `json:"@type,omitempty"` // e.g. "BasicSecurityScheme", "OAuth2SecurityScheme"
+	SemanticType any               `json:"@type,omitempty"` // e.g. "BasicSecurityScheme", "OAuth2SecurityScheme"
 	Description  string            `json:"description,omitempty"`
 	Descriptions map[string]string `json:"descriptions,omitempty"`
 	Proxy        string            `json:"proxy,omitempty"` // URI
@@ -111,7 +113,7 @@ type SecurityScheme struct {
 	// However, for fields consistently accessed like 'in' and 'name' by WoTMapper,
 	// they are also included as top-level for convenience and to match current WoTMapper assumptions.
 	// This might be harmonized later: either always use Properties map or ensure top-level fields cover all needs.
-	Properties map[string]interface{} `json:"-"`
+	Properties map[string]any `json:"-"`
 
 	In   string `json:"in,omitempty"`   // For apikey (location of security information), also used by some other schemes
 	Name string `json:"name,omitempty"` // For apikey (name of header/query param)
@@ -213,12 +215,12 @@ func (ea *EventAffordance) GetData() DataSchema {
 
 // Link provides a link to a related resource.
 type Link struct {
-	Href     string      `json:"href"`
-	Type     string      `json:"type,omitempty"` // Media type
-	Rel      string      `json:"rel,omitempty"`
-	Anchor   string      `json:"anchor,omitempty"`
-	Sizes    string      `json:"sizes,omitempty"`    // Added for W3C WoT TD 1.1
-	Hreflang interface{} `json:"hreflang,omitempty"` // Added for W3C WoT TD 1.1
+	Href     string `json:"href"`
+	Type     string `json:"type,omitempty"` // Media type
+	Rel      string `json:"rel,omitempty"`
+	Anchor   string `json:"anchor,omitempty"`
+	Sizes    string `json:"sizes,omitempty"`    // Added for W3C WoT TD 1.1
+	Hreflang any    `json:"hreflang,omitempty"` // Added for W3C WoT TD 1.1
 }
 
 // VersionInfo provides detailed versioning for a Thing Description.
@@ -237,7 +239,7 @@ type AdditionalExpectedResponse struct {
 
 // ThingDescription is the top-level structure for a W3C WoT Thing Description.
 type ThingDescription struct {
-	Context             interface{}                    `json:"@context"`     // string or []interface{} - should include "https://www.w3.org/2022/wot/td/v1.1"
+	Context             any                            `json:"@context"`     // string or []interface{} - should include "https://www.w3.org/2022/wot/td/v1.1"
 	ID                  string                         `json:"id,omitempty"` // Optional, but recommended for TDs published in a TD Directory
 	Title               string                         `json:"title"`        // Mandatory
 	Titles              map[string]string              `json:"titles,omitempty"`
@@ -312,13 +314,7 @@ func (pa *PropertyAffordance) ValidateOperationTypes() []string {
 	for _, form := range pa.Forms {
 		ops := form.GetOp()
 		for _, op := range ops {
-			valid := false
-			for _, validOp := range validOps {
-				if op == validOp {
-					valid = true
-					break
-				}
-			}
+			valid := slices.Contains(validOps, op)
 			if !valid {
 				issues = append(issues, fmt.Sprintf("invalid operation '%s' for PropertyAffordance", op))
 			}
@@ -335,13 +331,7 @@ func (aa *ActionAffordance) ValidateOperationTypes() []string {
 	for _, form := range aa.Forms {
 		ops := form.GetOp()
 		for _, op := range ops {
-			valid := false
-			for _, validOp := range validOps {
-				if op == validOp {
-					valid = true
-					break
-				}
-			}
+			valid := slices.Contains(validOps, op)
 			if !valid {
 				issues = append(issues, fmt.Sprintf("invalid operation '%s' for ActionAffordance", op))
 			}
@@ -358,13 +348,7 @@ func (ea *EventAffordance) ValidateOperationTypes() []string {
 	for _, form := range ea.Forms {
 		ops := form.GetOp()
 		for _, op := range ops {
-			valid := false
-			for _, validOp := range validOps {
-				if op == validOp {
-					valid = true
-					break
-				}
-			}
+			valid := slices.Contains(validOps, op)
 			if !valid {
 				issues = append(issues, fmt.Sprintf("invalid operation '%s' for EventAffordance", op))
 			}

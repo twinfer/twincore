@@ -34,12 +34,12 @@ func (csb *CaddySecurityBridge) GenerateSecurityApp(ctx context.Context) (json.R
 	}
 
 	// Create the security app configuration
-	securityApp := map[string]interface{}{
-		"config": map[string]interface{}{
-			"authentication_portals": map[string]interface{}{
+	securityApp := map[string]any{
+		"config": map[string]any{
+			"authentication_portals": map[string]any{
 				"twincore_portal": csb.generateAuthPortalConfig(),
 			},
-			"authorization_policies": map[string]interface{}{
+			"authorization_policies": map[string]any{
 				"twincore_policy": csb.generateAuthorizationPolicy(),
 			},
 		},
@@ -56,31 +56,31 @@ func (csb *CaddySecurityBridge) GenerateSecurityApp(ctx context.Context) (json.R
 }
 
 // generateAuthPortalConfig creates authentication portal configuration
-func (csb *CaddySecurityBridge) generateAuthPortalConfig() map[string]interface{} {
-	portalConfig := map[string]interface{}{
-		"user_interface": map[string]interface{}{
+func (csb *CaddySecurityBridge) generateAuthPortalConfig() map[string]any {
+	portalConfig := map[string]any{
+		"user_interface": map[string]any{
 			"title":    "TwinCore Gateway",
 			"logo_url": "/portal/assets/logo.png",
 		},
-		"cookie": map[string]interface{}{
+		"cookie": map[string]any{
 			"domain":   "",
 			"path":     "/",
 			"lifetime": 86400, // 24 hours
 		},
-		"backends": []map[string]interface{}{},
+		"backends": []map[string]any{},
 	}
 
 	// Add local authentication backend if configured
 	if csb.config.AdminAuth != nil && csb.config.AdminAuth.Local != nil {
 		localBackend := csb.generateLocalAuthBackend()
-		backends := portalConfig["backends"].([]map[string]interface{})
+		backends := portalConfig["backends"].([]map[string]any)
 		portalConfig["backends"] = append(backends, localBackend)
 	}
 
 	// Add LDAP backend if configured
 	if csb.config.AdminAuth != nil && csb.config.AdminAuth.LDAP != nil {
 		ldapBackend := csb.generateLDAPAuthBackend()
-		backends := portalConfig["backends"].([]map[string]interface{})
+		backends := portalConfig["backends"].([]map[string]any)
 		portalConfig["backends"] = append(backends, ldapBackend)
 	}
 
@@ -88,22 +88,22 @@ func (csb *CaddySecurityBridge) generateAuthPortalConfig() map[string]interface{
 }
 
 // generateLocalAuthBackend creates local authentication backend configuration
-func (csb *CaddySecurityBridge) generateLocalAuthBackend() map[string]interface{} {
+func (csb *CaddySecurityBridge) generateLocalAuthBackend() map[string]any {
 	// Create local user store configuration
-	userStore := map[string]interface{}{
+	userStore := map[string]any{
 		"type": "local",
 		"name": "twincore_local_store",
-		"params": map[string]interface{}{
+		"params": map[string]any{
 			"path": "./twincore_users.json", // This will be managed by SystemSecurityManager
 		},
 	}
 
-	localBackend := map[string]interface{}{
+	localBackend := map[string]any{
 		"type":            "local",
 		"name":            "twincore_local_backend",
 		"method":          "form",
 		"realm":           "twincore",
-		"user_stores":     []map[string]interface{}{userStore},
+		"user_stores":     []map[string]any{userStore},
 		"password_policy": csb.generatePasswordPolicy(),
 	}
 
@@ -111,20 +111,20 @@ func (csb *CaddySecurityBridge) generateLocalAuthBackend() map[string]interface{
 }
 
 // generateLDAPAuthBackend creates LDAP authentication backend configuration
-func (csb *CaddySecurityBridge) generateLDAPAuthBackend() map[string]interface{} {
+func (csb *CaddySecurityBridge) generateLDAPAuthBackend() map[string]any {
 	ldapConfig := csb.config.AdminAuth.LDAP
 
-	ldapBackend := map[string]interface{}{
+	ldapBackend := map[string]any{
 		"type":   "ldap",
 		"name":   "twincore_ldap_backend",
 		"method": "form",
 		"realm":  "twincore",
-		"servers": []map[string]interface{}{
+		"servers": []map[string]any{
 			{
 				"address":      ldapConfig.Server,
 				"ignore_cert":  !ldapConfig.TLS.Enabled, // Inverse logic
 				"posix_groups": true,
-				"attributes": map[string]interface{}{
+				"attributes": map[string]any{
 					"name":      ldapConfig.Attributes.FullName,
 					"surname":   "sn",
 					"username":  ldapConfig.Attributes.Username,
@@ -143,10 +143,10 @@ func (csb *CaddySecurityBridge) generateLDAPAuthBackend() map[string]interface{}
 }
 
 // generatePasswordPolicy creates password policy configuration
-func (csb *CaddySecurityBridge) generatePasswordPolicy() map[string]interface{} {
+func (csb *CaddySecurityBridge) generatePasswordPolicy() map[string]any {
 	if csb.config.AdminAuth == nil || csb.config.AdminAuth.Local == nil || csb.config.AdminAuth.Local.PasswordPolicy == nil {
 		// Return default policy
-		return map[string]interface{}{
+		return map[string]any{
 			"min_length":        8,
 			"require_uppercase": true,
 			"require_lowercase": true,
@@ -156,7 +156,7 @@ func (csb *CaddySecurityBridge) generatePasswordPolicy() map[string]interface{} 
 	}
 
 	policy := csb.config.AdminAuth.Local.PasswordPolicy
-	return map[string]interface{}{
+	return map[string]any{
 		"min_length":        policy.MinLength,
 		"require_uppercase": policy.RequireUppercase,
 		"require_lowercase": policy.RequireLowercase,
@@ -166,24 +166,24 @@ func (csb *CaddySecurityBridge) generatePasswordPolicy() map[string]interface{} 
 }
 
 // generateAuthorizationPolicy creates authorization policy configuration
-func (csb *CaddySecurityBridge) generateAuthorizationPolicy() map[string]interface{} {
-	policy := map[string]interface{}{
+func (csb *CaddySecurityBridge) generateAuthorizationPolicy() map[string]any {
+	policy := map[string]any{
 		"default_action": "deny",
-		"rules":          []map[string]interface{}{},
+		"rules":          []map[string]any{},
 	}
 
 	// Add API authorization rules
 	if csb.config.APIAuth != nil {
 		for _, apiPolicy := range csb.config.APIAuth.Policies {
-			rule := map[string]interface{}{
+			rule := map[string]any{
 				"action": "allow",
-				"conditions": map[string]interface{}{
+				"conditions": map[string]any{
 					"roles": []string{csb.extractRoleFromPrincipal(apiPolicy.Principal)},
 				},
 				"resources": apiPolicy.Resources,
 				"methods":   csb.convertActionsToMethods(apiPolicy.Actions),
 			}
-			rules := policy["rules"].([]map[string]interface{})
+			rules := policy["rules"].([]map[string]any)
 			policy["rules"] = append(rules, rule)
 		}
 	}
@@ -199,9 +199,9 @@ func (csb *CaddySecurityBridge) GenerateAuthenticationMiddleware(route types.HTT
 
 	// Check if this route should be protected based on path patterns
 	if csb.shouldProtectRoute(route.Path) {
-		authMiddleware := map[string]interface{}{
+		authMiddleware := map[string]any{
 			"handler": "authentication",
-			"config": map[string]interface{}{
+			"config": map[string]any{
 				"portal_name": "twincore_portal",
 				"policy_name": "twincore_policy",
 			},
@@ -300,13 +300,13 @@ func (csb *CaddySecurityBridge) SyncUsersToUserStore(ctx context.Context) error 
 	}
 
 	// Convert to caddy-security user format
-	userStore := map[string]interface{}{
-		"users": make(map[string]interface{}),
+	userStore := map[string]any{
+		"users": make(map[string]any),
 	}
 
-	usersMap := userStore["users"].(map[string]interface{})
+	usersMap := userStore["users"].(map[string]any)
 	for _, user := range users {
-		usersMap[user.Username] = map[string]interface{}{
+		usersMap[user.Username] = map[string]any{
 			"username": user.Username,
 			"email":    user.Email,
 			"name":     user.FullName,

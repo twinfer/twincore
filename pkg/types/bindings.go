@@ -33,22 +33,22 @@ type BenthosStreamConfig struct {
 
 // StreamEndpoint represents input/output configuration for streams
 type StreamEndpoint struct {
-	Protocol StreamProtocol         `json:"protocol"`
-	Config   map[string]interface{} `json:"config"`
+	Protocol StreamProtocol `json:"protocol"`
+	Config   map[string]any `json:"config"`
 }
 
 // ProcessorChain represents a sequence of Benthos processors
 type ProcessorChain struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Processors []ProcessorConfigItem  `json:"processors"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	ID         string                `json:"id"`
+	Name       string                `json:"name"`
+	Processors []ProcessorConfigItem `json:"processors"`
+	Metadata   map[string]any        `json:"metadata,omitempty"`
 }
 
 // ProcessorConfigItem represents a single Benthos processor configuration
 type ProcessorConfigItem struct {
-	Type        BenthosProcessorType   `json:"type"`
-	Label       string                 `json:"label"`
-	Config      map[string]interface{} `json:"config"`
-	Description string                 `json:"description,omitempty"`
+	Type        BenthosProcessorType `json:"type"`
+	Label       string               `json:"label"`
+	Config      map[string]any       `json:"config"`
+	Description string               `json:"description,omitempty"`
 }

@@ -26,11 +26,11 @@ type ThingSecurityPolicy struct {
 
 // CredentialStore defines where and how Thing credentials are stored
 type CredentialStore struct {
-	Type      string                 `json:"type"`               // "env", "vault", "db", "file", "kubernetes"
-	Config    map[string]interface{} `json:"config"`             // Store-specific configuration
-	Encrypted bool                   `json:"encrypted"`          // Whether credentials are encrypted at rest
-	TTL       time.Duration          `json:"ttl,omitempty"`      // Credential time-to-live
-	Rotation  *CredentialRotation    `json:"rotation,omitempty"` // Automatic rotation policy
+	Type      string              `json:"type"`               // "env", "vault", "db", "file", "kubernetes"
+	Config    map[string]any      `json:"config"`             // Store-specific configuration
+	Encrypted bool                `json:"encrypted"`          // Whether credentials are encrypted at rest
+	TTL       time.Duration       `json:"ttl,omitempty"`      // Credential time-to-live
+	Rotation  *CredentialRotation `json:"rotation,omitempty"` // Automatic rotation policy
 }
 
 // SecurityTemplate provides reusable security configurations
@@ -45,17 +45,17 @@ type SecurityTemplate struct {
 
 // WoTSecurityScheme represents a WoT security scheme configuration
 type WoTSecurityScheme struct {
-	Name        string                 `json:"name"`
-	Scheme      string                 `json:"scheme"` // "basic", "bearer", "apikey", "oauth2", "psk", "cert"
-	Description string                 `json:"description,omitempty"`
-	In          string                 `json:"in,omitempty"`        // For apikey: "header", "query", "cookie"
-	Name_       string                 `json:"name_,omitempty"`     // For apikey: header/query parameter name
-	Format      string                 `json:"format,omitempty"`    // Token format requirements
-	Scopes      []string               `json:"scopes,omitempty"`    // OAuth2 scopes
-	Flow        string                 `json:"flow,omitempty"`      // OAuth2 flow type
-	TokenURL    string                 `json:"token_url,omitempty"` // OAuth2 token endpoint
-	AuthURL     string                 `json:"auth_url,omitempty"`  // OAuth2 authorization endpoint
-	Config      map[string]interface{} `json:"config,omitempty"`    // Additional scheme-specific config
+	Name        string         `json:"name"`
+	Scheme      string         `json:"scheme"` // "basic", "bearer", "apikey", "oauth2", "psk", "cert"
+	Description string         `json:"description,omitempty"`
+	In          string         `json:"in,omitempty"`        // For apikey: "header", "query", "cookie"
+	Name_       string         `json:"name_,omitempty"`     // For apikey: header/query parameter name
+	Format      string         `json:"format,omitempty"`    // Token format requirements
+	Scopes      []string       `json:"scopes,omitempty"`    // OAuth2 scopes
+	Flow        string         `json:"flow,omitempty"`      // OAuth2 flow type
+	TokenURL    string         `json:"token_url,omitempty"` // OAuth2 token endpoint
+	AuthURL     string         `json:"auth_url,omitempty"`  // OAuth2 authorization endpoint
+	Config      map[string]any `json:"config,omitempty"`    // Additional scheme-specific config
 }
 
 // ThingAccessControl defines access control for Thing operations
@@ -79,10 +79,10 @@ type AccessRule struct {
 
 // AccessCondition defines conditional access rules
 type AccessCondition struct {
-	Type     string      `json:"type"`     // "ip", "time", "device_id", "protocol", "value_range"
-	Operator string      `json:"operator"` // "equals", "contains", "in_range", "matches"
-	Value    interface{} `json:"value"`
-	Negate   bool        `json:"negate,omitempty"` // Negate the condition
+	Type     string `json:"type"`     // "ip", "time", "device_id", "protocol", "value_range"
+	Operator string `json:"operator"` // "equals", "contains", "in_range", "matches"
+	Value    any    `json:"value"`
+	Negate   bool   `json:"negate,omitempty"` // Negate the condition
 }
 
 // TimeRestriction defines time-based access restrictions
@@ -104,10 +104,10 @@ type WoTRateLimit struct {
 
 // ProtocolSecurity defines protocol-specific security configuration
 type ProtocolSecurity struct {
-	TLS          *TLSConfig             `json:"tls,omitempty"`
-	Certificates *CertificateConfig     `json:"certificates,omitempty"`
-	Headers      map[string]string      `json:"headers,omitempty"`    // HTTP headers
-	Properties   map[string]interface{} `json:"properties,omitempty"` // Protocol-specific properties
+	TLS          *TLSConfig         `json:"tls,omitempty"`
+	Certificates *CertificateConfig `json:"certificates,omitempty"`
+	Headers      map[string]string  `json:"headers,omitempty"`    // HTTP headers
+	Properties   map[string]any     `json:"properties,omitempty"` // Protocol-specific properties
 }
 
 // EncryptionPolicy defines encryption requirements
@@ -128,10 +128,10 @@ type CertificateConfig struct {
 
 // CredentialRef references credentials in a credential store
 type CredentialRef struct {
-	Store  string                 `json:"store"`            // Credential store name
-	Key    string                 `json:"key"`              // Key/identifier in the store
-	Type   string                 `json:"type"`             // "username_password", "token", "certificate", "key"
-	Config map[string]interface{} `json:"config,omitempty"` // Additional configuration
+	Store  string         `json:"store"`            // Credential store name
+	Key    string         `json:"key"`              // Key/identifier in the store
+	Type   string         `json:"type"`             // "username_password", "token", "certificate", "key"
+	Config map[string]any `json:"config,omitempty"` // Additional configuration
 }
 
 // CredentialRotation defines automatic credential rotation policy
@@ -144,15 +144,15 @@ type CredentialRotation struct {
 
 // DeviceCredentials represents credentials for authenticating to a device
 type DeviceCredentials struct {
-	Type        string                 `json:"type"` // "basic", "bearer", "apikey", "oauth2", "certificate"
-	Username    string                 `json:"username,omitempty"`
-	Password    string                 `json:"password,omitempty"`
-	Token       string                 `json:"token,omitempty"`
-	APIKey      string                 `json:"api_key,omitempty"`
-	Certificate *CertificateConfig     `json:"certificate,omitempty"`
-	OAuth2      *OAuth2Credentials     `json:"oauth2,omitempty"`
-	ExpiresAt   time.Time              `json:"expires_at,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Type        string             `json:"type"` // "basic", "bearer", "apikey", "oauth2", "certificate"
+	Username    string             `json:"username,omitempty"`
+	Password    string             `json:"password,omitempty"`
+	Token       string             `json:"token,omitempty"`
+	APIKey      string             `json:"api_key,omitempty"`
+	Certificate *CertificateConfig `json:"certificate,omitempty"`
+	OAuth2      *OAuth2Credentials `json:"oauth2,omitempty"`
+	ExpiresAt   time.Time          `json:"expires_at"`
+	Metadata    map[string]any     `json:"metadata,omitempty"`
 }
 
 // OAuth2Credentials represents OAuth2 credentials
@@ -163,17 +163,17 @@ type OAuth2Credentials struct {
 	RefreshToken string    `json:"refresh_token,omitempty"`
 	TokenType    string    `json:"token_type"` // "Bearer", etc.
 	Scopes       []string  `json:"scopes,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }
 
 // DataTransformation defines data transformation rules for security
 type DataTransformation struct {
-	Encrypt  bool                   `json:"encrypt,omitempty"`  // Encrypt data
-	Hash     bool                   `json:"hash,omitempty"`     // Hash sensitive data
-	Mask     *MaskingRule           `json:"mask,omitempty"`     // Mask sensitive fields
-	Filter   []string               `json:"filter,omitempty"`   // Filter out specific fields
-	Validate *ValidationRule        `json:"validate,omitempty"` // Validate data format
-	Custom   map[string]interface{} `json:"custom,omitempty"`   // Custom transformation rules
+	Encrypt  bool            `json:"encrypt,omitempty"`  // Encrypt data
+	Hash     bool            `json:"hash,omitempty"`     // Hash sensitive data
+	Mask     *MaskingRule    `json:"mask,omitempty"`     // Mask sensitive fields
+	Filter   []string        `json:"filter,omitempty"`   // Filter out specific fields
+	Validate *ValidationRule `json:"validate,omitempty"` // Validate data format
+	Custom   map[string]any  `json:"custom,omitempty"`   // Custom transformation rules
 }
 
 // MaskingRule defines data masking rules
@@ -186,17 +186,17 @@ type MaskingRule struct {
 
 // ValidationRule defines data validation rules
 type ValidationRule struct {
-	Schema string                 `json:"schema,omitempty"` // JSON schema for validation
-	Regex  string                 `json:"regex,omitempty"`  // Regex pattern
-	Range  *ValueRange            `json:"range,omitempty"`  // Value range validation
-	Custom map[string]interface{} `json:"custom,omitempty"` // Custom validation rules
+	Schema string         `json:"schema,omitempty"` // JSON schema for validation
+	Regex  string         `json:"regex,omitempty"`  // Regex pattern
+	Range  *ValueRange    `json:"range,omitempty"`  // Value range validation
+	Custom map[string]any `json:"custom,omitempty"` // Custom validation rules
 }
 
 // ValueRange defines acceptable value ranges
 type ValueRange struct {
-	Min  interface{}   `json:"min,omitempty"`
-	Max  interface{}   `json:"max,omitempty"`
-	Enum []interface{} `json:"enum,omitempty"` // Allowed values
+	Min  any   `json:"min,omitempty"`
+	Max  any   `json:"max,omitempty"`
+	Enum []any `json:"enum,omitempty"` // Allowed values
 }
 
 // GlobalWoTSecurityPolicy defines global security policies for all Things
@@ -213,17 +213,17 @@ type GlobalWoTSecurityPolicy struct {
 
 // WoTSecurityEvent represents a WoT security event for auditing
 type WoTSecurityEvent struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	ThingID     string                 `json:"thing_id"`
-	Operation   string                 `json:"operation"` // "readProperty", "writeProperty", etc.
-	Resource    string                 `json:"resource"`  // Property/action/event name
-	Protocol    string                 `json:"protocol"`  // "http", "mqtt", etc.
-	Success     bool                   `json:"success"`
-	Error       string                 `json:"error,omitempty"`
-	SourceIP    string                 `json:"source_ip,omitempty"`
-	Credentials string                 `json:"credentials,omitempty"` // Credential type used
-	Details     map[string]interface{} `json:"details,omitempty"`
+	ID          string         `json:"id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	ThingID     string         `json:"thing_id"`
+	Operation   string         `json:"operation"` // "readProperty", "writeProperty", etc.
+	Resource    string         `json:"resource"`  // Property/action/event name
+	Protocol    string         `json:"protocol"`  // "http", "mqtt", etc.
+	Success     bool           `json:"success"`
+	Error       string         `json:"error,omitempty"`
+	SourceIP    string         `json:"source_ip,omitempty"`
+	Credentials string         `json:"credentials,omitempty"` // Credential type used
+	Details     map[string]any `json:"details,omitempty"`
 }
 
 // WoTSecurityManager defines the interface for WoT security management
@@ -257,7 +257,7 @@ type WoTSecurityManager interface {
 	// Access Control
 	EvaluateAccess(ctx context.Context, accessCtx *WoTAccessContext) error
 	LogSecurityEvent(ctx context.Context, event WoTSecurityEvent) error
-	GetSecurityEvents(ctx context.Context, filters map[string]interface{}) ([]WoTSecurityEvent, error)
+	GetSecurityEvents(ctx context.Context, filters map[string]any) ([]WoTSecurityEvent, error)
 
 	// Configuration Management
 	UpdateConfig(ctx context.Context, config WoTSecurityConfig) error
@@ -266,27 +266,27 @@ type WoTSecurityManager interface {
 
 	// Health and Monitoring
 	HealthCheck(ctx context.Context) error
-	GetSecurityMetrics(ctx context.Context) (map[string]interface{}, error)
+	GetSecurityMetrics(ctx context.Context) (map[string]any, error)
 }
 
 // WoTAccessContext provides context for WoT access control decisions
 type WoTAccessContext struct {
-	ThingID     string                 `json:"thing_id"`
-	Operation   string                 `json:"operation"` // "readProperty", "writeProperty", "invokeAction", "subscribeEvent"
-	Resource    string                 `json:"resource"`  // Property/action/event name
-	Protocol    string                 `json:"protocol"`  // "http", "mqtt", "kafka", etc.
-	SourceIP    string                 `json:"source_ip,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Credentials *DeviceCredentials     `json:"credentials,omitempty"`
-	Data        interface{}            `json:"data,omitempty"` // Data being accessed/written
-	Extra       map[string]interface{} `json:"extra,omitempty"`
+	ThingID     string             `json:"thing_id"`
+	Operation   string             `json:"operation"` // "readProperty", "writeProperty", "invokeAction", "subscribeEvent"
+	Resource    string             `json:"resource"`  // Property/action/event name
+	Protocol    string             `json:"protocol"`  // "http", "mqtt", "kafka", etc.
+	SourceIP    string             `json:"source_ip,omitempty"`
+	Timestamp   time.Time          `json:"timestamp"`
+	Credentials *DeviceCredentials `json:"credentials,omitempty"`
+	Data        any                `json:"data,omitempty"` // Data being accessed/written
+	Extra       map[string]any     `json:"extra,omitempty"`
 }
 
 // ProtocolAuthConfig represents protocol-specific authentication configuration
 type ProtocolAuthConfig struct {
-	Protocol   string                 `json:"protocol"`             // "http", "mqtt", "kafka"
-	Type       string                 `json:"type"`                 // "basic", "bearer", "certificate", etc.
-	Config     map[string]interface{} `json:"config"`               // Protocol-specific auth configuration
-	Headers    map[string]string      `json:"headers,omitempty"`    // For HTTP
-	Properties map[string]interface{} `json:"properties,omitempty"` // For MQTT/Kafka
+	Protocol   string            `json:"protocol"`             // "http", "mqtt", "kafka"
+	Type       string            `json:"type"`                 // "basic", "bearer", "certificate", etc.
+	Config     map[string]any    `json:"config"`               // Protocol-specific auth configuration
+	Headers    map[string]string `json:"headers,omitempty"`    // For HTTP
+	Properties map[string]any    `json:"properties,omitempty"` // For MQTT/Kafka
 }

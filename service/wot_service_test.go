@@ -82,7 +82,7 @@ func TestWoTService_BasicLifecycle(t *testing.T) {
 	// Test start with minimal config
 	config := types.ServiceConfig{
 		Name:   "wot",
-		Config: make(map[string]interface{}),
+		Config: make(map[string]any),
 	}
 
 	err = service.Start(ctx, config)
@@ -121,8 +121,8 @@ func TestWoTService_ConfigurationHandling(t *testing.T) {
 	// Test start with WoT-specific configuration
 	config := types.ServiceConfig{
 		Name: "wot",
-		Config: map[string]interface{}{
-			"wot": map[string]interface{}{
+		Config: map[string]any{
+			"wot": map[string]any{
 				"auto_discovery": true,
 				"max_things":     100.0,
 			},
@@ -135,8 +135,8 @@ func TestWoTService_ConfigurationHandling(t *testing.T) {
 	// Test config update
 	newConfig := types.ServiceConfig{
 		Name: "wot",
-		Config: map[string]interface{}{
-			"wot": map[string]interface{}{
+		Config: map[string]any{
+			"wot": map[string]any{
 				"auto_discovery": false,
 				"max_things":     50.0,
 			},
@@ -174,7 +174,7 @@ func TestWoTService_LoadExistingThings(t *testing.T) {
 
 	config := types.ServiceConfig{
 		Name:   "wot",
-		Config: make(map[string]interface{}),
+		Config: make(map[string]any),
 	}
 
 	err := service.Start(ctx, config)
@@ -207,7 +207,7 @@ func TestWoTService_HealthChecks(t *testing.T) {
 
 		config := types.ServiceConfig{
 			Name:   "wot",
-			Config: make(map[string]interface{}),
+			Config: make(map[string]any),
 		}
 
 		err := service.Start(ctx, config)
@@ -278,7 +278,7 @@ func TestWoTService_ConfigProcessing(t *testing.T) {
 	service := NewWoTServiceWithInterfaces(thingRegistry, configManager, logger).(*WoTService)
 
 	t.Run("valid_config", func(t *testing.T) {
-		config := map[string]interface{}{
+		config := map[string]any{
 			"auto_discovery": true,
 			"max_things":     100.0,
 		}
@@ -294,7 +294,7 @@ func TestWoTService_ConfigProcessing(t *testing.T) {
 	})
 
 	t.Run("partial_config", func(t *testing.T) {
-		config := map[string]interface{}{
+		config := map[string]any{
 			"auto_discovery": false,
 			// missing max_things
 		}

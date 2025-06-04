@@ -94,7 +94,7 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 	}
 
 	// Parse TD to extract ID for early validation
-	var tdMap map[string]interface{}
+	var tdMap map[string]any
 	if err := json.Unmarshal([]byte(tdJSONLD), &tdMap); err != nil {
 		return nil, fmt.Errorf("invalid JSON-LD: %w", err)
 	}
@@ -202,7 +202,7 @@ func (s *DefaultThingRegistrationService) RegisterThing(logger logrus.FieldLogge
 				// RequiresAuth needs to be determined, e.g., based on td.Security.
 				// Assuming true if security definitions exist, similar to wot_mapper.
 				RequiresAuth: len(td.Security) > 0,
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"id":          routeID, // Store original ID in Config
 					"contentType": formRoute.ContentType,
 					// Add other necessary fields from formRoute or td to Config if needed
@@ -277,7 +277,7 @@ func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger,
 	}
 
 	// Parse TD for stream composition
-	var tdMap map[string]interface{}
+	var tdMap map[string]any
 	if err := json.Unmarshal([]byte(tdJSONLD), &tdMap); err != nil {
 		logger.WithError(err).Error("Invalid JSON-LD for Thing update")
 		return nil, fmt.Errorf("invalid JSON-LD: %w", err)
@@ -356,7 +356,7 @@ func (s *DefaultThingRegistrationService) UpdateThing(logger logrus.FieldLogger,
 				Handler: "wot_handler",              // Mapped from old TargetService
 				// RequiresAuth needs to be determined, e.g., based on td.Security
 				RequiresAuth: len(td.Security) > 0,
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"id":          routeID, // Store original ID in Config
 					"contentType": formRoute.ContentType,
 					// Add other necessary fields from formRoute or td to Config if needed

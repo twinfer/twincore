@@ -8,6 +8,7 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v4"
 	"github.com/twinfer/twincore/pkg/types"
+	"slices"
 )
 
 // LicenseClaims defines the structure of custom claims in the JWT license.
@@ -37,16 +38,7 @@ func (l *License) IsFeatureEnabled(feature string) bool {
 	if l == nil || !l.Valid {
 		return false
 	}
-	for _, f := range l.Features {
-		if f == feature {
-			return true
-		}
-	}
-	// Example: A tier might also imply certain features.
-	// if l.Tier == "premium" && feature == "some_premium_feature" {
-	// 	return true
-	// }
-	return false
+	return slices.Contains(l.Features, feature)
 }
 
 // LicenseManager handles license validation and parsing.
@@ -66,7 +58,7 @@ func NewLicenseManager(pubKeyData []byte) (*LicenseManager, error) {
 // ParseAndValidate parses a license token string and validates it.
 func (lm *LicenseManager) ParseAndValidate(tokenString string) (types.License, error) {
 	claims := &LicenseClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}

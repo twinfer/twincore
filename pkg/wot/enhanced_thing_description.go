@@ -47,9 +47,9 @@ func (etd *EnhancedThingDescription) GetNamespaces() map[string]string {
 }
 
 // GetExpandedDocument returns the fully expanded JSON-LD document
-func (etd *EnhancedThingDescription) GetExpandedDocument() map[string]interface{} {
+func (etd *EnhancedThingDescription) GetExpandedDocument() map[string]any {
 	if etd.jsonldResult == nil {
-		return make(map[string]interface{})
+		return make(map[string]any)
 	}
 	return etd.jsonldResult.ExpandedDoc
 }
@@ -102,17 +102,17 @@ func (etd *EnhancedThingDescription) ParseFormsWithVocabulary() (map[string][]Fo
 }
 
 // parseExpandedForms extracts forms from expanded JSON-LD and parses them with binding forms
-func (etd *EnhancedThingDescription) parseExpandedForms(affordances interface{}, formParser *FormParser) []FormWithVocabulary {
+func (etd *EnhancedThingDescription) parseExpandedForms(affordances any, formParser *FormParser) []FormWithVocabulary {
 	var formsWithVocab []FormWithVocabulary
 
 	// Handle the case where affordances is an array
-	if affordanceArray, ok := affordances.([]interface{}); ok {
+	if affordanceArray, ok := affordances.([]any); ok {
 		for _, affordance := range affordanceArray {
-			if affordanceMap, ok := affordance.(map[string]interface{}); ok {
+			if affordanceMap, ok := affordance.(map[string]any); ok {
 				if forms, ok := affordanceMap["https://www.w3.org/2019/wot/td#hasForm"]; ok {
-					if formArray, ok := forms.([]interface{}); ok {
+					if formArray, ok := forms.([]any); ok {
 						for _, formData := range formArray {
-							if formMap, ok := formData.(map[string]interface{}); ok {
+							if formMap, ok := formData.(map[string]any); ok {
 								// Convert expanded form back to compact form for parsing
 								compactForm := etd.compactForm(formMap)
 
@@ -139,8 +139,8 @@ func (etd *EnhancedThingDescription) parseExpandedForms(affordances interface{},
 }
 
 // compactForm converts an expanded form back to compact form for parsing
-func (etd *EnhancedThingDescription) compactForm(expandedForm map[string]interface{}) map[string]interface{} {
-	compactForm := make(map[string]interface{})
+func (etd *EnhancedThingDescription) compactForm(expandedForm map[string]any) map[string]any {
+	compactForm := make(map[string]any)
 
 	// Map common expanded URIs back to compact terms
 	uriMappings := map[string]string{
@@ -164,7 +164,7 @@ func (etd *EnhancedThingDescription) compactForm(expandedForm map[string]interfa
 }
 
 // detectProtocolFromVocab detects protocol from vocabulary terms
-func (etd *EnhancedThingDescription) detectProtocolFromVocab(vocab map[string]interface{}) string {
+func (etd *EnhancedThingDescription) detectProtocolFromVocab(vocab map[string]any) string {
 	for key := range vocab {
 		switch {
 		case strings.HasPrefix(key, "htv:"):
@@ -180,15 +180,15 @@ func (etd *EnhancedThingDescription) detectProtocolFromVocab(vocab map[string]in
 
 // FormWithVocabulary represents a form with its extracted vocabulary
 type FormWithVocabulary struct {
-	Form       Form                   // Original form interface
-	Vocabulary map[string]interface{} // Extracted protocol vocabulary
-	Protocol   string                 // Detected protocol
+	Form       Form           // Original form interface
+	Vocabulary map[string]any // Extracted protocol vocabulary
+	Protocol   string         // Detected protocol
 }
 
 // GetProtocolVocabulary returns vocabulary for a specific protocol
-func (etd *EnhancedThingDescription) GetProtocolVocabulary(protocol string) map[string]interface{} {
+func (etd *EnhancedThingDescription) GetProtocolVocabulary(protocol string) map[string]any {
 	if etd.jsonldResult == nil {
-		return make(map[string]interface{})
+		return make(map[string]any)
 	}
 	return etd.jsonldResult.GetProtocolVocabulary(protocol)
 }

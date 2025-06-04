@@ -15,6 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/twinfer/twincore/pkg/types"
+	"slices"
 )
 
 // DefaultWoTSecurityManager implements WoTSecurityManager interface
@@ -141,7 +142,7 @@ func (wsm *DefaultWoTSecurityManager) SetThingCredentials(ctx context.Context, t
 
 	protocolSec := policy.ProtocolSecurity[protocolType]
 	if protocolSec.Properties == nil {
-		protocolSec.Properties = make(map[string]interface{})
+		protocolSec.Properties = make(map[string]any)
 	}
 	protocolSec.Properties["credential_ref"] = credentialRef
 	policy.ProtocolSecurity[protocolType] = protocolSec
@@ -332,7 +333,7 @@ func (wsm *DefaultWoTSecurityManager) GenerateProtocolAuth(ctx context.Context, 
 		return &types.ProtocolAuthConfig{
 			Protocol: protocol,
 			Type:     "none",
-			Config:   make(map[string]interface{}),
+			Config:   make(map[string]any),
 		}, nil
 	}
 
@@ -579,7 +580,7 @@ func (wsm *DefaultWoTSecurityManager) LogSecurityEvent(ctx context.Context, even
 	return nil
 }
 
-func (wsm *DefaultWoTSecurityManager) GetSecurityEvents(ctx context.Context, filters map[string]interface{}) ([]types.WoTSecurityEvent, error) {
+func (wsm *DefaultWoTSecurityManager) GetSecurityEvents(ctx context.Context, filters map[string]any) ([]types.WoTSecurityEvent, error) {
 	// TODO: Implement security event retrieval from database
 	return nil, fmt.Errorf("security event retrieval not implemented")
 }
@@ -642,8 +643,8 @@ func (wsm *DefaultWoTSecurityManager) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (wsm *DefaultWoTSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]interface{}, error) {
-	metrics := map[string]interface{}{
+func (wsm *DefaultWoTSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]any, error) {
+	metrics := map[string]any{
 		"thing_policies":     len(wsm.config.ThingPolicies),
 		"credential_stores":  len(wsm.config.CredentialStores),
 		"security_templates": len(wsm.config.SecurityTemplates),
@@ -657,13 +658,7 @@ func (wsm *DefaultWoTSecurityManager) GetSecurityMetrics(ctx context.Context) (m
 
 func (wsm *DefaultWoTSecurityManager) evaluateAccessControl(ctx context.Context, accessControl *types.ThingAccessControl, accessCtx *types.WoTAccessContext) error {
 	// Check allowed operations
-	allowed := false
-	for _, op := range accessControl.AllowedOperations {
-		if op == accessCtx.Operation {
-			allowed = true
-			break
-		}
-	}
+	allowed := slices.Contains(accessControl.AllowedOperations, accessCtx.Operation)
 	if !allowed {
 		return fmt.Errorf("operation %s not allowed", accessCtx.Operation)
 	}
@@ -712,21 +707,13 @@ func (wsm *DefaultWoTSecurityManager) evaluateAccessControl(ctx context.Context,
 
 func (wsm *DefaultWoTSecurityManager) evaluateGlobalPolicies(ctx context.Context, globalPolicies *types.GlobalWoTSecurityPolicy, accessCtx *types.WoTAccessContext) error {
 	// Check blocked IPs
-	for _, blockedIP := range globalPolicies.BlockedIPs {
-		if blockedIP == accessCtx.SourceIP {
-			return fmt.Errorf("IP address %s is blocked", accessCtx.SourceIP)
-		}
+	if slices.Contains(globalPolicies.BlockedIPs, accessCtx.SourceIP) {
+		return fmt.Errorf("IP address %s is blocked", accessCtx.SourceIP)
 	}
 
 	// Check allowed protocols
 	if len(globalPolicies.AllowedProtocols) > 0 {
-		allowed := false
-		for _, allowedProtocol := range globalPolicies.AllowedProtocols {
-			if allowedProtocol == accessCtx.Protocol {
-				allowed = true
-				break
-			}
-		}
+		allowed := slices.Contains(globalPolicies.AllowedProtocols, accessCtx.Protocol)
 		if !allowed {
 			return fmt.Errorf("protocol %s not allowed", accessCtx.Protocol)
 		}
@@ -795,13 +782,7 @@ func (wsm *DefaultWoTSecurityManager) isSchemeCompatibleWithProtocol(scheme, pro
 		return false
 	}
 
-	for _, supportedScheme := range supportedSchemes {
-		if supportedScheme == scheme {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(supportedSchemes, scheme)
 }
 
 func (wsm *DefaultWoTSecurityManager) generateProtocolAuthForScheme(ctx context.Context, scheme types.WoTSecurityScheme, protocol string) (*types.ProtocolAuthConfig, error) {
@@ -821,7 +802,7 @@ func (wsm *DefaultWoTSecurityManager) generateHTTPAuth(scheme types.WoTSecurityS
 	config := &types.ProtocolAuthConfig{
 		Protocol: "http",
 		Type:     scheme.Scheme,
-		Config:   make(map[string]interface{}),
+		Config:   make(map[string]any),
 		Headers:  make(map[string]string),
 	}
 
@@ -849,8 +830,8 @@ func (wsm *DefaultWoTSecurityManager) generateMQTTAuth(scheme types.WoTSecurityS
 	config := &types.ProtocolAuthConfig{
 		Protocol:   "mqtt",
 		Type:       scheme.Scheme,
-		Config:     make(map[string]interface{}),
-		Properties: make(map[string]interface{}),
+		Config:     make(map[string]any),
+		Properties: make(map[string]any),
 	}
 
 	switch scheme.Scheme {
@@ -858,7 +839,7 @@ func (wsm *DefaultWoTSecurityManager) generateMQTTAuth(scheme types.WoTSecurityS
 		config.Properties["username"] = "${DEVICE_MQTT_USERNAME}"
 		config.Properties["password"] = "${DEVICE_MQTT_PASSWORD}"
 	case "cert":
-		config.Properties["tls"] = map[string]interface{}{
+		config.Properties["tls"] = map[string]any{
 			"cert_file": "${DEVICE_CERT_FILE}",
 			"key_file":  "${DEVICE_KEY_FILE}",
 			"ca_file":   "${DEVICE_CA_FILE}",
@@ -872,19 +853,19 @@ func (wsm *DefaultWoTSecurityManager) generateKafkaAuth(scheme types.WoTSecurity
 	config := &types.ProtocolAuthConfig{
 		Protocol:   "kafka",
 		Type:       scheme.Scheme,
-		Config:     make(map[string]interface{}),
-		Properties: make(map[string]interface{}),
+		Config:     make(map[string]any),
+		Properties: make(map[string]any),
 	}
 
 	switch scheme.Scheme {
 	case "basic":
-		config.Properties["sasl"] = map[string]interface{}{
+		config.Properties["sasl"] = map[string]any{
 			"mechanism": "PLAIN",
 			"username":  "${DEVICE_KAFKA_USERNAME}",
 			"password":  "${DEVICE_KAFKA_PASSWORD}",
 		}
 	case "oauth2":
-		config.Properties["sasl"] = map[string]interface{}{
+		config.Properties["sasl"] = map[string]any{
 			"mechanism":     "OAUTHBEARER",
 			"client_id":     "${DEVICE_OAUTH_CLIENT_ID}",
 			"client_secret": "${DEVICE_OAUTH_CLIENT_SECRET}",

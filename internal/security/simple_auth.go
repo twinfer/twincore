@@ -12,6 +12,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/sirupsen/logrus"
+	"slices"
 )
 
 func init() {
@@ -107,12 +108,7 @@ func (s *SimpleAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 
 // isValidBearerToken checks if the token is in the list of valid tokens
 func (s *SimpleAuth) isValidBearerToken(token string) bool {
-	for _, validToken := range s.BearerTokens {
-		if token == validToken {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.BearerTokens, token)
 }
 
 // validateJWT validates a JWT token using the configured public key
@@ -124,7 +120,7 @@ func (s *SimpleAuth) validateJWT(tokenString string) error {
 	}
 
 	// Parse and validate token
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		// Ensure the token is using RSA
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])

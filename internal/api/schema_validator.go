@@ -74,7 +74,7 @@ func (v *JSONSchemaValidator) getCachedOrCompile(logger logrus.FieldLogger, cach
 	return compiledSchema, nil
 }
 
-func (v *JSONSchemaValidator) ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value interface{}) error {
+func (v *JSONSchemaValidator) ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value any) error {
 	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateProperty", "property_name": propertyName})
 	logger.Debug("Performing schema validation for property")
 
@@ -107,7 +107,7 @@ func (v *JSONSchemaValidator) ValidateProperty(logger logrus.FieldLogger, proper
 	return nil
 }
 
-func (v *JSONSchemaValidator) ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input interface{}) error {
+func (v *JSONSchemaValidator) ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input any) error {
 	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateActionInput"})
 	logger.Debug("Performing schema validation for action input")
 
@@ -143,7 +143,7 @@ func (v *JSONSchemaValidator) ValidateActionInput(logger logrus.FieldLogger, sch
 	return nil
 }
 
-func (v *JSONSchemaValidator) ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data interface{}) error {
+func (v *JSONSchemaValidator) ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data any) error {
 	logger = logger.WithFields(logrus.Fields{"validator_method": "ValidateEventData"})
 	logger.Debug("Performing schema validation for event data")
 

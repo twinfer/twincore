@@ -14,7 +14,7 @@ import (
 // LicenseCheckerOPA implements license checking using OPA policies
 type LicenseCheckerOPA struct {
 	policyDir string
-	jwtData   map[string]interface{}
+	jwtData   map[string]any
 	logger    logrus.FieldLogger
 }
 
@@ -52,7 +52,7 @@ func NewLicenseCheckerOPA(policyDir string, licenseFile string, logger logrus.Fi
 }
 
 // loadAndVerifyJWT loads and verifies the JWT license file
-func (lc *LicenseCheckerOPA) loadAndVerifyJWT(licenseFile string) (map[string]interface{}, error) {
+func (lc *LicenseCheckerOPA) loadAndVerifyJWT(licenseFile string) (map[string]any, error) {
 	// This would integrate with the existing JWT validation logic
 	// For now, we'll parse it as JSON for development
 	content, err := os.ReadFile(licenseFile)
@@ -60,7 +60,7 @@ func (lc *LicenseCheckerOPA) loadAndVerifyJWT(licenseFile string) (map[string]in
 		return nil, err
 	}
 
-	var jwtData map[string]interface{}
+	var jwtData map[string]any
 	if err := json.Unmarshal(content, &jwtData); err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (lc *LicenseCheckerOPA) loadAndVerifyJWT(licenseFile string) (map[string]in
 }
 
 // evalQuery evaluates an OPA query with the current context
-func (lc *LicenseCheckerOPA) evalQuery(ctx context.Context, query string, input map[string]interface{}) (rego.ResultSet, error) {
+func (lc *LicenseCheckerOPA) evalQuery(ctx context.Context, query string, input map[string]any) (rego.ResultSet, error) {
 	// Load policies
 	modules := make([]func(*rego.Rego), 0)
 	modules = append(modules, rego.Query(query))
@@ -106,7 +106,7 @@ func (lc *LicenseCheckerOPA) IsFeatureEnabled(category, feature string) (bool, e
 	// Use the feature_allowed function from the policy
 	query := "data.twincore.features.feature_allowed[input.category][input.feature]"
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"jwt":      lc.jwtData,
 		"category": category,
 		"feature":  feature,
@@ -122,10 +122,10 @@ func (lc *LicenseCheckerOPA) IsFeatureEnabled(category, feature string) (bool, e
 }
 
 // GetAllowedFeatures returns all allowed features based on license
-func (lc *LicenseCheckerOPA) GetAllowedFeatures() (map[string]interface{}, error) {
+func (lc *LicenseCheckerOPA) GetAllowedFeatures() (map[string]any, error) {
 	ctx := context.Background()
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"jwt": lc.jwtData,
 	}
 
@@ -138,7 +138,7 @@ func (lc *LicenseCheckerOPA) GetAllowedFeatures() (map[string]interface{}, error
 		return nil, fmt.Errorf("no features returned from OPA")
 	}
 
-	features, ok := rs[0].Expressions[0].Value.(map[string]interface{})
+	features, ok := rs[0].Expressions[0].Value.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("unexpected OPA result type")
 	}
@@ -153,7 +153,7 @@ func (lc *LicenseCheckerOPA) CheckLimit(resource string, currentCount int) (bool
 	// Use the within_limit function from the policy
 	query := "data.twincore.limits.within_limit[input.resource][input.count]"
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"jwt":      lc.jwtData,
 		"resource": resource,
 		"count":    currentCount,
@@ -168,10 +168,10 @@ func (lc *LicenseCheckerOPA) CheckLimit(resource string, currentCount int) (bool
 }
 
 // GetSecurityConfig generates security configuration based on license
-func (lc *LicenseCheckerOPA) GetSecurityConfig(config map[string]interface{}) (map[string]interface{}, error) {
+func (lc *LicenseCheckerOPA) GetSecurityConfig(config map[string]any) (map[string]any, error) {
 	ctx := context.Background()
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"jwt":    lc.jwtData,
 		"config": config,
 	}
@@ -185,7 +185,7 @@ func (lc *LicenseCheckerOPA) GetSecurityConfig(config map[string]interface{}) (m
 		return nil, fmt.Errorf("no security config returned from OPA")
 	}
 
-	securityConfig, ok := rs[0].Expressions[0].Value.(map[string]interface{})
+	securityConfig, ok := rs[0].Expressions[0].Value.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("unexpected OPA result type")
 	}
@@ -199,7 +199,7 @@ func (lc *LicenseCheckerOPA) GetRateLimit(endpoint string) (int, error) {
 
 	query := "data.twincore.limits.rate_limit_for_endpoint[input.endpoint]"
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"jwt":      lc.jwtData,
 		"endpoint": endpoint,
 	}

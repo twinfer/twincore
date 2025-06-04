@@ -64,7 +64,7 @@ func (g *StreamGeneratorV2) GeneratePropertyObservationStream(
 		{
 			Type:  "mapping",
 			Label: "property_observation_mapping",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"ValuePath": "value",
 			},
 		},
@@ -92,12 +92,12 @@ func (g *StreamGeneratorV2) GeneratePropertyObservationStream(
 		},
 		OutputConfig: StreamEndpointParams{
 			Type: "stream_bridge",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"stream": fmt.Sprintf("property_updates_%s", thingID),
 			},
 		},
 		Processors: processors,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"affordance_type": "property",
 			"property_type":   property.Type,
 			"read_only":       property.ReadOnly,
@@ -134,7 +134,7 @@ func (g *StreamGeneratorV2) GenerateActionCommandStream(
 		{
 			Type:  "mapping",
 			Label: "action_command_mapping",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"ParamsPath": "params",
 			},
 		},
@@ -149,7 +149,7 @@ func (g *StreamGeneratorV2) GenerateActionCommandStream(
 		StreamType:      types.StreamTypeActionOutput,
 		InputConfig: StreamEndpointParams{
 			Type: "stream_bridge",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"stream": fmt.Sprintf("action_commands_%s", thingID),
 			},
 		},
@@ -158,7 +158,7 @@ func (g *StreamGeneratorV2) GenerateActionCommandStream(
 			FormConfig: formConfig,
 		},
 		Processors: processors,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"affordance_type": "action",
 			"synchronous":     action.Synchronous,
 			"safe":            action.Safe,
@@ -193,7 +193,7 @@ func (g *StreamGeneratorV2) GenerateEventNotificationStream(
 		{
 			Type:  "mapping",
 			Label: "event_notification_mapping",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"DataPath": "data",
 			},
 		},
@@ -212,12 +212,12 @@ func (g *StreamGeneratorV2) GenerateEventNotificationStream(
 		},
 		OutputConfig: StreamEndpointParams{
 			Type: "stream_bridge",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"stream": fmt.Sprintf("event_notifications_%s", thingID),
 			},
 		},
 		Processors: processors,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"affordance_type": "event",
 		},
 	}
@@ -273,7 +273,7 @@ func (g *StreamGeneratorV2) GeneratePersistenceStream(
 		StreamType:      types.BenthosStreamType(fmt.Sprintf("%s_logger", interactionType)),
 		InputConfig: StreamEndpointParams{
 			Type: "stream_bridge",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"stream": fmt.Sprintf("%s_updates_%s", interactionType, thingID),
 			},
 		},
@@ -282,7 +282,7 @@ func (g *StreamGeneratorV2) GeneratePersistenceStream(
 			Config: outputConfig.Config,
 		},
 		Processors: processors,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"purpose":          "persistence",
 			"persistence_type": g.persistenceConfig.Format,
 		},

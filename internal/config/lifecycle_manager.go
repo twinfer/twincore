@@ -23,7 +23,7 @@ type LifecycleManager struct {
 
 // LicenseValidator interface for license validation
 type LicenseValidator interface {
-	ValidateLicense(licenseData string) (map[string]interface{}, error)
+	ValidateLicense(licenseData string) (map[string]any, error)
 	GetFeatures() map[string]bool
 	IsValid() bool
 }
@@ -300,8 +300,8 @@ func (lm *LifecycleManager) UpdateLicense(licenseData string) error {
 }
 
 // ExportConfiguration exports the current configuration
-func (lm *LifecycleManager) ExportConfiguration() (map[string]interface{}, error) {
-	export := make(map[string]interface{})
+func (lm *LifecycleManager) ExportConfiguration() (map[string]any, error) {
+	export := make(map[string]any)
 
 	// Get Caddy config
 	caddyConfig, err := lm.configManager.GetCaddyConfig()
@@ -315,11 +315,11 @@ func (lm *LifecycleManager) ExportConfiguration() (map[string]interface{}, error
 	`)
 	if err == nil {
 		defer rows.Close()
-		services := make(map[string]interface{})
+		services := make(map[string]any)
 		for rows.Next() {
 			var id, data string
 			if err := rows.Scan(&id, &data); err == nil {
-				var config interface{}
+				var config any
 				if err := json.Unmarshal([]byte(data), &config); err == nil {
 					services[id] = config
 				}
@@ -338,7 +338,7 @@ func (lm *LifecycleManager) ExportConfiguration() (map[string]interface{}, error
 }
 
 // ImportConfiguration imports a configuration
-func (lm *LifecycleManager) ImportConfiguration(config map[string]interface{}) error {
+func (lm *LifecycleManager) ImportConfiguration(config map[string]any) error {
 	// Import Caddy config
 	if caddyRaw, ok := config["caddy"]; ok {
 		caddyJSON, err := json.Marshal(caddyRaw)
@@ -357,7 +357,7 @@ func (lm *LifecycleManager) ImportConfiguration(config map[string]interface{}) e
 	}
 
 	// Import service configs
-	if services, ok := config["services"].(map[string]interface{}); ok {
+	if services, ok := config["services"].(map[string]any); ok {
 		for id, serviceConfig := range services {
 			configJSON, err := json.Marshal(serviceConfig)
 			if err != nil {
@@ -377,7 +377,7 @@ func (lm *LifecycleManager) ImportConfiguration(config map[string]interface{}) e
 	}
 
 	// Import stream configs
-	if streams, ok := config["streams"].(map[string]interface{}); ok {
+	if streams, ok := config["streams"].(map[string]any); ok {
 		for name, streamConfig := range streams {
 			if yamlStr, ok := streamConfig.(string); ok {
 				if err := lm.configManager.UpdateBenthosStream(name, yamlStr); err != nil {

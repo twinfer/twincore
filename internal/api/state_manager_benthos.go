@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/models"
 	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified schema management
+	"slices"
 )
 
 // BenthosStateManager is a refactored StateManager that uses Benthos for Parquet logging
@@ -89,7 +90,7 @@ func (sm *BenthosStateManager) initializeParquetSchemas() error {
 }
 
 // GetProperty retrieves a property value from the database
-func (sm *BenthosStateManager) GetProperty(thingID, name string) (interface{}, error) {
+func (sm *BenthosStateManager) GetProperty(thingID, name string) (any, error) {
 	// Using sm.logger as base, assuming request_id is not directly available or needed for this specific implementation's logging detail level
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetProperty", "thing_id": thingID, "property_name": name})
 	logger.Debug("Service method called")
@@ -110,7 +111,7 @@ func (sm *BenthosStateManager) GetProperty(thingID, name string) (interface{}, e
 		return nil, fmt.Errorf("failed to get property: %w", err)
 	}
 
-	var value interface{}
+	var value any
 	if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
 		logger.WithError(err).Error("Failed to unmarshal property value from DB")
 		return nil, fmt.Errorf("failed to unmarshal property value: %w", err)
@@ -120,7 +121,7 @@ func (sm *BenthosStateManager) GetProperty(thingID, name string) (interface{}, e
 }
 
 // SetProperty updates a property value in the database and logs to Parquet
-func (sm *BenthosStateManager) SetProperty(logger logrus.FieldLogger, thingID, name string, value interface{}) error {
+func (sm *BenthosStateManager) SetProperty(logger logrus.FieldLogger, thingID, name string, value any) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetProperty", "thing_id": thingID, "property_name": name, "value": value})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
@@ -134,7 +135,7 @@ func (sm *BenthosStateManager) SetProperty(logger logrus.FieldLogger, thingID, n
 }
 
 // SetPropertyWithContext updates a property value with source context
-func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, name string, value interface{}) error {
+func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, name string, value any) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "SetPropertyWithContext", "thing_id": thingID, "property_name": name}) // Removed value from initial log for brevity
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
@@ -198,7 +199,7 @@ func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger,
 }
 
 // GetAllProperties retrieves all properties for a thing
-func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID string) (map[string]interface{}, error) {
+func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID string) (map[string]any, error) {
 	// Using sm.logger as base
 	logger := sm.logger.WithFields(logrus.Fields{"service_method": "GetAllProperties", "thing_id": thingID})
 	logger.Debug("Service method called")
@@ -216,7 +217,7 @@ func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID str
 	}
 	defer rows.Close()
 
-	properties := make(map[string]interface{})
+	properties := make(map[string]any)
 	for rows.Next() {
 		var name, valueJSON string
 		if err := rows.Scan(&name, &valueJSON); err != nil {
@@ -224,7 +225,7 @@ func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID str
 			return nil, fmt.Errorf("failed to scan property row: %w", err)
 		}
 
-		var value interface{}
+		var value any
 		if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
 			logger.WithError(err).WithField("property_name", name).Warn("Failed to unmarshal property value from DB")
 			continue
@@ -297,7 +298,7 @@ func (sm *BenthosStateManager) Close() error {
 	logger.Debug("Closing BenthosStateManager")
 
 	// Clear all subscribers
-	sm.subscribers.Range(func(key, value interface{}) bool {
+	sm.subscribers.Range(func(key, value any) bool {
 		if channels, ok := value.([]chan models.PropertyUpdate); ok {
 			for _, ch := range channels {
 				close(ch)
@@ -321,9 +322,9 @@ func (sm *BenthosStateManager) GetRegisteredSchemas() []string {
 }
 
 // GetParquetSchema returns the Parquet schema for a specific interaction type
-func (sm *BenthosStateManager) GetParquetSchema(interactionType string) []map[string]interface{} {
+func (sm *BenthosStateManager) GetParquetSchema(interactionType string) []map[string]any {
 	if sm.schemaRegistry == nil {
-		return []map[string]interface{}{}
+		return []map[string]any{}
 	}
 	return sm.schemaRegistry.GetParquetSchema(interactionType)
 }
@@ -353,7 +354,7 @@ func (sm *BenthosStateManager) HealthCheck() error {
 
 	// Get subscriber count for monitoring
 	subscriberCount := 0
-	sm.subscribers.Range(func(key, value interface{}) bool {
+	sm.subscribers.Range(func(key, value any) bool {
 		if channels, ok := value.([]chan models.PropertyUpdate); ok {
 			subscriberCount += len(channels)
 		}
@@ -370,11 +371,11 @@ func (sm *BenthosStateManager) HealthCheck() error {
 }
 
 // GetServiceStatus returns detailed status information
-func (sm *BenthosStateManager) GetServiceStatus() map[string]interface{} {
+func (sm *BenthosStateManager) GetServiceStatus() map[string]any {
 	subscriberCount := 0
 	keyCount := 0
 
-	sm.subscribers.Range(func(key, value interface{}) bool {
+	sm.subscribers.Range(func(key, value any) bool {
 		keyCount++
 		if channels, ok := value.([]chan models.PropertyUpdate); ok {
 			subscriberCount += len(channels)
@@ -382,7 +383,7 @@ func (sm *BenthosStateManager) GetServiceStatus() map[string]interface{} {
 		return true
 	})
 
-	status := map[string]interface{}{
+	status := map[string]any{
 		"parquet_enabled":     sm.parquetEnabled,
 		"has_schema_registry": sm.schemaRegistry != nil,
 		"subscriber_count":    subscriberCount,
@@ -398,7 +399,7 @@ func (sm *BenthosStateManager) GetServiceStatus() map[string]interface{} {
 	return status
 }
 
-func (sm *BenthosStateManager) notifySubscribers(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) {
+func (sm *BenthosStateManager) notifySubscribers(logger logrus.FieldLogger, thingID, propertyName string, value any) {
 	key := fmt.Sprintf("%s/%s", thingID, propertyName)
 	// Use the logger passed from SetPropertyWithContext, which may include request_id
 	notifyLogger := logger.WithFields(logrus.Fields{"internal_method": "notifySubscribers", "key": key})
@@ -507,7 +508,7 @@ func (sm *BenthosStateManager) UnsubscribeProperty(thingID, propertyName string,
 
 	for i, c := range channels {
 		if c == ch {
-			channels = append(channels[:i], channels[i+1:]...)
+			channels = slices.Delete(channels, i, i+1)
 			if len(channels) == 0 {
 				sm.subscribers.Delete(key)
 				logger.Debug("Removed last subscriber, deleting list")

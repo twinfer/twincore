@@ -16,8 +16,8 @@ type ConfigurationManager interface {
 	CompleteSetup(logger logrus.FieldLogger) error
 	GetAuthProviders(license License) []AuthProviderInfo
 	ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error
-	GetConfiguration(logger logrus.FieldLogger) (map[string]interface{}, error)
-	UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]interface{}) error
+	GetConfiguration(logger logrus.FieldLogger) (map[string]any, error)
+	UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]any) error
 	AddRoute(ctx context.Context, routeID string, route types.HTTPRoute) error
 	RemoveThingRoutes(logger logrus.FieldLogger, thingID string) error
 }
@@ -49,21 +49,21 @@ type BindingGenerationService interface {
 
 // StateManager handles property state and synchronization
 type StateManager interface {
-	GetProperty(thingID, propertyName string) (interface{}, error)
-	SetProperty(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) error
-	SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value interface{}) error
+	GetProperty(thingID, propertyName string) (any, error)
+	SetProperty(logger logrus.FieldLogger, thingID, propertyName string, value any) error
+	SetPropertyWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value any) error
 	SubscribeProperty(thingID, propertyName string) (<-chan models.PropertyUpdate, error)
 	UnsubscribeProperty(thingID, propertyName string, ch <-chan models.PropertyUpdate)
 }
 
 // StreamBridge connects HTTP handlers to Benthos streams
 type StreamBridge interface {
-	PublishPropertyUpdate(logger logrus.FieldLogger, thingID, propertyName string, value interface{}) error
-	PublishPropertyUpdateWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value interface{}) error
-	PublishActionInvocation(logger logrus.FieldLogger, thingID, actionName string, input interface{}) (string, error)
-	PublishEvent(logger logrus.FieldLogger, thingID, eventName string, data interface{}) error
-	GetActionResult(logger logrus.FieldLogger, actionID string, timeout time.Duration) (interface{}, error)
-	ProcessActionResult(logger logrus.FieldLogger, result map[string]interface{}) error
+	PublishPropertyUpdate(logger logrus.FieldLogger, thingID, propertyName string, value any) error
+	PublishPropertyUpdateWithContext(logger logrus.FieldLogger, ctx context.Context, thingID, propertyName string, value any) error
+	PublishActionInvocation(logger logrus.FieldLogger, thingID, actionName string, input any) (string, error)
+	PublishEvent(logger logrus.FieldLogger, thingID, eventName string, data any) error
+	GetActionResult(logger logrus.FieldLogger, actionID string, timeout time.Duration) (any, error)
+	ProcessActionResult(logger logrus.FieldLogger, result map[string]any) error
 }
 
 // ThingRegistry provides access to Thing Descriptions
@@ -76,9 +76,9 @@ type ThingRegistry interface {
 
 // SchemaValidator validates inputs against WoT schemas
 type SchemaValidator interface {
-	ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value interface{}) error
-	ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input interface{}) error
-	ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data interface{}) error
+	ValidateProperty(logger logrus.FieldLogger, propertyName string, propertySchema wot.DataSchema, value any) error
+	ValidateActionInput(logger logrus.FieldLogger, schema wot.DataSchema, input any) error
+	ValidateEventData(logger logrus.FieldLogger, schema wot.DataSchema, data any) error
 	ValidateThingDescription(logger logrus.FieldLogger, td *wot.ThingDescription) error
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/caddyserver/caddy/v2" // Import caddy
 	"github.com/sirupsen/logrus"      // Import logrus
 	"github.com/wI2L/jsondiff"
+	"maps"
 )
 
 // ConfigManager manages configurations via API
@@ -230,9 +231,7 @@ func (cm *ConfigManager) GetAllBenthosConfigs() map[string]string {
 	defer cm.mu.RUnlock()
 
 	configs := make(map[string]string)
-	for k, v := range cm.benthosConfigs {
-		configs[k] = v
-	}
+	maps.Copy(configs, cm.benthosConfigs)
 
 	return configs
 }

@@ -60,8 +60,8 @@ func (m *MockLicenseAdapter) CheckLimit(resource string, currentCount int) (bool
 	return true, nil
 }
 
-func (m *MockLicenseAdapter) GetAllowedFeatures() (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (m *MockLicenseAdapter) GetAllowedFeatures() (map[string]any, error) {
+	return map[string]any{
 		"streaming": []string{"benthos", "kafka", "mqtt"},
 		"protocols": []string{"http", "kafka", "mqtt"},
 	}, nil
@@ -71,8 +71,8 @@ func (m *MockLicenseAdapter) IsFeatureAvailable(feature string) bool {
 	return true // Allow all features for now
 }
 
-func (m *MockLicenseAdapter) GetFeatureConfig(feature string) map[string]interface{} {
-	return make(map[string]interface{})
+func (m *MockLicenseAdapter) GetFeatureConfig(feature string) map[string]any {
+	return make(map[string]any)
 }
 
 func (s *StreamService) Name() string {
@@ -418,7 +418,7 @@ func (s *StreamService) generateConfigFromForms(forms []wot.Form, securityDefs m
 	}
 
 	// Generate configurations
-	var inputConfig, outputConfig map[string]interface{}
+	var inputConfig, outputConfig map[string]any
 	var err error
 
 	if inputForm != nil {
@@ -440,7 +440,7 @@ func (s *StreamService) generateConfigFromForms(forms []wot.Form, securityDefs m
 }
 
 // combineConfigs combines input and output configs into complete Benthos YAML
-func (s *StreamService) combineConfigs(input, output map[string]interface{}, streamType string) (string, error) {
+func (s *StreamService) combineConfigs(input, output map[string]any, streamType string) (string, error) {
 	config := ""
 
 	if input != nil {
@@ -581,15 +581,15 @@ func (s *StreamService) createAndRunStream(name, yamlConfig string) error {
 }
 
 // GetStreamMetrics returns metrics for all streams
-func (s *StreamService) GetStreamMetrics() (map[string]interface{}, error) {
+func (s *StreamService) GetStreamMetrics() (map[string]any, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	metrics := make(map[string]interface{})
+	metrics := make(map[string]any)
 
 	for name := range s.streams {
 		// StreamBuilder doesn't expose direct metrics, but we can track status
-		metrics[name] = map[string]interface{}{
+		metrics[name] = map[string]any{
 			"running": true,
 			"config":  s.configs[name],
 		}
@@ -599,11 +599,11 @@ func (s *StreamService) GetStreamMetrics() (map[string]interface{}, error) {
 }
 
 // GetServiceStatus returns detailed status information for the StreamService
-func (s *StreamService) GetServiceStatus() map[string]interface{} {
+func (s *StreamService) GetServiceStatus() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	status := map[string]interface{}{
+	status := map[string]any{
 		"running":             s.running,
 		"active_streams":      len(s.streams),
 		"stored_configs":      len(s.configs),
@@ -618,9 +618,9 @@ func (s *StreamService) GetServiceStatus() map[string]interface{} {
 	}
 
 	// Add individual stream status
-	streamStatus := make(map[string]interface{})
+	streamStatus := make(map[string]any)
 	for name := range s.streams {
-		streamStatus[name] = map[string]interface{}{
+		streamStatus[name] = map[string]any{
 			"has_config": s.configs[name] != "",
 			"running":    true, // If it's in the map, it's considered running
 		}
@@ -652,7 +652,7 @@ func (s *StreamService) convertTopicToStreamBuildConfig(topic types.StreamTopic)
 		Purpose:         forms.PurposeObservation,
 		Direction:       forms.DirectionInput,
 		StreamType:      types.BenthosStreamType(topic.Type),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"original_topic_config": topic.Config,
 		},
 	}
@@ -667,7 +667,7 @@ func (s *StreamService) convertTopicToStreamBuildConfig(topic types.StreamTopic)
 	// Set a default output configuration (could be stream_bridge or logging)
 	buildConfig.OutputConfig = forms.StreamEndpointParams{
 		Type: "stream_bridge",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"topic": topic.Name + "_processed",
 		},
 	}
@@ -694,7 +694,7 @@ func (s *StreamService) convertCommandToStreamBuildConfig(command types.CommandS
 		Purpose:         forms.PurposeCommand,
 		Direction:       forms.DirectionOutput,
 		StreamType:      types.BenthosStreamType(command.Type),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"original_command_config": command.Config,
 		},
 	}
@@ -709,7 +709,7 @@ func (s *StreamService) convertCommandToStreamBuildConfig(command types.CommandS
 	// Set a default input configuration (could be stream_bridge or HTTP)
 	buildConfig.InputConfig = forms.StreamEndpointParams{
 		Type: "stream_bridge",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"topic": command.Name + "_input",
 		},
 	}
@@ -761,7 +761,7 @@ func (s *StreamService) convertFormToEndpointParams(form wot.Form, isInput bool)
 	return forms.StreamEndpointParams{
 		Type:       protocolType,
 		Protocol:   protocolType,
-		Config:     make(map[string]interface{}),
+		Config:     make(map[string]any),
 		FormConfig: formConfig,
 	}, nil
 }

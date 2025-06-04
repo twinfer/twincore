@@ -7,16 +7,16 @@ import (
 
 // StreamTopic represents a streaming topic configuration
 type StreamTopic struct {
-	Name   string                 `json:"name"`
-	Type   string                 `json:"type"`
-	Config map[string]interface{} `json:"config"`
+	Name   string         `json:"name"`
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config"`
 }
 
 // CommandStream represents a command stream configuration
 type CommandStream struct {
-	Name   string                 `json:"name"`
-	Type   string                 `json:"type"`
-	Config map[string]interface{} `json:"config"`
+	Name   string         `json:"name"`
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config"`
 }
 
 // StreamConfig holds configurations for streaming topics and commands.
@@ -35,9 +35,9 @@ type UnifiedConfig struct {
 
 // ServiceConfig holds the generic configuration for a service.
 type ServiceConfig struct {
-	Name   string                 `json:"name"`
-	Type   string                 `json:"type"`
-	Config map[string]interface{} `json:"config"` // Generic config map
+	Name   string         `json:"name"`
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config"` // Generic config map
 }
 
 // Service defines the interface for a manageable service within the application.
@@ -99,11 +99,11 @@ type HTTPConfig struct {
 
 // HTTPRoute is a simplified route configuration
 type HTTPRoute struct {
-	Path         string                 `json:"path"`
-	Methods      []string               `json:"methods,omitempty"`
-	Handler      string                 `json:"handler"`
-	RequiresAuth bool                   `json:"requires_auth"`
-	Config       map[string]interface{} `json:"config,omitempty"`
+	Path         string         `json:"path"`
+	Methods      []string       `json:"methods,omitempty"`
+	Handler      string         `json:"handler"`
+	RequiresAuth bool           `json:"requires_auth"`
+	Config       map[string]any `json:"config,omitempty"`
 }
 
 // CaddyAdminClient provides methods to interact with Caddy Admin API

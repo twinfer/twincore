@@ -14,8 +14,8 @@ import (
 // JWTLicenseClaims defines the structure for JWT-based licenses that work with OPA
 type JWTLicenseClaims struct {
 	jwt.RegisteredClaims
-	Features map[string]interface{} `json:"features"`
-	Customer map[string]string      `json:"customer,omitempty"`
+	Features map[string]any    `json:"features"`
+	Customer map[string]string `json:"customer,omitempty"`
 }
 
 // JWTLicenseValidator validates JWT licenses and integrates with OPA
@@ -67,7 +67,7 @@ func (v *JWTLicenseValidator) ValidateAndLoad(licenseFile, policyDir string) (*L
 	}
 
 	// Parse and validate JWT
-	token, err := jwt.ParseWithClaims(string(tokenString), &JWTLicenseClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(string(tokenString), &JWTLicenseClaims{}, func(token *jwt.Token) (any, error) {
 		// Validate signing method
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -90,7 +90,7 @@ func (v *JWTLicenseValidator) ValidateAndLoad(licenseFile, policyDir string) (*L
 	}
 
 	// Convert claims to format expected by OPA
-	jwtData := map[string]interface{}{
+	jwtData := map[string]any{
 		"iss":      claims.Issuer,
 		"sub":      claims.Subject,
 		"exp":      claims.ExpiresAt.Unix(),
@@ -128,13 +128,13 @@ func (v *JWTLicenseValidator) ValidateAndLoad(licenseFile, policyDir string) (*L
 }
 
 // GetLicenseInfo returns information about the current license
-func (v *JWTLicenseValidator) GetLicenseInfo(licenseFile string) (map[string]interface{}, error) {
+func (v *JWTLicenseValidator) GetLicenseInfo(licenseFile string) (map[string]any, error) {
 	tokenString, err := os.ReadFile(licenseFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read license file: %w", err)
 	}
 
-	token, err := jwt.ParseWithClaims(string(tokenString), &JWTLicenseClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(string(tokenString), &JWTLicenseClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -150,7 +150,7 @@ func (v *JWTLicenseValidator) GetLicenseInfo(licenseFile string) (map[string]int
 		return nil, fmt.Errorf("invalid token claims")
 	}
 
-	info := map[string]interface{}{
+	info := map[string]any{
 		"valid":      token.Valid,
 		"issuer":     claims.Issuer,
 		"subject":    claims.Subject,

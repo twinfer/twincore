@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
+	"slices"
 )
 
 // SimpleLicenseChecker validates JWT licenses without OPA complexity
@@ -92,7 +93,7 @@ func NewSimpleLicenseChecker(licenseFile string, publicKeyBytes []byte, logger l
 	}
 
 	// Parse JWT
-	token, err := jwt.ParseWithClaims(string(tokenString), &LicenseClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(string(tokenString), &LicenseClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -172,8 +173,8 @@ func (l *SimpleLicenseChecker) IsFeatureAvailable(feature string) bool {
 	return enabled
 }
 
-func (l *SimpleLicenseChecker) GetFeatureConfig(feature string) map[string]interface{} {
-	return map[string]interface{}{
+func (l *SimpleLicenseChecker) GetFeatureConfig(feature string) map[string]any {
+	return map[string]any{
 		"enabled": l.IsFeatureAvailable(feature),
 	}
 }
@@ -221,13 +222,13 @@ func (l *SimpleLicenseChecker) IsCapabilityEnabled(capability string) bool {
 
 // Get all allowed features
 
-func (l *SimpleLicenseChecker) GetAllowedFeatures() (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (l *SimpleLicenseChecker) GetAllowedFeatures() (map[string]any, error) {
+	return map[string]any{
 		"bindings":   l.features.Bindings,
 		"processors": l.features.Processors,
 		"security":   l.features.Security,
 		"storage":    l.features.Storage,
-		"capabilities": map[string]interface{}{
+		"capabilities": map[string]any{
 			"max_things":    l.features.MaxThings,
 			"max_streams":   l.features.MaxStreams,
 			"max_users":     l.features.MaxUsers,
@@ -241,12 +242,7 @@ func (l *SimpleLicenseChecker) GetAllowedFeatures() (map[string]interface{}, err
 // Helper methods
 
 func (l *SimpleLicenseChecker) contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }
 
 // Generate example license for testing

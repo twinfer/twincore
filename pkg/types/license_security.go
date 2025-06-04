@@ -12,7 +12,7 @@ type LicenseSecurityFeatures struct {
 	WoTSecurity    WoTSecurityFeatures     `json:"wot_security"`
 	General        GeneralSecurityFeatures `json:"general"`
 	Tier           string                  `json:"tier"` // "basic", "professional", "enterprise"
-	ExpiresAt      time.Time               `json:"expires_at,omitempty"`
+	ExpiresAt      time.Time               `json:"expires_at"`
 	DeviceLimit    int                     `json:"device_limit,omitempty"`
 }
 
@@ -231,7 +231,7 @@ type LicenseInfo struct {
 	Limits       LicenseLimits           `json:"limits"`
 	DeviceID     string                  `json:"device_id,omitempty"`
 	Organization string                  `json:"organization,omitempty"`
-	Metadata     map[string]interface{}  `json:"metadata,omitempty"`
+	Metadata     map[string]any          `json:"metadata,omitempty"`
 }
 
 // TierComparison compares features between license tiers

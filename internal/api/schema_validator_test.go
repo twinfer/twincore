@@ -21,7 +21,7 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 		name          string
 		propertyName  string
 		schema        wot.DataSchema
-		data          interface{}
+		data          any
 		expectError   bool
 		errorContains string
 	}{
@@ -97,7 +97,7 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 					Required: []string{"latitude"},
 				},
 			},
-			data:        map[string]interface{}{"latitude": 40.7128, "longitude": -74.0060},
+			data:        map[string]any{"latitude": 40.7128, "longitude": -74.0060},
 			expectError: false,
 		},
 		{
@@ -113,7 +113,7 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 					Required: []string{"latitude"},
 				},
 			},
-			data:          map[string]interface{}{"longitude": -74.0060},
+			data:          map[string]any{"longitude": -74.0060},
 			expectError:   true,
 			errorContains: "latitude: (root): latitude is required",
 		},
@@ -128,7 +128,7 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 					},
 				},
 			},
-			data:          map[string]interface{}{"latitude": "not-a-number"},
+			data:          map[string]any{"latitude": "not-a-number"},
 			expectError:   true,
 			errorContains: "latitude: type is wrong. Expected: number, Got: string",
 		},
@@ -143,14 +143,14 @@ func TestJSONSchemaValidator_ValidateProperty(t *testing.T) {
 		{
 			name:         "valid string for enum",
 			propertyName: "status",
-			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string", Enum: []interface{}{"active", "inactive", "error"}}},
+			schema:       wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string", Enum: []any{"active", "inactive", "error"}}},
 			data:         "active",
 			expectError:  false,
 		},
 		{
 			name:          "invalid string for enum",
 			propertyName:  "status",
-			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string", Enum: []interface{}{"active", "inactive", "error"}}},
+			schema:        wot.DataSchema{DataSchemaCore: wot.DataSchemaCore{Type: "string", Enum: []any{"active", "inactive", "error"}}},
 			data:          "pending",
 			expectError:   true,
 			errorContains: "does not match any of the options in the enum", // Actual message might vary slightly

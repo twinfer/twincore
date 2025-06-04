@@ -40,11 +40,11 @@ func TestHTTPServiceUnified_BasicLifecycle(t *testing.T) {
 	// Convert HTTPConfig to map for proper serialization
 	config := types.ServiceConfig{
 		Name: "http-unified",
-		Config: map[string]interface{}{
-			"http": map[string]interface{}{
+		Config: map[string]any{
+			"http": map[string]any{
 				"listen": []string{":0"}, // Use port 0 for testing to avoid conflicts
 				"routes": []types.HTTPRoute{},
-				"security": map[string]interface{}{
+				"security": map[string]any{
 					"enabled": false,
 				},
 			},
@@ -95,7 +95,7 @@ func TestHTTPServiceUnified_ConfigValidation(t *testing.T) {
 			name: "missing_http_config",
 			config: types.ServiceConfig{
 				Name:   "http-unified",
-				Config: map[string]interface{}{},
+				Config: map[string]any{},
 			},
 			expectError: true,
 			errorMsg:    "missing HTTP configuration",
@@ -104,7 +104,7 @@ func TestHTTPServiceUnified_ConfigValidation(t *testing.T) {
 			name: "invalid_http_config_type",
 			config: types.ServiceConfig{
 				Name: "http-unified",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"http": "invalid",
 				},
 			},
@@ -115,11 +115,11 @@ func TestHTTPServiceUnified_ConfigValidation(t *testing.T) {
 			name: "valid_minimal_config",
 			config: types.ServiceConfig{
 				Name: "http-unified",
-				Config: map[string]interface{}{
-					"http": map[string]interface{}{
+				Config: map[string]any{
+					"http": map[string]any{
 						"listen": []string{":0"},
 						"routes": []types.HTTPRoute{},
-						"security": map[string]interface{}{
+						"security": map[string]any{
 							"enabled": false,
 						},
 					},
@@ -163,7 +163,7 @@ func TestHTTPServiceUnified_RouteBuilding(t *testing.T) {
 				Path:    "/api/*",
 				Methods: []string{"GET", "POST"},
 				Handler: "reverse_proxy",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"upstream": "localhost:3000",
 				},
 			},
@@ -174,7 +174,7 @@ func TestHTTPServiceUnified_RouteBuilding(t *testing.T) {
 				Path:    "/health",
 				Methods: []string{"GET"},
 				Handler: "static_response",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"body":        `{"status": "ok"}`,
 					"status_code": 200,
 				},
@@ -186,7 +186,7 @@ func TestHTTPServiceUnified_RouteBuilding(t *testing.T) {
 				Path:    "/unknown",
 				Methods: []string{"GET"},
 				Handler: "unknown_handler",
-				Config:  map[string]interface{}{},
+				Config:  map[string]any{},
 			},
 		},
 	}
@@ -283,19 +283,19 @@ func TestHTTPServiceUnified_UpdateConfig(t *testing.T) {
 	// Start with initial config
 	initialConfig := types.ServiceConfig{
 		Name: "http-unified",
-		Config: map[string]interface{}{
-			"http": map[string]interface{}{
+		Config: map[string]any{
+			"http": map[string]any{
 				"listen": []string{":0"},
 				"routes": []types.HTTPRoute{
 					{
 						Path:    "/initial",
 						Handler: "static_response",
-						Config: map[string]interface{}{
+						Config: map[string]any{
 							"body": "initial",
 						},
 					},
 				},
-				"security": map[string]interface{}{
+				"security": map[string]any{
 					"enabled": false,
 				},
 			},
@@ -309,19 +309,19 @@ func TestHTTPServiceUnified_UpdateConfig(t *testing.T) {
 	// Test update config when running
 	updatedConfig := types.ServiceConfig{
 		Name: "http-unified",
-		Config: map[string]interface{}{
-			"http": map[string]interface{}{
+		Config: map[string]any{
+			"http": map[string]any{
 				"listen": []string{":0"},
 				"routes": []types.HTTPRoute{
 					{
 						Path:    "/updated",
 						Handler: "static_response",
-						Config: map[string]interface{}{
+						Config: map[string]any{
 							"body": "updated",
 						},
 					},
 				},
-				"security": map[string]interface{}{
+				"security": map[string]any{
 					"enabled": false,
 				},
 			},

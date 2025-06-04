@@ -26,12 +26,12 @@ func (m *MockLicenseCheckerV2) CheckLimit(resource string, currentCount int) (bo
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLicenseCheckerV2) GetAllowedFeatures() (map[string]interface{}, error) {
+func (m *MockLicenseCheckerV2) GetAllowedFeatures() (map[string]any, error) {
 	args := m.Called()
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(map[string]interface{}), args.Error(1)
+	return args.Get(0).(map[string]any), args.Error(1)
 }
 
 func (m *MockLicenseCheckerV2) IsFeatureAvailable(feature string) bool {
@@ -39,12 +39,12 @@ func (m *MockLicenseCheckerV2) IsFeatureAvailable(feature string) bool {
 	return args.Bool(0)
 }
 
-func (m *MockLicenseCheckerV2) GetFeatureConfig(feature string) map[string]interface{} {
+func (m *MockLicenseCheckerV2) GetFeatureConfig(feature string) map[string]any {
 	args := m.Called(feature)
 	if args.Get(0) == nil {
 		return nil
 	}
-	return args.Get(0).(map[string]interface{})
+	return args.Get(0).(map[string]any)
 }
 
 // MockStreamManagerV2 for testing
@@ -68,8 +68,8 @@ func (f *MockForm) GetSecurity() []string                       { return nil }
 func (f *MockForm) GetResponse() *wot.ExpectedResponse          { return nil }
 func (f *MockForm) GetURIVariables() map[string]*wot.DataSchema { return nil }
 func (f *MockForm) GetSubprotocol() string                      { return "" }
-func (f *MockForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (f *MockForm) GenerateConfig(securityDefs map[string]wot.SecurityScheme) (map[string]any, error) {
+	return map[string]any{
 		"href":        f.href,
 		"contentType": f.contentType,
 		"method":      f.op[0],
@@ -223,14 +223,14 @@ func TestUnifiedBindingGenerator_CompleteFlow(t *testing.T) {
 			Direction:       "input",
 			Input: types.StreamEndpointConfig{
 				Type:   "http_server",
-				Config: map[string]interface{}{},
+				Config: map[string]any{},
 			},
 			Output: types.StreamEndpointConfig{
 				Type:   "stream_bridge",
-				Config: map[string]interface{}{},
+				Config: map[string]any{},
 			},
 			ProcessorChain: []types.ProcessorConfig{},
-			Metadata:       map[string]interface{}{},
+			Metadata:       map[string]any{},
 		}, nil)
 
 	// Execute

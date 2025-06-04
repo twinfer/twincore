@@ -60,7 +60,7 @@ func (r *SchemaRegistry) initializeSchemas() {
 }
 
 // GetSchema returns the complete schema for an interaction type
-func (r *SchemaRegistry) GetSchema(interactionType string) []map[string]interface{} {
+func (r *SchemaRegistry) GetSchema(interactionType string) []map[string]any {
 	// Combine base fields with type-specific fields
 	var fields []SchemaField
 	fields = append(fields, r.baseFields...)
@@ -74,16 +74,16 @@ func (r *SchemaRegistry) GetSchema(interactionType string) []map[string]interfac
 }
 
 // GetParquetSchema returns a Parquet-formatted schema
-func (r *SchemaRegistry) GetParquetSchema(interactionType string) []map[string]interface{} {
+func (r *SchemaRegistry) GetParquetSchema(interactionType string) []map[string]any {
 	return r.GetSchema(interactionType)
 }
 
 // convertToParquetSchema converts schema fields to Parquet format
-func (r *SchemaRegistry) convertToParquetSchema(fields []SchemaField) []map[string]interface{} {
-	schema := make([]map[string]interface{}, len(fields))
+func (r *SchemaRegistry) convertToParquetSchema(fields []SchemaField) []map[string]any {
+	schema := make([]map[string]any, len(fields))
 
 	for i, field := range fields {
-		schema[i] = map[string]interface{}{
+		schema[i] = map[string]any{
 			"name": field.Name,
 			"type": field.Type,
 		}

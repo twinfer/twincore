@@ -7,6 +7,7 @@ import (
 	// "github.com/benthosdev/benthos/v4/public/bloblang"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
+	"maps"
 )
 
 // StreamConfigBuilder provides a unified interface for building stream configurations
@@ -40,7 +41,7 @@ type StreamBuildConfig struct {
 	InputConfig     StreamEndpointParams
 	OutputConfig    StreamEndpointParams
 	Processors      []ProcessorConfig
-	Metadata        map[string]interface{}
+	Metadata        map[string]any
 }
 
 // StreamPurpose defines the purpose of a stream
@@ -65,24 +66,24 @@ const (
 
 // StreamEndpointParams contains parameters for stream endpoints
 type StreamEndpointParams struct {
-	Type       string                 // "http", "mqtt", "kafka", "file", "s3", etc.
-	Protocol   string                 // Protocol-specific type
-	Config     map[string]interface{} // Protocol-specific configuration
-	FormConfig FormConfiguration      // Form-specific config (href, security, etc.)
+	Type       string            // "http", "mqtt", "kafka", "file", "s3", etc.
+	Protocol   string            // Protocol-specific type
+	Config     map[string]any    // Protocol-specific configuration
+	FormConfig FormConfiguration // Form-specific config (href, security, etc.)
 }
 
 // ProcessorConfig defines a processor in the pipeline
 type ProcessorConfig struct {
-	Type       string                 // "mapping", "filter", "throttle", etc.
-	Label      string                 // Processor label
-	Parameters map[string]interface{} // Processor-specific parameters
+	Type       string         // "mapping", "filter", "throttle", etc.
+	Label      string         // Processor label
+	Parameters map[string]any // Processor-specific parameters
 }
 
 // FormConfiguration contains WoT form-specific configuration
 type FormConfiguration struct {
 	Href         string
 	Security     []string
-	SecurityDefs map[string]interface{}
+	SecurityDefs map[string]any
 	ContentType  string
 	Method       string // For HTTP
 	Topic        string // For MQTT/Kafka
@@ -164,7 +165,7 @@ func (b *StreamConfigBuilder) buildProcessors(config StreamBuildConfig) (types.P
 			processors = append(processors, types.ProcessorConfigItem{
 				Label: pc.Label,
 				Type:  types.BenthosProcessorType("bloblang"),
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"bloblang": mapping,
 				},
 			})
@@ -239,7 +240,7 @@ func (b *StreamConfigBuilder) buildEndpointConfig(params StreamEndpointParams, i
 
 // buildHTTPInputConfig creates HTTP input configuration
 func (b *StreamConfigBuilder) buildHTTPInputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"address": ":0", // Dynamic port allocation
 		"path":    params.FormConfig.Href,
 	}
@@ -249,9 +250,7 @@ func (b *StreamConfigBuilder) buildHTTPInputConfig(params StreamEndpointParams) 
 	}
 
 	// Merge custom config
-	for k, v := range params.Config {
-		config[k] = v
-	}
+	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
 		Type:   "http_server",
@@ -261,7 +260,7 @@ func (b *StreamConfigBuilder) buildHTTPInputConfig(params StreamEndpointParams) 
 
 // buildHTTPOutputConfig creates HTTP output configuration
 func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"url":  params.FormConfig.Href,
 		"verb": params.FormConfig.Method,
 		"headers": map[string]string{
@@ -275,9 +274,7 @@ func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams)
 	}
 
 	// Merge custom config
-	for k, v := range params.Config {
-		config[k] = v
-	}
+	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
 		Type:   "http_client",
@@ -287,16 +284,14 @@ func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams)
 
 // buildMQTTInputConfig creates MQTT input configuration
 func (b *StreamConfigBuilder) buildMQTTInputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"urls":   []string{params.FormConfig.Href},
 		"topics": []string{params.FormConfig.Topic},
 		"qos":    params.FormConfig.QoS,
 	}
 
 	// Merge custom config
-	for k, v := range params.Config {
-		config[k] = v
-	}
+	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
 		Type:   "mqtt",
@@ -306,16 +301,14 @@ func (b *StreamConfigBuilder) buildMQTTInputConfig(params StreamEndpointParams) 
 
 // buildMQTTOutputConfig creates MQTT output configuration
 func (b *StreamConfigBuilder) buildMQTTOutputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"urls":  []string{params.FormConfig.Href},
 		"topic": params.FormConfig.Topic,
 		"qos":   params.FormConfig.QoS,
 	}
 
 	// Merge custom config
-	for k, v := range params.Config {
-		config[k] = v
-	}
+	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
 		Type:   "mqtt",
@@ -325,15 +318,13 @@ func (b *StreamConfigBuilder) buildMQTTOutputConfig(params StreamEndpointParams)
 
 // buildKafkaInputConfig creates Kafka input configuration
 func (b *StreamConfigBuilder) buildKafkaInputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"addresses": []string{params.FormConfig.Href},
 		"topics":    []string{params.FormConfig.Topic},
 	}
 
 	// Merge custom config
-	for k, v := range params.Config {
-		config[k] = v
-	}
+	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
 		Type:   "kafka",
@@ -343,15 +334,13 @@ func (b *StreamConfigBuilder) buildKafkaInputConfig(params StreamEndpointParams)
 
 // buildKafkaOutputConfig creates Kafka output configuration
 func (b *StreamConfigBuilder) buildKafkaOutputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"addresses": []string{params.FormConfig.Href},
 		"topic":     params.FormConfig.Topic,
 	}
 
 	// Merge custom config
-	for k, v := range params.Config {
-		config[k] = v
-	}
+	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
 		Type:   "kafka",
@@ -360,8 +349,8 @@ func (b *StreamConfigBuilder) buildKafkaOutputConfig(params StreamEndpointParams
 }
 
 // buildMetadata creates stream metadata
-func (b *StreamConfigBuilder) buildMetadata(config StreamBuildConfig) map[string]interface{} {
-	metadata := map[string]interface{}{
+func (b *StreamConfigBuilder) buildMetadata(config StreamBuildConfig) map[string]any {
+	metadata := map[string]any{
 		"thing_id":         config.ThingID,
 		"interaction_type": config.InteractionType,
 		"interaction_name": config.InteractionName,
@@ -370,9 +359,7 @@ func (b *StreamConfigBuilder) buildMetadata(config StreamBuildConfig) map[string
 	}
 
 	// Merge custom metadata
-	for k, v := range config.Metadata {
-		metadata[k] = v
-	}
+	maps.Copy(metadata, config.Metadata)
 
 	return metadata
 }

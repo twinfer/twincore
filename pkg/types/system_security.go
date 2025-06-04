@@ -103,9 +103,9 @@ type APIPolicy struct {
 
 // PolicyCondition defines conditional access rules
 type PolicyCondition struct {
-	Type     string      `json:"type"`     // "ip", "time", "mfa", "device"
-	Operator string      `json:"operator"` // "equals", "contains", "in_range"
-	Value    interface{} `json:"value"`
+	Type     string `json:"type"`     // "ip", "time", "mfa", "device"
+	Operator string `json:"operator"` // "equals", "contains", "in_range"
+	Value    any    `json:"value"`
 }
 
 // RateLimitConfig configures API rate limiting
@@ -125,7 +125,7 @@ type LocalUser struct {
 	FullName     string    `json:"full_name,omitempty"`
 	Roles        []string  `json:"roles"`
 	Disabled     bool      `json:"disabled"`
-	LastLogin    time.Time `json:"last_login,omitempty"`
+	LastLogin    time.Time `json:"last_login"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -178,22 +178,22 @@ type TLSConfig struct {
 
 // UserCredentials represents user authentication credentials
 type UserCredentials struct {
-	Username string                 `json:"username"`
-	Password string                 `json:"password,omitempty"`
-	Token    string                 `json:"token,omitempty"`
-	MFACode  string                 `json:"mfa_code,omitempty"`
-	Extra    map[string]interface{} `json:"extra,omitempty"`
+	Username string         `json:"username"`
+	Password string         `json:"password,omitempty"`
+	Token    string         `json:"token,omitempty"`
+	MFACode  string         `json:"mfa_code,omitempty"`
+	Extra    map[string]any `json:"extra,omitempty"`
 }
 
 // User represents an authenticated user
 type User struct {
-	ID       string                 `json:"id"`
-	Username string                 `json:"username"`
-	Email    string                 `json:"email,omitempty"`
-	FullName string                 `json:"full_name,omitempty"`
-	Roles    []string               `json:"roles"`
-	Groups   []string               `json:"groups,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	ID       string         `json:"id"`
+	Username string         `json:"username"`
+	Email    string         `json:"email,omitempty"`
+	FullName string         `json:"full_name,omitempty"`
+	Roles    []string       `json:"roles"`
+	Groups   []string       `json:"groups,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // UserSession represents an active user session
@@ -212,14 +212,14 @@ type UserSession struct {
 
 // AccessContext provides context for authorization decisions
 type AccessContext struct {
-	User      *User                  `json:"user"`
-	Session   *UserSession           `json:"session,omitempty"`
-	IPAddress string                 `json:"ip_address,omitempty"`
-	UserAgent string                 `json:"user_agent,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-	Resource  string                 `json:"resource"`
-	Action    string                 `json:"action"`
-	Extra     map[string]interface{} `json:"extra,omitempty"`
+	User      *User          `json:"user"`
+	Session   *UserSession   `json:"session,omitempty"`
+	IPAddress string         `json:"ip_address,omitempty"`
+	UserAgent string         `json:"user_agent,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	Resource  string         `json:"resource"`
+	Action    string         `json:"action"`
+	Extra     map[string]any `json:"extra,omitempty"`
 }
 
 // SystemSecurityManager defines the interface for system-level security management
@@ -230,7 +230,7 @@ type SystemSecurityManager interface {
 	GetUser(ctx context.Context, userID string) (*User, error)
 	ListUsers(ctx context.Context) ([]*User, error)
 	CreateUser(ctx context.Context, user *User, password string) error
-	UpdateUser(ctx context.Context, userID string, updates map[string]interface{}) error
+	UpdateUser(ctx context.Context, userID string, updates map[string]any) error
 	DeleteUser(ctx context.Context, userID string) error
 	ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error
 
@@ -257,22 +257,22 @@ type SystemSecurityManager interface {
 
 	// Health and Monitoring
 	HealthCheck(ctx context.Context) error
-	GetSecurityMetrics(ctx context.Context) (map[string]interface{}, error)
-	GetAuditLog(ctx context.Context, filters map[string]interface{}) ([]AuditEvent, error)
+	GetSecurityMetrics(ctx context.Context) (map[string]any, error)
+	GetAuditLog(ctx context.Context, filters map[string]any) ([]AuditEvent, error)
 }
 
 // AuditEvent represents a security audit event
 type AuditEvent struct {
-	ID        string                 `json:"id"`
-	Timestamp time.Time              `json:"timestamp"`
-	Type      string                 `json:"type"`   // "auth", "session", "policy", "config"
-	Action    string                 `json:"action"` // "login", "logout", "create", "update", "delete"
-	UserID    string                 `json:"user_id,omitempty"`
-	Username  string                 `json:"username,omitempty"`
-	Resource  string                 `json:"resource,omitempty"`
-	IPAddress string                 `json:"ip_address,omitempty"`
-	UserAgent string                 `json:"user_agent,omitempty"`
-	Success   bool                   `json:"success"`
-	Error     string                 `json:"error,omitempty"`
-	Details   map[string]interface{} `json:"details,omitempty"`
+	ID        string         `json:"id"`
+	Timestamp time.Time      `json:"timestamp"`
+	Type      string         `json:"type"`   // "auth", "session", "policy", "config"
+	Action    string         `json:"action"` // "login", "logout", "create", "update", "delete"
+	UserID    string         `json:"user_id,omitempty"`
+	Username  string         `json:"username,omitempty"`
+	Resource  string         `json:"resource,omitempty"`
+	IPAddress string         `json:"ip_address,omitempty"`
+	UserAgent string         `json:"user_agent,omitempty"`
+	Success   bool           `json:"success"`
+	Error     string         `json:"error,omitempty"`
+	Details   map[string]any `json:"details,omitempty"`
 }

@@ -39,8 +39,8 @@ func (f *HTTPForm) GetURIVariables() map[string]*DataSchema { return f.URIVariab
 func (f *HTTPForm) GetSubprotocol() string                  { return f.Subprotocol }
 func (f *HTTPForm) GetProtocol() string                     { return "http" }
 
-func (f *HTTPForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]interface{}, error) {
-	config := map[string]interface{}{
+func (f *HTTPForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]any, error) {
+	config := map[string]any{
 		"url":         f.Href,
 		"method":      f.getHTTPMethod(),
 		"contentType": f.ContentType,
@@ -106,8 +106,8 @@ func (f *MQTTForm) GetURIVariables() map[string]*DataSchema { return f.URIVariab
 func (f *MQTTForm) GetSubprotocol() string                  { return f.Subprotocol }
 func (f *MQTTForm) GetProtocol() string                     { return "mqtt" }
 
-func (f *MQTTForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]interface{}, error) {
-	config := map[string]interface{}{
+func (f *MQTTForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]any, error) {
+	config := map[string]any{
 		"urls":   []string{f.Href},
 		"topics": []string{f.getTopic()},
 		"qos":    f.getQoS(),
@@ -176,8 +176,8 @@ func (f *KafkaForm) GetURIVariables() map[string]*DataSchema { return f.URIVaria
 func (f *KafkaForm) GetSubprotocol() string                  { return f.Subprotocol }
 func (f *KafkaForm) GetProtocol() string                     { return "kafka" }
 
-func (f *KafkaForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]interface{}, error) {
-	config := map[string]interface{}{
+func (f *KafkaForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]any, error) {
+	config := map[string]any{
 		"topic": f.Topic,
 	}
 
@@ -220,7 +220,7 @@ func (f *KafkaForm) extractKafkaBrokers() ([]string, error) {
 type FormParser struct{}
 
 // ParseForm attempts to parse a generic form map into a protocol-specific form
-func (p *FormParser) ParseForm(formData map[string]interface{}) (Form, error) {
+func (p *FormParser) ParseForm(formData map[string]any) (Form, error) {
 	// Detect protocol based on vocabulary presence
 	if _, hasHTTPMethod := formData["htv:methodName"]; hasHTTPMethod {
 		return p.parseHTTPForm(formData)
@@ -249,7 +249,7 @@ func (p *FormParser) ParseForm(formData map[string]interface{}) (Form, error) {
 	return nil, fmt.Errorf("unable to determine form protocol")
 }
 
-func (p *FormParser) parseHTTPForm(data map[string]interface{}) (*HTTPForm, error) {
+func (p *FormParser) parseHTTPForm(data map[string]any) (*HTTPForm, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func (p *FormParser) parseHTTPForm(data map[string]interface{}) (*HTTPForm, erro
 	return &form, err
 }
 
-func (p *FormParser) parseMQTTForm(data map[string]interface{}) (*MQTTForm, error) {
+func (p *FormParser) parseMQTTForm(data map[string]any) (*MQTTForm, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -271,7 +271,7 @@ func (p *FormParser) parseMQTTForm(data map[string]interface{}) (*MQTTForm, erro
 	return &form, err
 }
 
-func (p *FormParser) parseKafkaForm(data map[string]interface{}) (*KafkaForm, error) {
+func (p *FormParser) parseKafkaForm(data map[string]any) (*KafkaForm, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, err

@@ -27,16 +27,16 @@ func NewJSONLDParser() *JSONLDParser {
 
 // WoTContextResult contains parsed WoT context information
 type WoTContextResult struct {
-	Namespaces      map[string]string      // Prefix -> Namespace URI
-	ExpandedDoc     map[string]interface{} // Fully expanded JSON-LD document
-	CompactedDoc    map[string]interface{} // Original compacted document
-	VocabularyTerms map[string]string      // All vocabulary terms found
+	Namespaces      map[string]string // Prefix -> Namespace URI
+	ExpandedDoc     map[string]any    // Fully expanded JSON-LD document
+	CompactedDoc    map[string]any    // Original compacted document
+	VocabularyTerms map[string]string // All vocabulary terms found
 }
 
 // ParseWoTThingDescription processes a WoT Thing Description with full JSON-LD support
 func (p *JSONLDParser) ParseWoTThingDescription(tdJSON []byte) (*WoTContextResult, error) {
 	// Parse JSON to generic map
-	var tdDoc map[string]interface{}
+	var tdDoc map[string]any
 	if err := json.Unmarshal(tdJSON, &tdDoc); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
@@ -49,15 +49,15 @@ func (p *JSONLDParser) ParseWoTThingDescription(tdJSON []byte) (*WoTContextResul
 	}
 
 	// Convert to map[string]interface{} for easier processing
-	var expandedDoc map[string]interface{}
+	var expandedDoc map[string]any
 	if len(expandedArray) > 0 {
-		if firstDoc, ok := expandedArray[0].(map[string]interface{}); ok {
+		if firstDoc, ok := expandedArray[0].(map[string]any); ok {
 			expandedDoc = firstDoc
 		} else {
-			expandedDoc = make(map[string]interface{})
+			expandedDoc = make(map[string]any)
 		}
 	} else {
-		expandedDoc = make(map[string]interface{})
+		expandedDoc = make(map[string]any)
 	}
 
 	// Extract namespaces from context
@@ -80,7 +80,7 @@ func (p *JSONLDParser) ParseWoTThingDescription(tdJSON []byte) (*WoTContextResul
 }
 
 // extractNamespaces extracts namespace mappings from the @context
-func (p *JSONLDParser) extractNamespaces(doc map[string]interface{}) (map[string]string, error) {
+func (p *JSONLDParser) extractNamespaces(doc map[string]any) (map[string]string, error) {
 	namespaces := make(map[string]string)
 
 	context, exists := doc["@context"]
@@ -98,7 +98,7 @@ func (p *JSONLDParser) extractNamespaces(doc map[string]interface{}) (map[string
 }
 
 // processContextValue recursively processes context values to extract namespaces
-func (p *JSONLDParser) processContextValue(context interface{}, namespaces map[string]string) {
+func (p *JSONLDParser) processContextValue(context any, namespaces map[string]string) {
 	switch ctx := context.(type) {
 	case string:
 		// Single context URL - add known WoT namespaces
@@ -106,13 +106,13 @@ func (p *JSONLDParser) processContextValue(context interface{}, namespaces map[s
 			p.addStandardWoTNamespaces(namespaces)
 		}
 
-	case []interface{}:
+	case []any:
 		// Array of contexts
 		for _, item := range ctx {
 			p.processContextValue(item, namespaces)
 		}
 
-	case map[string]interface{}:
+	case map[string]any:
 		// Context object with mappings
 		for key, value := range ctx {
 			if strings.HasPrefix(key, "@") {
@@ -124,7 +124,7 @@ func (p *JSONLDParser) processContextValue(context interface{}, namespaces map[s
 				// Simple namespace mapping: "prefix": "namespace_url"
 				namespaces[key] = v
 
-			case map[string]interface{}:
+			case map[string]any:
 				// Complex mapping with @id, @type, etc.
 				if id, ok := v["@id"].(string); ok {
 					namespaces[key] = id
@@ -152,7 +152,7 @@ func (p *JSONLDParser) addStandardWoTNamespaces(namespaces map[string]string) {
 }
 
 // extractVocabularyTerms extracts all vocabulary terms used in the expanded document
-func (p *JSONLDParser) extractVocabularyTerms(expanded map[string]interface{}) map[string]string {
+func (p *JSONLDParser) extractVocabularyTerms(expanded map[string]any) map[string]string {
 	terms := make(map[string]string)
 
 	// Recursively extract all property names that are URIs
@@ -162,9 +162,9 @@ func (p *JSONLDParser) extractVocabularyTerms(expanded map[string]interface{}) m
 }
 
 // extractTermsRecursive recursively extracts vocabulary terms from the expanded document
-func (p *JSONLDParser) extractTermsRecursive(obj interface{}, terms map[string]string) {
+func (p *JSONLDParser) extractTermsRecursive(obj any, terms map[string]string) {
 	switch v := obj.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for key, value := range v {
 			// If key is a full URI, it's a vocabulary term
 			if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
@@ -175,7 +175,7 @@ func (p *JSONLDParser) extractTermsRecursive(obj interface{}, terms map[string]s
 			p.extractTermsRecursive(value, terms)
 		}
 
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			p.extractTermsRecursive(item, terms)
 		}
@@ -188,10 +188,7 @@ func (p *JSONLDParser) extractLocalName(uri string) string {
 	lastHash := strings.LastIndex(uri, "#")
 	lastSlash := strings.LastIndex(uri, "/")
 
-	separator := lastHash
-	if lastSlash > lastHash {
-		separator = lastSlash
-	}
+	separator := max(lastSlash, lastHash)
 
 	if separator >= 0 && separator < len(uri)-1 {
 		return uri[separator+1:]
@@ -201,8 +198,8 @@ func (p *JSONLDParser) extractLocalName(uri string) string {
 }
 
 // GetProtocolVocabulary extracts protocol-specific vocabulary from forms
-func (r *WoTContextResult) GetProtocolVocabulary(protocol string) map[string]interface{} {
-	vocabulary := make(map[string]interface{})
+func (r *WoTContextResult) GetProtocolVocabulary(protocol string) map[string]any {
+	vocabulary := make(map[string]any)
 
 	// Define protocol prefixes
 	protocolPrefixes := map[string][]string{
@@ -229,7 +226,7 @@ func (r *WoTContextResult) GetProtocolVocabulary(protocol string) map[string]int
 }
 
 // CompactDocument compacts an expanded JSON-LD document using the original context
-func (p *JSONLDParser) CompactDocument(expanded map[string]interface{}, context interface{}) (map[string]interface{}, error) {
+func (p *JSONLDParser) CompactDocument(expanded map[string]any, context any) (map[string]any, error) {
 	return p.processor.Compact(expanded, context, p.options)
 }
 
@@ -271,8 +268,8 @@ func (r *WoTContextResult) ValidateWoTCompliance() []string {
 }
 
 // ExtractFormVocabulary extracts protocol-specific vocabulary from a form object
-func (r *WoTContextResult) ExtractFormVocabulary(formData map[string]interface{}) map[string]interface{} {
-	vocabulary := make(map[string]interface{})
+func (r *WoTContextResult) ExtractFormVocabulary(formData map[string]any) map[string]any {
+	vocabulary := make(map[string]any)
 
 	for key, value := range formData {
 		// Check if key is a prefixed term

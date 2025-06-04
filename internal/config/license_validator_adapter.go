@@ -22,7 +22,7 @@ func NewSimpleLicenseValidatorAdapter(checker *license.SimpleLicenseChecker, log
 }
 
 // ValidateLicense validates a license string
-func (a *SimpleLicenseValidatorAdapter) ValidateLicense(licenseData string) (map[string]interface{}, error) {
+func (a *SimpleLicenseValidatorAdapter) ValidateLicense(licenseData string) (map[string]any, error) {
 	// For SimpleLicenseChecker, we need to recreate it with the new license data
 	// This is a limitation of the current implementation
 	// In a real implementation, you might want to enhance SimpleLicenseChecker to support this

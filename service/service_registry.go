@@ -128,7 +128,7 @@ func (sr *serviceRegistry) StartService(ctx context.Context, name string) error 
 		sr.logger.Warnf("No configuration found for service %s, using minimal config", name)
 		config = types.ServiceConfig{
 			Name:   name,
-			Config: make(map[string]interface{}),
+			Config: make(map[string]any),
 		}
 	}
 

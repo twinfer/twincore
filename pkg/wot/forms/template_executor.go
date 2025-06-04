@@ -43,7 +43,7 @@ func (e *TemplateExecutor) loadTemplates() {
 		}
 
 		funcMap := template.FuncMap{
-			"default": func(defaultVal, val interface{}) interface{} {
+			"default": func(defaultVal, val any) any {
 				if val == nil || val == "" {
 					return defaultVal
 				}
@@ -61,7 +61,7 @@ func (e *TemplateExecutor) loadTemplates() {
 }
 
 // Execute runs a template with the given data
-func (e *TemplateExecutor) Execute(templateName string, data interface{}) (string, error) {
+func (e *TemplateExecutor) Execute(templateName string, data any) (string, error) {
 	tmpl, exists := e.templates[templateName]
 	if !exists {
 		return "", fmt.Errorf("template %s not found", templateName)
@@ -76,7 +76,7 @@ func (e *TemplateExecutor) Execute(templateName string, data interface{}) (strin
 }
 
 // ExecuteWithFuncs runs a template with custom functions
-func (e *TemplateExecutor) ExecuteWithFuncs(templateName string, data interface{}, funcs template.FuncMap) (string, error) {
+func (e *TemplateExecutor) ExecuteWithFuncs(templateName string, data any, funcs template.FuncMap) (string, error) {
 	tmpl, exists := e.templates[templateName]
 	if !exists {
 		return "", fmt.Errorf("template %s not found", templateName)

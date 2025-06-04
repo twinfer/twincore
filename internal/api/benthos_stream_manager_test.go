@@ -153,10 +153,10 @@ output:
 		InteractionName: "testProperty",
 		InteractionType: "properties",
 		Direction:       "input",
-		Input:           types.StreamEndpointConfig{Type: "generate", Config: map[string]interface{}{"mapping": "root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}", "interval": "1s", "count": 1}},
-		Output:          types.StreamEndpointConfig{Type: "drop", Config: map[string]interface{}{}},
+		Input:           types.StreamEndpointConfig{Type: "generate", Config: map[string]any{"mapping": "root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}", "interval": "1s", "count": 1}},
+		Output:          types.StreamEndpointConfig{Type: "drop", Config: map[string]any{}},
 		ProcessorChain:  []types.ProcessorConfig{},
-		Metadata:        map[string]interface{}{"yaml_config": testYAMLConfig},
+		Metadata:        map[string]any{"yaml_config": testYAMLConfig},
 	}
 
 	// Mock DB persistStreamToDatabase

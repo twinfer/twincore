@@ -10,9 +10,9 @@ import (
 type LicenseChecker interface {
 	IsFeatureEnabled(category, feature string) (bool, error)
 	CheckLimit(resource string, currentCount int) (bool, error)
-	GetAllowedFeatures() (map[string]interface{}, error)
+	GetAllowedFeatures() (map[string]any, error)
 	IsFeatureAvailable(feature string) bool
-	GetFeatureConfig(feature string) map[string]interface{}
+	GetFeatureConfig(feature string) map[string]any
 }
 
 // StreamManager interface defines the subset of BenthosStreamManager needed by forms package

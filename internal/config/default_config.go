@@ -53,7 +53,7 @@ func (d *DefaultConfigProvider) GetDefaultHTTPConfig() types.HTTPConfig {
 			{
 				Path:    "/portal/*",
 				Handler: "file_server",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"root":         "./portal/dist",
 					"strip_prefix": "/portal",
 				},
@@ -62,7 +62,7 @@ func (d *DefaultConfigProvider) GetDefaultHTTPConfig() types.HTTPConfig {
 			{
 				Path:    "/setup/*",
 				Handler: "reverse_proxy",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"upstream": "localhost:8090",
 				},
 			},
@@ -71,7 +71,7 @@ func (d *DefaultConfigProvider) GetDefaultHTTPConfig() types.HTTPConfig {
 				Path:    "/api/*",
 				Handler: "reverse_proxy",
 				// RequiresAuth removed - now handled by SystemSecurityManager
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"upstream": "localhost:8090",
 				},
 			},
@@ -96,7 +96,7 @@ func (d *DefaultConfigProvider) GetDefaultStreamConfig() types.StreamConfig {
 			{
 				Name: "property_updates",
 				Type: "kafka",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"brokers": []string{"localhost:9092"},
 					"topic":   "twincore.property.updates",
 				},
@@ -105,7 +105,7 @@ func (d *DefaultConfigProvider) GetDefaultStreamConfig() types.StreamConfig {
 			{
 				Name: "action_invocations",
 				Type: "kafka",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"brokers": []string{"localhost:9092"},
 					"topic":   "twincore.action.invocations",
 				},
@@ -116,7 +116,7 @@ func (d *DefaultConfigProvider) GetDefaultStreamConfig() types.StreamConfig {
 			{
 				Name: "device_commands",
 				Type: "mqtt",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"broker": "tcp://localhost:1883",
 					"qos":    1,
 				},
@@ -129,7 +129,7 @@ func (d *DefaultConfigProvider) GetDefaultStreamConfig() types.StreamConfig {
 		streamConfig.Topics = append(streamConfig.Topics, types.StreamTopic{
 			Name: "analytics_stream",
 			Type: "kafka",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"brokers": []string{"localhost:9092"},
 				"topic":   "twincore.analytics",
 			},
@@ -378,7 +378,7 @@ func (d *DefaultConfigProvider) GetDefaultWoTSecurityConfig() types.WoTSecurityC
 		wotConfig.CredentialStores["env"] = types.CredentialStore{
 			Type:      "env",
 			Encrypted: false,
-			Config:    make(map[string]interface{}),
+			Config:    make(map[string]any),
 		}
 
 		// Database store if encryption is licensed
@@ -386,7 +386,7 @@ func (d *DefaultConfigProvider) GetDefaultWoTSecurityConfig() types.WoTSecurityC
 			wotConfig.CredentialStores["db"] = types.CredentialStore{
 				Type:      "db",
 				Encrypted: true,
-				Config:    make(map[string]interface{}),
+				Config:    make(map[string]any),
 			}
 		}
 
@@ -395,7 +395,7 @@ func (d *DefaultConfigProvider) GetDefaultWoTSecurityConfig() types.WoTSecurityC
 			wotConfig.CredentialStores["vault"] = types.CredentialStore{
 				Type:      "vault",
 				Encrypted: true,
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"address": "${VAULT_ADDR:http://localhost:8200}",
 					"path":    "secret/twincore",
 				},

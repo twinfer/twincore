@@ -9,6 +9,7 @@ import (
 
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
+	"slices"
 )
 
 // ProtocolSecurityManager handles protocol-specific security configuration
@@ -123,7 +124,7 @@ func (psm *ProtocolSecurityManager) ConfigureTLS(ctx context.Context, protocol s
 }
 
 // ValidateProtocolSecurity validates protocol-specific security configuration
-func (psm *ProtocolSecurityManager) ValidateProtocolSecurity(ctx context.Context, protocol string, config map[string]interface{}) error {
+func (psm *ProtocolSecurityManager) ValidateProtocolSecurity(ctx context.Context, protocol string, config map[string]any) error {
 	switch strings.ToLower(protocol) {
 	case "http", "https":
 		return psm.validateHTTPSecurity(ctx, config)
@@ -140,12 +141,12 @@ func (psm *ProtocolSecurityManager) ValidateProtocolSecurity(ctx context.Context
 
 // HTTPAuthConfig represents HTTP authentication configuration
 type HTTPAuthConfig struct {
-	Headers     map[string]string      `json:"headers"`
-	BasicAuth   *HTTPBasicAuth         `json:"basic_auth,omitempty"`
-	BearerToken *string                `json:"bearer_token,omitempty"`
-	OAuth2      *HTTPOAuth2Config      `json:"oauth2,omitempty"`
-	APIKey      *HTTPAPIKeyConfig      `json:"api_key,omitempty"`
-	Custom      map[string]interface{} `json:"custom,omitempty"`
+	Headers     map[string]string `json:"headers"`
+	BasicAuth   *HTTPBasicAuth    `json:"basic_auth,omitempty"`
+	BearerToken *string           `json:"bearer_token,omitempty"`
+	OAuth2      *HTTPOAuth2Config `json:"oauth2,omitempty"`
+	APIKey      *HTTPAPIKeyConfig `json:"api_key,omitempty"`
+	Custom      map[string]any    `json:"custom,omitempty"`
 }
 
 // HTTPBasicAuth represents HTTP Basic authentication
@@ -175,12 +176,12 @@ type HTTPAPIKeyConfig struct {
 
 // MQTTAuthConfig represents MQTT authentication configuration
 type MQTTAuthConfig struct {
-	Username   string                 `json:"username,omitempty"`
-	Password   string                 `json:"password,omitempty"`
-	ClientCert *types.TLSConfig       `json:"client_cert,omitempty"`
-	TLS        *TLSConfig             `json:"tls,omitempty"`
-	PSK        *MQTTPSKConfig         `json:"psk,omitempty"`
-	Custom     map[string]interface{} `json:"custom,omitempty"`
+	Username   string           `json:"username,omitempty"`
+	Password   string           `json:"password,omitempty"`
+	ClientCert *types.TLSConfig `json:"client_cert,omitempty"`
+	TLS        *TLSConfig       `json:"tls,omitempty"`
+	PSK        *MQTTPSKConfig   `json:"psk,omitempty"`
+	Custom     map[string]any   `json:"custom,omitempty"`
 }
 
 // MQTTPSKConfig represents MQTT Pre-Shared Key configuration
@@ -193,10 +194,10 @@ type MQTTPSKConfig struct {
 
 // KafkaAuthConfig represents Kafka authentication configuration
 type KafkaAuthConfig struct {
-	SASL   *KafkaSASLConfig       `json:"sasl,omitempty"`
-	TLS    *TLSConfig             `json:"tls,omitempty"`
-	OAuth2 *KafkaOAuth2Config     `json:"oauth2,omitempty"`
-	Custom map[string]interface{} `json:"custom,omitempty"`
+	SASL   *KafkaSASLConfig   `json:"sasl,omitempty"`
+	TLS    *TLSConfig         `json:"tls,omitempty"`
+	OAuth2 *KafkaOAuth2Config `json:"oauth2,omitempty"`
+	Custom map[string]any     `json:"custom,omitempty"`
 }
 
 // KafkaSASLConfig represents Kafka SASL configuration
@@ -233,32 +234,17 @@ type TLSConfig struct {
 
 func (psm *ProtocolSecurityManager) isHTTPCompatible(scheme string) bool {
 	compatible := []string{"basic", "bearer", "apikey", "oauth2", "digest"}
-	for _, compat := range compatible {
-		if compat == scheme {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(compatible, scheme)
 }
 
 func (psm *ProtocolSecurityManager) isMQTTCompatible(scheme string) bool {
 	compatible := []string{"basic", "cert", "psk"}
-	for _, compat := range compatible {
-		if compat == scheme {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(compatible, scheme)
 }
 
 func (psm *ProtocolSecurityManager) isKafkaCompatible(scheme string) bool {
 	compatible := []string{"basic", "oauth2", "cert", "sasl"}
-	for _, compat := range compatible {
-		if compat == scheme {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(compatible, scheme)
 }
 
 // HTTP Authentication Generation
@@ -335,7 +321,7 @@ func (psm *ProtocolSecurityManager) generateHTTPAuthForScheme(ctx context.Contex
 			return nil, fmt.Errorf("custom authentication schemes not licensed")
 		}
 
-		config.Custom = map[string]interface{}{
+		config.Custom = map[string]any{
 			"scheme": scheme.Scheme,
 			"config": credentials.Metadata,
 		}
@@ -392,7 +378,7 @@ func (psm *ProtocolSecurityManager) generateMQTTAuthForScheme(ctx context.Contex
 			return nil, fmt.Errorf("custom authentication schemes not licensed")
 		}
 
-		config.Custom = map[string]interface{}{
+		config.Custom = map[string]any{
 			"scheme": scheme.Scheme,
 			"config": credentials.Metadata,
 		}
@@ -456,7 +442,7 @@ func (psm *ProtocolSecurityManager) generateKafkaAuthForScheme(ctx context.Conte
 			return nil, fmt.Errorf("custom authentication schemes not licensed")
 		}
 
-		config.Custom = map[string]interface{}{
+		config.Custom = map[string]any{
 			"scheme": scheme.Scheme,
 			"config": credentials.Metadata,
 		}
@@ -467,7 +453,7 @@ func (psm *ProtocolSecurityManager) generateKafkaAuthForScheme(ctx context.Conte
 
 // Security Validation Methods
 
-func (psm *ProtocolSecurityManager) validateHTTPSecurity(ctx context.Context, config map[string]interface{}) error {
+func (psm *ProtocolSecurityManager) validateHTTPSecurity(ctx context.Context, config map[string]any) error {
 	// Validate required security features are licensed
 	if authType, ok := config["auth_type"].(string); ok {
 		switch authType {
@@ -487,7 +473,7 @@ func (psm *ProtocolSecurityManager) validateHTTPSecurity(ctx context.Context, co
 	}
 
 	// Validate TLS configuration if present
-	if tlsConfig, ok := config["tls"].(map[string]interface{}); ok {
+	if tlsConfig, ok := config["tls"].(map[string]any); ok {
 		if enabled, ok := tlsConfig["enabled"].(bool); ok && enabled {
 			if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "protocol_encryption") {
 				return fmt.Errorf("TLS encryption not licensed")
@@ -498,7 +484,7 @@ func (psm *ProtocolSecurityManager) validateHTTPSecurity(ctx context.Context, co
 	return nil
 }
 
-func (psm *ProtocolSecurityManager) validateMQTTSecurity(ctx context.Context, config map[string]interface{}) error {
+func (psm *ProtocolSecurityManager) validateMQTTSecurity(ctx context.Context, config map[string]any) error {
 	// Check for username/password authentication
 	if _, hasUsername := config["username"]; hasUsername {
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "basic_auth") {
@@ -523,9 +509,9 @@ func (psm *ProtocolSecurityManager) validateMQTTSecurity(ctx context.Context, co
 	return nil
 }
 
-func (psm *ProtocolSecurityManager) validateKafkaSecurity(ctx context.Context, config map[string]interface{}) error {
+func (psm *ProtocolSecurityManager) validateKafkaSecurity(ctx context.Context, config map[string]any) error {
 	// Check for SASL authentication
-	if saslConfig, ok := config["sasl"].(map[string]interface{}); ok {
+	if saslConfig, ok := config["sasl"].(map[string]any); ok {
 		if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "basic_auth") {
 			return fmt.Errorf("Kafka SASL authentication not licensed")
 		}
@@ -544,7 +530,7 @@ func (psm *ProtocolSecurityManager) validateKafkaSecurity(ctx context.Context, c
 	}
 
 	// Check for TLS/SSL
-	if tlsConfig, ok := config["tls"].(map[string]interface{}); ok {
+	if tlsConfig, ok := config["tls"].(map[string]any); ok {
 		if enabled, ok := tlsConfig["enabled"].(bool); ok && enabled {
 			if !psm.licenseChecker.IsWoTFeatureEnabled(ctx, "protocol_encryption") {
 				return fmt.Errorf("Kafka TLS encryption not licensed")
@@ -675,7 +661,7 @@ func (psm *ProtocolSecurityManager) GetRecommendedScheme(ctx context.Context, pr
 }
 
 // Helper function to safely extract string values from Properties map
-func getStringFromProperties(properties map[string]interface{}, key string) string {
+func getStringFromProperties(properties map[string]any, key string) string {
 	if properties == nil {
 		return ""
 	}

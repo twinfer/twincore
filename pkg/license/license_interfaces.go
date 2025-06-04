@@ -5,7 +5,7 @@ type LicenseChecker interface {
 	// Feature checking
 	IsFeatureEnabled(category, feature string) (bool, error)
 	IsFeatureAvailable(feature string) bool
-	GetFeatureConfig(feature string) map[string]interface{}
+	GetFeatureConfig(feature string) map[string]any
 
 	// Resource limits
 	CheckLimit(resource string, currentCount int) (bool, error)
@@ -13,5 +13,5 @@ type LicenseChecker interface {
 
 	// Capabilities
 	IsCapabilityEnabled(capability string) bool
-	GetAllowedFeatures() (map[string]interface{}, error)
+	GetAllowedFeatures() (map[string]any, error)
 }

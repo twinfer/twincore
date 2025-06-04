@@ -111,12 +111,12 @@ func (li *LicenseIntegration) CheckResourceLimit(resource string, count int) boo
 }
 
 // GetAllowedFeatures returns all features allowed by the license
-func (li *LicenseIntegration) GetAllowedFeatures() (map[string]interface{}, error) {
+func (li *LicenseIntegration) GetAllowedFeatures() (map[string]any, error) {
 	return li.opaChecker.GetAllowedFeatures()
 }
 
 // GetSecurityConfig generates security configuration based on license
-func (li *LicenseIntegration) GetSecurityConfig(config map[string]interface{}) (map[string]interface{}, error) {
+func (li *LicenseIntegration) GetSecurityConfig(config map[string]any) (map[string]any, error) {
 	return li.opaChecker.GetSecurityConfig(config)
 }
 
@@ -138,8 +138,8 @@ func (li *LicenseIntegration) ValidateLicense(ctx context.Context) error {
 }
 
 // GetLicenseInfo returns comprehensive license information
-func (li *LicenseIntegration) GetLicenseInfo() map[string]interface{} {
-	info := make(map[string]interface{})
+func (li *LicenseIntegration) GetLicenseInfo() map[string]any {
+	info := make(map[string]any)
 
 	// Add OPA feature info
 	if features, err := li.opaChecker.GetAllowedFeatures(); err == nil {

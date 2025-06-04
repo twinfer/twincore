@@ -20,8 +20,8 @@ func (f *TestForm) GetURIVariables() map[string]*DataSchema { return f.URIVariab
 func (f *TestForm) GetSubprotocol() string                  { return f.SubprotocolValue }
 func (f *TestForm) GetProtocol() string                     { return "http" }
 
-func (f *TestForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]interface{}, error) {
-	return map[string]interface{}{
+func (f *TestForm) GenerateConfig(securityDefs map[string]SecurityScheme) (map[string]any, error) {
+	return map[string]any{
 		"href":        f.HrefValue,
 		"contentType": f.ContentTypeValue,
 		"method":      f.OpValue[0],

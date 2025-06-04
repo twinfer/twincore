@@ -95,7 +95,7 @@ func TestServiceRegistry_ConfigManagement(t *testing.T) {
 	mockService := NewMockService("test-service")
 	config := types.ServiceConfig{
 		Name: "test",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"key": "value",
 		},
 	}
@@ -109,7 +109,7 @@ func TestServiceRegistry_ConfigManagement(t *testing.T) {
 	// Test config update
 	newConfig := types.ServiceConfig{
 		Name: "test",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"key": "new_value",
 		},
 	}
@@ -173,7 +173,7 @@ func TestServiceRegistry_ServiceLifecycle(t *testing.T) {
 	mockService := NewMockService("test-service")
 	config := types.ServiceConfig{
 		Name: "test",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"setting": "value",
 		},
 	}
@@ -220,7 +220,7 @@ func TestServiceRegistry_StartWithCustomConfig(t *testing.T) {
 	// Test starting with custom config
 	customConfig := types.ServiceConfig{
 		Name: "test",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"custom": "config",
 		},
 	}

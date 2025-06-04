@@ -8,29 +8,29 @@ import (
 // PropertyUpdate defines the structure for property change notifications.
 // It is used across different parts of the application, such as API and integrations.
 type PropertyUpdate struct {
-	ThingID      string      `json:"thingId"`
-	PropertyName string      `json:"propertyName"`
-	Value        interface{} `json:"value"`
-	Timestamp    time.Time   `json:"timestamp"`
-	Source       string      `json:"source,omitempty"` // "http", "stream", "device"
+	ThingID      string    `json:"thingId"`
+	PropertyName string    `json:"propertyName"`
+	Value        any       `json:"value"`
+	Timestamp    time.Time `json:"timestamp"`
+	Source       string    `json:"source,omitempty"` // "http", "stream", "device"
 }
 
 // Event represents a WoT event.
 type Event struct {
-	ThingID   string      `json:"thingId"`
-	EventName string      `json:"eventName"`
-	Data      interface{} `json:"data"`
-	Timestamp time.Time   `json:"timestamp"`
+	ThingID   string    `json:"thingId"`
+	EventName string    `json:"eventName"`
+	Data      any       `json:"data"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ActionResult represents the result of an action invocation.
 type ActionResult struct {
-	ThingID    string      `json:"thingId"`
-	ActionName string      `json:"actionName"`
-	ActionID   string      `json:"actionId"`
-	Output     interface{} `json:"output"`
-	Status     string      `json:"status"`
-	Timestamp  time.Time   `json:"timestamp"`
+	ThingID    string    `json:"thingId"`
+	ActionName string    `json:"actionName"`
+	ActionID   string    `json:"actionId"`
+	Output     any       `json:"output"`
+	Status     string    `json:"status"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // EventParquetRecord defines the schema for Parquet logging of WoT events.

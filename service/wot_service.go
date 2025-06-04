@@ -9,6 +9,7 @@ import (
 	"github.com/twinfer/twincore/internal/config"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
+	"maps"
 )
 
 // ThingRegistryInterface defines the interface for thing registry operations
@@ -17,9 +18,7 @@ type ThingRegistryInterface interface {
 }
 
 // ConfigManagerInterface defines the interface for config manager operations
-type ConfigManagerInterface interface {
-	// Add methods as needed for config operations
-}
+type ConfigManagerInterface any
 
 // WoTService manages Thing Description lifecycle and interactions.
 type WoTService struct {
@@ -152,8 +151,8 @@ func (s *WoTService) HealthCheck() error {
 }
 
 // processWoTConfig processes WoT-specific configuration
-func (s *WoTService) processWoTConfig(config interface{}) error {
-	configMap, ok := config.(map[string]interface{})
+func (s *WoTService) processWoTConfig(config any) error {
+	configMap, ok := config.(map[string]any)
 	if !ok {
 		return fmt.Errorf("WoT config must be a map")
 	}
@@ -197,15 +196,13 @@ func (s *WoTService) loadExistingThings() error {
 // GetRegisteredThings returns a copy of registered things for monitoring
 func (s *WoTService) GetRegisteredThings() map[string]string {
 	result := make(map[string]string)
-	for id, status := range s.registeredThings {
-		result[id] = status
-	}
+	maps.Copy(result, s.registeredThings)
 	return result
 }
 
 // GetServiceStatus returns detailed status information
-func (s *WoTService) GetServiceStatus() map[string]interface{} {
-	status := map[string]interface{}{
+func (s *WoTService) GetServiceStatus() map[string]any {
+	status := map[string]any{
 		"running":           s.running,
 		"registered_things": len(s.registeredThings),
 		"has_config":        s.currentConfig != nil,

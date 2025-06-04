@@ -44,7 +44,7 @@ func (r *ThingRegistry) RegisterThing(tdJSONLD string) (*wot.ThingDescription, e
 	r.logger.Debug("Registering new Thing Description")
 
 	// Parse JSON-LD
-	var doc interface{}
+	var doc any
 	if err := json.Unmarshal([]byte(tdJSONLD), &doc); err != nil {
 		r.logger.Errorf("Failed to parse TD JSON-LD: %v", err)
 		return nil, fmt.Errorf("invalid JSON-LD: %w", err)
@@ -112,7 +112,7 @@ func (r *ThingRegistry) UpdateThing(thingID string, tdJSONLD string) (*wot.Thing
 	}
 
 	// Parse and validate new TD
-	var doc interface{}
+	var doc any
 	if err := json.Unmarshal([]byte(tdJSONLD), &doc); err != nil {
 		return nil, fmt.Errorf("invalid JSON-LD: %w", err)
 	}
@@ -300,7 +300,7 @@ func (r *ThingRegistry) GenerateConfigs(td *wot.ThingDescription) (*types.Unifie
 
 // Helper methods
 
-func (r *ThingRegistry) parseTD(expanded interface{}) (*wot.ThingDescription, error) {
+func (r *ThingRegistry) parseTD(expanded any) (*wot.ThingDescription, error) {
 	// Convert expanded JSON-LD to Thing Description
 	// This is a simplified version - real implementation would handle
 	// all the complexity of JSON-LD to TD conversion
@@ -318,7 +318,7 @@ func (r *ThingRegistry) parseTD(expanded interface{}) (*wot.ThingDescription, er
 	return &td, nil
 }
 
-func (r *ThingRegistry) validateTD(jsonData interface{}) error {
+func (r *ThingRegistry) validateTD(jsonData any) error {
 	// Convert jsonData to TD struct for validation using centralized validator
 	tdJSON, err := json.Marshal(jsonData)
 	if err != nil {

@@ -12,6 +12,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/pkg/types"
+	"maps"
+	"slices"
 )
 
 // Ensure ConfigManager implements ConfigurationManager interface
@@ -29,7 +31,7 @@ type ConfigManager struct {
 	setupMu       sync.RWMutex
 
 	// Configuration templates
-	authTemplates map[string]interface{}
+	authTemplates map[string]any
 }
 
 // NewConfigManager creates a new configuration manager
@@ -58,30 +60,30 @@ func (cm *ConfigManager) RemoveThingRoutes(logger logrus.FieldLogger, thingID st
 	}
 
 	// Navigate to routes
-	servers, ok := httpConfig["servers"].(map[string]interface{})
+	servers, ok := httpConfig["servers"].(map[string]any)
 	if !ok {
 		entryLogger.Error("Invalid Caddy HTTP config structure: missing servers")
 		return fmt.Errorf("invalid Caddy HTTP config: missing servers")
 	}
 
-	srv0, ok := servers["srv0"].(map[string]interface{})
+	srv0, ok := servers["srv0"].(map[string]any)
 	if !ok {
 		entryLogger.Error("Invalid Caddy HTTP config structure: missing srv0")
 		return fmt.Errorf("invalid Caddy HTTP config: missing srv0 server")
 	}
 
-	routes, ok := srv0["routes"].([]interface{})
+	routes, ok := srv0["routes"].([]any)
 	if !ok {
 		entryLogger.Error("Invalid Caddy HTTP config structure: missing routes")
 		return fmt.Errorf("invalid Caddy HTTP config: missing routes")
 	}
 
 	// Filter out routes that match the thingID
-	var updatedRoutes []interface{}
+	var updatedRoutes []any
 	removedCount := 0
 
 	for _, route := range routes {
-		routeMap, ok := route.(map[string]interface{})
+		routeMap, ok := route.(map[string]any)
 		if !ok {
 			updatedRoutes = append(updatedRoutes, route)
 			continue
@@ -135,19 +137,19 @@ func (cm *ConfigManager) AddRoute(ctx context.Context, routeID string, route typ
 	}
 
 	// Navigate to routes
-	servers, ok := httpConfig["servers"].(map[string]interface{})
+	servers, ok := httpConfig["servers"].(map[string]any)
 	if !ok {
 		entryLogger.Error("Invalid Caddy HTTP config structure: missing servers")
 		return fmt.Errorf("invalid Caddy HTTP config: missing servers")
 	}
 
-	srv0, ok := servers["srv0"].(map[string]interface{})
+	srv0, ok := servers["srv0"].(map[string]any)
 	if !ok {
 		entryLogger.Error("Invalid Caddy HTTP config structure: missing srv0")
 		return fmt.Errorf("invalid Caddy HTTP config: missing srv0 server")
 	}
 
-	routes, ok := srv0["routes"].([]interface{})
+	routes, ok := srv0["routes"].([]any)
 	if !ok {
 		entryLogger.Error("Invalid Caddy HTTP config structure: missing routes")
 		return fmt.Errorf("invalid Caddy HTTP config: missing routes")
@@ -155,7 +157,7 @@ func (cm *ConfigManager) AddRoute(ctx context.Context, routeID string, route typ
 
 	// Check if route already exists
 	for _, existingRoute := range routes {
-		if routeMap, ok := existingRoute.(map[string]interface{}); ok {
+		if routeMap, ok := existingRoute.(map[string]any); ok {
 			if cm.routeMatches(routeMap, routeID, route.Path) {
 				entryLogger.Info("Route already exists, skipping addition")
 				return nil
@@ -168,7 +170,7 @@ func (cm *ConfigManager) AddRoute(ctx context.Context, routeID string, route typ
 	entryLogger.WithField("caddy_route", newCaddyRoute).Debug("Built new Caddy route")
 
 	// Add the new route (prepend to ensure it's matched before more general routes)
-	updatedRoutes := append([]interface{}{newCaddyRoute}, routes...)
+	updatedRoutes := append([]any{newCaddyRoute}, routes...)
 
 	// Update the routes in the config
 	srv0["routes"] = updatedRoutes
@@ -294,13 +296,13 @@ func (cm *ConfigManager) ConfigureAuth(logger logrus.FieldLogger, req AuthConfig
 }
 
 // buildSecurityConfig builds caddy-security configuration
-func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]interface{} {
-	config := map[string]interface{}{
-		"authentication": map[string]interface{}{
-			"portals": []map[string]interface{}{
+func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]any {
+	config := map[string]any{
+		"authentication": map[string]any{
+			"portals": []map[string]any{
 				{
 					"name": "twincore_portal",
-					"ui": map[string]interface{}{
+					"ui": map[string]any{
 						"theme":            "basic",
 						"logo_url":         "/portal/assets/logo.png",
 						"logo_description": "TwinCore Gateway",
@@ -313,7 +315,7 @@ func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]i
 	// Configure based on provider
 	switch req.Provider {
 	case "local":
-		config["authentication"].(map[string]interface{})["portals"].([]map[string]interface{})[0]["backends"] = []map[string]interface{}{
+		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
 			{
 				"method": "local",
 				"name":   "local_backend",
@@ -322,7 +324,7 @@ func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]i
 		}
 
 	case "saml":
-		config["authentication"].(map[string]interface{})["portals"].([]map[string]interface{})[0]["backends"] = []map[string]interface{}{
+		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
 			{
 				"method":       "saml",
 				"name":         "saml_backend",
@@ -333,7 +335,7 @@ func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]i
 		}
 
 	case "oauth2":
-		config["authentication"].(map[string]interface{})["portals"].([]map[string]interface{})[0]["backends"] = []map[string]interface{}{
+		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
 			{
 				"method":        "oauth2",
 				"name":          "oauth2_backend",
@@ -345,7 +347,7 @@ func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]i
 		}
 
 	case "ldap":
-		config["authentication"].(map[string]interface{})["portals"].([]map[string]interface{})[0]["backends"] = []map[string]interface{}{
+		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
 			{
 				"method":        "ldap",
 				"name":          "ldap_backend",
@@ -379,13 +381,13 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 	logger.Debug("Successfully retrieved current Caddy HTTP config")
 
 	// Add authentication middleware to protected routes
-	routes := []map[string]interface{}{
+	routes := []map[string]any{
 		// Portal route (public)
 		{
-			"match": []map[string]interface{}{
+			"match": []map[string]any{
 				{"path": []string{"/portal/*"}},
 			},
-			"handle": []map[string]interface{}{
+			"handle": []map[string]any{
 				{
 					"handler":      "file_server",
 					"root":         "{http.vars.portal_root}",
@@ -395,10 +397,10 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 		},
 		// Setup route (public during setup)
 		{
-			"match": []map[string]interface{}{
+			"match": []map[string]any{
 				{"path": []string{"/setup/*"}},
 			},
-			"handle": []map[string]interface{}{
+			"handle": []map[string]any{
 				{
 					"handler": "subroute",
 					"routes":  cm.buildSetupRoutes(),
@@ -407,17 +409,17 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 		},
 		// API routes (protected)
 		{
-			"match": []map[string]interface{}{
+			"match": []map[string]any{
 				{"path": []string{"/api/*"}},
 			},
-			"handle": []map[string]interface{}{
+			"handle": []map[string]any{
 				{
 					"handler":     "authenticator",
 					"portal_name": "twincore_portal",
 				},
 				{
 					"handler": "reverse_proxy",
-					"upstreams": []map[string]interface{}{
+					"upstreams": []map[string]any{
 						{"dial": "localhost:8090"},
 					},
 				},
@@ -425,7 +427,7 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 		},
 		// WoT routes (configurable protection)
 		{
-			"match": []map[string]interface{}{
+			"match": []map[string]any{
 				{"path": []string{"/things/*"}},
 			},
 			"handle": cm.buildWoTHandlers(provider),
@@ -433,7 +435,7 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 	}
 
 	// Update routes
-	httpConfig["servers"].(map[string]interface{})["srv0"].(map[string]interface{})["routes"] = routes
+	httpConfig["servers"].(map[string]any)["srv0"].(map[string]any)["routes"] = routes
 	logger.Debug("Constructed new HTTP routes with auth")
 
 	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "updateCaddyConfig", "path": "/apps/http"}).Debug("Calling dependency to apply updated HTTP config")
@@ -443,7 +445,7 @@ func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider st
 // Portal API endpoints
 
 // GetConfiguration returns the current configuration
-func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string]interface{}, error) {
+func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string]any, error) {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "GetConfiguration"})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
@@ -451,7 +453,7 @@ func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string
 		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
 	}()
 
-	config := make(map[string]interface{})
+	config := make(map[string]any)
 
 	// Get Caddy config
 	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "getCaddyConfig", "path": "/config"}).Debug("Calling dependency")
@@ -471,7 +473,7 @@ func (cm *ConfigManager) GetConfiguration(logger logrus.FieldLogger) (map[string
 }
 
 // UpdateConfiguration updates configuration sections
-func (cm *ConfigManager) UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]interface{}) error {
+func (cm *ConfigManager) UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]any) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "UpdateConfiguration", "section": section})
 	entryLogger.Debug("Service method called")
 	startTime := time.Now()
@@ -500,7 +502,7 @@ func (cm *ConfigManager) UpdateConfiguration(logger logrus.FieldLogger, section 
 
 // Helper methods
 
-func (cm *ConfigManager) updateCaddyConfig(logger logrus.FieldLogger, path string, config interface{}) error {
+func (cm *ConfigManager) updateCaddyConfig(logger logrus.FieldLogger, path string, config any) error {
 	data, err := json.Marshal(config)
 	if err != nil {
 		logger.WithError(err).Error("Failed to marshal Caddy config for update")
@@ -544,7 +546,7 @@ func (cm *ConfigManager) updateCaddyConfig(logger logrus.FieldLogger, path strin
 	return nil
 }
 
-func (cm *ConfigManager) getCaddyConfig(logger logrus.FieldLogger, path string) (map[string]interface{}, error) {
+func (cm *ConfigManager) getCaddyConfig(logger logrus.FieldLogger, path string) (map[string]any, error) {
 	targetURL := cm.caddyAdminURL + path
 	logger.WithFields(logrus.Fields{"caddy_path": path, "http_method": "GET", "url": targetURL}).Debug("Sending request to Caddy admin API to get config")
 	resp, err := http.Get(targetURL)
@@ -571,7 +573,7 @@ func (cm *ConfigManager) getCaddyConfig(logger logrus.FieldLogger, path string) 
 		return nil, &ErrCaddyConfigOperationFailed{CaddyPath: path, StatusCode: resp.StatusCode, WrappedErr: errWrapped}
 	}
 
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
 		logger.WithError(err).Error("Failed to decode Caddy config JSON response")
 		return nil, fmt.Errorf("failed to decode Caddy config JSON from %s: %w", path, err)
@@ -591,9 +593,9 @@ type AuthProviderInfo struct {
 }
 
 type AuthConfigRequest struct {
-	Provider string                 `json:"provider"`
-	Config   map[string]interface{} `json:"config"`
-	License  License                `json:"-"` // License interface is now in interfaces.go
+	Provider string         `json:"provider"`
+	Config   map[string]any `json:"config"`
+	License  License        `json:"-"` // License interface is now in interfaces.go
 }
 
 // Missing helper methods
@@ -617,13 +619,13 @@ func (cm *ConfigManager) isProviderAvailable(provider string, license License) b
 	}
 }
 
-func (cm *ConfigManager) buildSetupRoutes() []map[string]interface{} {
-	return []map[string]interface{}{
+func (cm *ConfigManager) buildSetupRoutes() []map[string]any {
+	return []map[string]any{
 		{
-			"match": []map[string]interface{}{
+			"match": []map[string]any{
 				{"path": []string{"/*"}},
 			},
-			"handle": []map[string]interface{}{
+			"handle": []map[string]any{
 				{
 					"handler": "static_response",
 					"body":    `{"message": "Setup interface - Portal UI will be embedded here"}`,
@@ -636,8 +638,8 @@ func (cm *ConfigManager) buildSetupRoutes() []map[string]interface{} {
 	}
 }
 
-func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interface{} { // Pure function
-	handlers := []map[string]interface{}{
+func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]any { // Pure function
+	handlers := []map[string]any{
 		{
 			"handler": "wot_handler", // Our custom WoT handler from caddy_app
 		},
@@ -646,52 +648,52 @@ func (cm *ConfigManager) buildWoTHandlers(provider string) []map[string]interfac
 	// Add auth if configured
 	if provider != "" && provider != "local" {
 		// Prepend auth handler
-		authHandler := map[string]interface{}{
+		authHandler := map[string]any{
 			"handler":     "authenticator",
 			"portal_name": "twincore_portal",
 		}
-		handlers = append([]map[string]interface{}{authHandler}, handlers...)
+		handlers = append([]map[string]any{authHandler}, handlers...)
 	}
 
 	return handlers
 }
 
-func (cm *ConfigManager) extractHTTPConfig(caddyConfig map[string]interface{}) map[string]interface{} { // Pure function
-	if apps, ok := caddyConfig["apps"].(map[string]interface{}); ok {
-		if http, ok := apps["http"].(map[string]interface{}); ok {
+func (cm *ConfigManager) extractHTTPConfig(caddyConfig map[string]any) map[string]any { // Pure function
+	if apps, ok := caddyConfig["apps"].(map[string]any); ok {
+		if http, ok := apps["http"].(map[string]any); ok {
 			return http
 		}
 	}
-	return map[string]interface{}{}
+	return map[string]any{}
 }
 
-func (cm *ConfigManager) extractSecurityConfig(caddyConfig map[string]interface{}) map[string]interface{} { // Pure function
-	if apps, ok := caddyConfig["apps"].(map[string]interface{}); ok {
-		if security, ok := apps["security"].(map[string]interface{}); ok {
+func (cm *ConfigManager) extractSecurityConfig(caddyConfig map[string]any) map[string]any { // Pure function
+	if apps, ok := caddyConfig["apps"].(map[string]any); ok {
+		if security, ok := apps["security"].(map[string]any); ok {
 			return security
 		}
 	}
-	return map[string]interface{}{}
+	return map[string]any{}
 }
 
-func (cm *ConfigManager) getStreamConfig() map[string]interface{} { // Pure function for this example (would log if it did I/O)
+func (cm *ConfigManager) getStreamConfig() map[string]any { // Pure function for this example (would log if it did I/O)
 	// Get stream configuration from database or other source
-	return map[string]interface{}{
-		"streams": []interface{}{},
+	return map[string]any{
+		"streams": []any{},
 	}
 }
 
-func (cm *ConfigManager) updateHTTPConfig(logger logrus.FieldLogger, config map[string]interface{}) error {
+func (cm *ConfigManager) updateHTTPConfig(logger logrus.FieldLogger, config map[string]any) error {
 	logger.Info("Applying HTTP configuration to Caddy")
 	return cm.updateCaddyConfig(logger, "/apps/http", config)
 }
 
-func (cm *ConfigManager) updateSecurityConfig(logger logrus.FieldLogger, config map[string]interface{}) error {
+func (cm *ConfigManager) updateSecurityConfig(logger logrus.FieldLogger, config map[string]any) error {
 	logger.Info("Applying security configuration to Caddy")
 	return cm.updateCaddyConfig(logger, "/apps/security", config)
 }
 
-func (cm *ConfigManager) updateStreamConfig(logger logrus.FieldLogger, config map[string]interface{}) error {
+func (cm *ConfigManager) updateStreamConfig(logger logrus.FieldLogger, config map[string]any) error {
 	// Update stream configuration in database
 	logger.Info("Stream config updated (mock - no actual DB interaction here)")
 	// In a real scenario:
@@ -705,13 +707,13 @@ func (cm *ConfigManager) updateStreamConfig(logger logrus.FieldLogger, config ma
 }
 
 // Load default auth templates
-func loadAuthTemplates() map[string]interface{} {
+func loadAuthTemplates() map[string]any {
 	// These would be loaded from embedded configs
-	return map[string]interface{}{
-		"local": map[string]interface{}{
+	return map[string]any{
+		"local": map[string]any{
 			"users_file": "/etc/twincore/users.json",
 		},
-		"saml": map[string]interface{}{
+		"saml": map[string]any{
 			"template": "saml_template.json",
 		},
 	}
@@ -720,20 +722,20 @@ func loadAuthTemplates() map[string]interface{} {
 // Helper methods for route management
 
 // isThingRoute checks if a Caddy route is associated with a specific Thing
-func (cm *ConfigManager) isThingRoute(route map[string]interface{}, thingID string) bool {
+func (cm *ConfigManager) isThingRoute(route map[string]any, thingID string) bool {
 	// Check if route path contains the thingID pattern
-	matches, ok := route["match"].([]interface{})
+	matches, ok := route["match"].([]any)
 	if !ok {
 		return false
 	}
 
 	for _, match := range matches {
-		matchMap, ok := match.(map[string]interface{})
+		matchMap, ok := match.(map[string]any)
 		if !ok {
 			continue
 		}
 
-		paths, ok := matchMap["path"].([]interface{})
+		paths, ok := matchMap["path"].([]any)
 		if !ok {
 			continue
 		}
@@ -777,17 +779,11 @@ func (cm *ConfigManager) pathMatchesThing(path, thingID string) bool {
 		"/things/" + thingID,
 	}
 
-	for _, pattern := range patterns {
-		if path == pattern {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(patterns, path)
 }
 
 // routeMatches checks if an existing route matches the route being added
-func (cm *ConfigManager) routeMatches(existingRoute map[string]interface{}, routeID, path string) bool {
+func (cm *ConfigManager) routeMatches(existingRoute map[string]any, routeID, path string) bool {
 	// Check for custom route ID metadata
 	if metadata, ok := existingRoute["@twincore_route_id"]; ok {
 		if metadataStr, ok := metadata.(string); ok && metadataStr == routeID {
@@ -796,18 +792,18 @@ func (cm *ConfigManager) routeMatches(existingRoute map[string]interface{}, rout
 	}
 
 	// Check path matching
-	matches, ok := existingRoute["match"].([]interface{})
+	matches, ok := existingRoute["match"].([]any)
 	if !ok {
 		return false
 	}
 
 	for _, match := range matches {
-		matchMap, ok := match.(map[string]interface{})
+		matchMap, ok := match.(map[string]any)
 		if !ok {
 			continue
 		}
 
-		paths, ok := matchMap["path"].([]interface{})
+		paths, ok := matchMap["path"].([]any)
 		if !ok {
 			continue
 		}
@@ -828,29 +824,29 @@ func (cm *ConfigManager) routeMatches(existingRoute map[string]interface{}, rout
 }
 
 // buildCaddyRoute converts a types.HTTPRoute to Caddy route format
-func (cm *ConfigManager) buildCaddyRoute(routeID string, route types.HTTPRoute) map[string]interface{} {
+func (cm *ConfigManager) buildCaddyRoute(routeID string, route types.HTTPRoute) map[string]any {
 	// Build Caddy route structure
-	caddyRoute := map[string]interface{}{
+	caddyRoute := map[string]any{
 		"@twincore_route_id": routeID, // Custom metadata for tracking
-		"match": []map[string]interface{}{
+		"match": []map[string]any{
 			{
 				"path": []string{route.Path},
 			},
 		},
-		"handle": []map[string]interface{}{},
+		"handle": []map[string]any{},
 	}
 
 	// Add method matching if specified
 	if len(route.Methods) > 0 {
-		caddyRoute["match"].([]map[string]interface{})[0]["method"] = route.Methods
+		caddyRoute["match"].([]map[string]any)[0]["method"] = route.Methods
 	}
 
 	// Build handlers based on the route configuration
-	handlers := []map[string]interface{}{}
+	handlers := []map[string]any{}
 
 	// Add authentication if required
 	if route.RequiresAuth {
-		handlers = append(handlers, map[string]interface{}{
+		handlers = append(handlers, map[string]any{
 			"handler":     "authenticator",
 			"portal_name": "twincore_portal",
 		})
@@ -859,44 +855,38 @@ func (cm *ConfigManager) buildCaddyRoute(routeID string, route types.HTTPRoute) 
 	// Add the main handler
 	switch route.Handler {
 	case "unified_wot_handler":
-		handlers = append(handlers, map[string]interface{}{
+		handlers = append(handlers, map[string]any{
 			"handler": "unified_wot_handler",
 		})
 	case "reverse_proxy":
 		// Default reverse proxy to local API server
-		proxyHandler := map[string]interface{}{
+		proxyHandler := map[string]any{
 			"handler": "reverse_proxy",
-			"upstreams": []map[string]interface{}{
+			"upstreams": []map[string]any{
 				{"dial": "localhost:8090"},
 			},
 		}
 		// Add any additional config from route.Config
 		if route.Config != nil {
-			for key, value := range route.Config {
-				proxyHandler[key] = value
-			}
+			maps.Copy(proxyHandler, route.Config)
 		}
 		handlers = append(handlers, proxyHandler)
 	case "file_server":
-		fileHandler := map[string]interface{}{
+		fileHandler := map[string]any{
 			"handler": "file_server",
 		}
 		// Add config from route.Config
 		if route.Config != nil {
-			for key, value := range route.Config {
-				fileHandler[key] = value
-			}
+			maps.Copy(fileHandler, route.Config)
 		}
 		handlers = append(handlers, fileHandler)
 	default:
 		// Custom handler - pass through with config
-		customHandler := map[string]interface{}{
+		customHandler := map[string]any{
 			"handler": route.Handler,
 		}
 		if route.Config != nil {
-			for key, value := range route.Config {
-				customHandler[key] = value
-			}
+			maps.Copy(customHandler, route.Config)
 		}
 		handlers = append(handlers, customHandler)
 	}

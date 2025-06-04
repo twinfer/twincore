@@ -54,7 +54,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 			Methods: m.getPropertyMethods(*property), // Dereference pointer
 			Handler: "unified_wot_handler",
 			// RequiresAuth removed - now handled by SystemSecurityManager middleware
-			Config: map[string]interface{}{ // Changed Metadata to Config
+			Config: map[string]any{ // Changed Metadata to Config
 				"thingId":      td.ID,
 				"propertyName": name,
 				"forms":        forms,
@@ -66,7 +66,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		topic := types.StreamTopic{
 			Name: m.expandPattern(m.streamPattern, td.ID, "properties", name),
 			Type: "property_update",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"thingId":             td.ID,
 				"propertyName":        name,
 				"forms":               forms,
@@ -95,7 +95,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 			Methods: []string{"POST"},
 			Handler: "unified_wot_handler",
 			// RequiresAuth removed - now handled by SystemSecurityManager middleware
-			Config: map[string]interface{}{ // Changed Metadata to Config
+			Config: map[string]any{ // Changed Metadata to Config
 				"thingId":    td.ID,
 				"actionName": name,
 				"input":      action.GetInput(),
@@ -109,7 +109,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		command := types.CommandStream{
 			Name: m.expandPattern(m.streamPattern, td.ID, "actions", name),
 			Type: "action_invocation",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"thingId":             td.ID,
 				"actionName":          name,
 				"forms":               forms,
@@ -138,7 +138,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 			Methods: []string{"GET"},
 			Handler: "unified_wot_handler",
 			// RequiresAuth removed - now handled by SystemSecurityManager middleware
-			Config: map[string]interface{}{ // Changed Metadata to Config
+			Config: map[string]any{ // Changed Metadata to Config
 				"thingId":   td.ID,
 				"eventName": name,
 				"data":      event.GetData(),
@@ -151,7 +151,7 @@ func (m *WoTMapper) ProcessTD(td *wot.ThingDescription) (*types.UnifiedConfig, e
 		topic := types.StreamTopic{
 			Name: m.expandPattern(m.streamPattern, td.ID, "events", name),
 			Type: "event_emission",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"thingId":             td.ID,
 				"eventName":           name,
 				"forms":               forms,

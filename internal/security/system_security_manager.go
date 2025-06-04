@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/twinfer/twincore/pkg/types"
+	"slices"
 )
 
 // DefaultSystemSecurityManager implements SystemSecurityManager interface
@@ -244,10 +245,10 @@ func (sm *DefaultSystemSecurityManager) CreateUser(ctx context.Context, user *ty
 	return nil
 }
 
-func (sm *DefaultSystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]interface{}) error {
+func (sm *DefaultSystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]any) error {
 	// Build dynamic update query
 	setParts := []string{}
-	args := []interface{}{}
+	args := []any{}
 
 	for field, value := range updates {
 		switch field {
@@ -458,7 +459,7 @@ func (sm *DefaultSystemSecurityManager) RevokeAllUserSessions(ctx context.Contex
 		Action:  "revoke_all",
 		UserID:  userID,
 		Success: true,
-		Details: map[string]interface{}{"sessions_revoked": count},
+		Details: map[string]any{"sessions_revoked": count},
 	})
 
 	return nil
@@ -493,10 +494,8 @@ func (sm *DefaultSystemSecurityManager) ListPolicies(ctx context.Context) ([]typ
 
 func (sm *DefaultSystemSecurityManager) EvaluatePolicy(ctx context.Context, accessCtx *types.AccessContext) error {
 	// Basic policy evaluation - admin role can access everything
-	for _, role := range accessCtx.User.Roles {
-		if role == "admin" {
-			return nil
-		}
+	if slices.Contains(accessCtx.User.Roles, "admin") {
+		return nil
 	}
 
 	// Other roles get limited access
@@ -566,8 +565,8 @@ func (sm *DefaultSystemSecurityManager) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (sm *DefaultSystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]interface{}, error) {
-	metrics := map[string]interface{}{
+func (sm *DefaultSystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]any, error) {
+	metrics := map[string]any{
 		"active_sessions":  len(sm.sessions),
 		"total_users":      sm.getUserCount(ctx),
 		"security_enabled": sm.config.Enabled,
@@ -577,7 +576,7 @@ func (sm *DefaultSystemSecurityManager) GetSecurityMetrics(ctx context.Context) 
 	return metrics, nil
 }
 
-func (sm *DefaultSystemSecurityManager) GetAuditLog(ctx context.Context, filters map[string]interface{}) ([]types.AuditEvent, error) {
+func (sm *DefaultSystemSecurityManager) GetAuditLog(ctx context.Context, filters map[string]any) ([]types.AuditEvent, error) {
 	// TODO: Implement audit log retrieval
 	return nil, fmt.Errorf("audit log retrieval not implemented")
 }

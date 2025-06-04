@@ -169,7 +169,7 @@ func (c *Container) initSecurity(cfg *Config) error {
 	envStore := types.CredentialStore{
 		Type:      "env",
 		Encrypted: false,
-		Config:    make(map[string]interface{}),
+		Config:    make(map[string]any),
 	}
 	if err := wotSecurityMgr.RegisterCredentialStore(context.Background(), "default", envStore); err != nil {
 		c.Logger.WithError(err).Warn("Failed to register default credential store")
@@ -178,7 +178,7 @@ func (c *Container) initSecurity(cfg *Config) error {
 	dbStore := types.CredentialStore{
 		Type:      "db",
 		Encrypted: true,
-		Config:    make(map[string]interface{}),
+		Config:    make(map[string]any),
 	}
 	if err := wotSecurityMgr.RegisterCredentialStore(context.Background(), "db", dbStore); err != nil {
 		c.Logger.WithError(err).Warn("Failed to register database credential store")
@@ -396,7 +396,7 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 	// WoT service doesn't need complex config for now
 	wotConfig := types.ServiceConfig{
 		Name:   "wot",
-		Config: make(map[string]interface{}),
+		Config: make(map[string]any),
 	}
 	c.ServiceRegistry.RegisterServiceWithConfig("wot", c.WoTService, wotConfig)
 
@@ -523,7 +523,7 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 	// Convert HTTPConfig to map[string]interface{} for proper serialization
 	// This ensures the config can be properly marshaled/unmarshaled when passed around
 	// Security configurations removed - now handled by SystemSecurityManager
-	httpCfgMap := map[string]interface{}{
+	httpCfgMap := map[string]any{
 		"listen": httpCfg.Listen,
 		"routes": httpCfg.Routes,
 		// Security field removed - authentication handled by SystemSecurityManager middleware
@@ -532,7 +532,7 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 	return types.ServiceConfig{
 		Name: "http",
 		Type: "http_service",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			// Store as map for proper serialization/deserialization
 			"http": httpCfgMap,
 		},
@@ -542,7 +542,7 @@ func (c *Container) buildInitialHTTPServiceConfig(appCfg *Config) types.ServiceC
 // buildInitialStreamServiceConfig creates the default configuration for the Stream service.
 func (c *Container) buildInitialStreamServiceConfig(appCfg *Config) types.ServiceConfig {
 	// TODO: Define default stream configurations if any are needed at startup.
-	return types.ServiceConfig{Name: "stream", Type: "stream_service", Config: map[string]interface{}{"stream": types.StreamConfig{}}}
+	return types.ServiceConfig{Name: "stream", Type: "stream_service", Config: map[string]any{"stream": types.StreamConfig{}}}
 }
 
 // Config holds container configuration

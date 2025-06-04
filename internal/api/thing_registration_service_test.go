@@ -144,15 +144,15 @@ func (m *MockConfigurationManager) ConfigureAuth(logger logrus.FieldLogger, req 
 	return args.Error(0)
 }
 
-func (m *MockConfigurationManager) GetConfiguration(logger logrus.FieldLogger) (map[string]interface{}, error) {
+func (m *MockConfigurationManager) GetConfiguration(logger logrus.FieldLogger) (map[string]any, error) {
 	args := m.Called(logger)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(map[string]interface{}), args.Error(1)
+	return args.Get(0).(map[string]any), args.Error(1)
 }
 
-func (m *MockConfigurationManager) UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]interface{}) error {
+func (m *MockConfigurationManager) UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]any) error {
 	args := m.Called(logger, section, config)
 	return args.Error(0)
 }

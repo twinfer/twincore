@@ -72,8 +72,8 @@ func (h *SetupHandler) GetSetupStatus(w http.ResponseWriter, r *http.Request) {
 
 // SetupRequest represents a setup configuration request
 type SetupRequest struct {
-	Step   int                    `json:"step"`
-	Config map[string]interface{} `json:"config"`
+	Step   int            `json:"step"`
+	Config map[string]any `json:"config"`
 }
 
 // ProcessSetup handles setup steps
@@ -120,7 +120,7 @@ func (h *SetupHandler) ProcessSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 // Step 1: License configuration
-func (h *SetupHandler) processLicenseStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]interface{}) {
+func (h *SetupHandler) processLicenseStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]any) {
 	entryLogger := logger.WithFields(logrus.Fields{"setup_sub_step": "processLicenseStep"})
 	entryLogger.Debug("Processing license step")
 
@@ -141,7 +141,7 @@ func (h *SetupHandler) processLicenseStep(logger *logrus.Entry, w http.ResponseW
 }
 
 // Step 2: Authentication provider selection
-func (h *SetupHandler) processAuthStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]interface{}) {
+func (h *SetupHandler) processAuthStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]any) {
 	entryLogger := logger.WithFields(logrus.Fields{"setup_sub_step": "processAuthStep"})
 	entryLogger.Debug("Processing auth provider step")
 
@@ -171,7 +171,7 @@ func (h *SetupHandler) processAuthStep(logger *logrus.Entry, w http.ResponseWrit
 }
 
 // Step 3: Create initial admin user
-func (h *SetupHandler) processAdminUserStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]interface{}) {
+func (h *SetupHandler) processAdminUserStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]any) {
 	entryLogger := logger.WithFields(logrus.Fields{"setup_sub_step": "processAdminUserStep"})
 	entryLogger.Debug("Processing admin user creation step")
 
@@ -203,7 +203,7 @@ func (h *SetupHandler) processAdminUserStep(logger *logrus.Entry, w http.Respons
 }
 
 // Step 4: Finalize setup
-func (h *SetupHandler) processFinalizeStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]interface{}) {
+func (h *SetupHandler) processFinalizeStep(logger *logrus.Entry, w http.ResponseWriter, config map[string]any) {
 	entryLogger := logger.WithFields(logrus.Fields{"setup_sub_step": "processFinalizeStep"})
 	entryLogger.Debug("Processing finalize setup step")
 
@@ -223,7 +223,7 @@ func (h *SetupHandler) processFinalizeStep(logger *logrus.Entry, w http.Response
 		// Not returning error to client for this, as setup is technically complete.
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"message":    "Setup completed successfully",
 		"portal_url": "/portal/",
 		"api_url":    "/api/v1/",

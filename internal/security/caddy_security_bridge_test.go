@@ -41,7 +41,7 @@ func (m *MockSystemSecurityManager) CreateUser(ctx context.Context, user *types.
 	return args.Error(0)
 }
 
-func (m *MockSystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]interface{}) error {
+func (m *MockSystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]any) error {
 	args := m.Called(ctx, userID, updates)
 	return args.Error(0)
 }
@@ -139,12 +139,12 @@ func (m *MockSystemSecurityManager) HealthCheck(ctx context.Context) error {
 	return args.Error(0)
 }
 
-func (m *MockSystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]interface{}, error) {
+func (m *MockSystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]any, error) {
 	args := m.Called(ctx)
-	return args.Get(0).(map[string]interface{}), args.Error(1)
+	return args.Get(0).(map[string]any), args.Error(1)
 }
 
-func (m *MockSystemSecurityManager) GetAuditLog(ctx context.Context, filters map[string]interface{}) ([]types.AuditEvent, error) {
+func (m *MockSystemSecurityManager) GetAuditLog(ctx context.Context, filters map[string]any) ([]types.AuditEvent, error) {
 	args := m.Called(ctx, filters)
 	return args.Get(0).([]types.AuditEvent), args.Error(1)
 }

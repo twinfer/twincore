@@ -253,7 +253,7 @@ func (h *UnifiedWoTHandler) Provision(ctx caddy.Context) error {
 		h.logger.Warn("UnifiedWoTHandler: Logger was nil, using fallback")
 	}
 
-	requiredDeps := map[string]interface{}{
+	requiredDeps := map[string]any{
 		"StateManager":  h.stateManager,
 		"StreamBridge":  h.streamBridge,
 		"ThingRegistry": h.thingRegistry,
@@ -495,7 +495,7 @@ func (h *UnifiedWoTHandler) handlePropertyRead(logger *logrus.Entry, w http.Resp
 	// Serialize based on content type
 	switch contentType {
 	case contentTypeJSON:
-		return json.NewEncoder(w).Encode(map[string]interface{}{
+		return json.NewEncoder(w).Encode(map[string]any{
 			"value":     value,
 			"timestamp": time.Now().UTC(),
 		})
@@ -524,14 +524,14 @@ func (h *UnifiedWoTHandler) handlePropertyWrite(logger *logrus.Entry, w http.Res
 	}
 
 	// Deserialize value
-	var value interface{}
+	var value any
 	if err := json.Unmarshal(body, &value); err != nil {
 		logger.WithError(err).Warn("Failed to unmarshal JSON")
 		return caddyhttp.Error(http.StatusBadRequest, err)
 	}
 
 	// Extract value if wrapped
-	if wrapped, ok := value.(map[string]interface{}); ok {
+	if wrapped, ok := value.(map[string]any); ok {
 		if v, exists := wrapped["value"]; exists {
 			value = v
 		}
@@ -596,7 +596,7 @@ func (h *UnifiedWoTHandler) handlePropertyObserve(logger *logrus.Entry, w http.R
 
 	// Send initial value
 	if value, err := h.getPropertyValue(thingID, propertyName); err == nil {
-		fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
+		fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]any{
 			"value":     value,
 			"timestamp": time.Now().UTC(),
 		}), sseDoubleNewline)
@@ -607,7 +607,7 @@ func (h *UnifiedWoTHandler) handlePropertyObserve(logger *logrus.Entry, w http.R
 	for {
 		select {
 		case update := <-updates:
-			fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]interface{}{
+			fmt.Fprintf(w, "%s%s%s", sseDataPrefix, h.encodeSSEData(map[string]any{
 				"value":     update.Value,
 				"timestamp": update.Timestamp,
 			}), sseDoubleNewline)
@@ -638,7 +638,7 @@ func (h *UnifiedWoTHandler) handleAction(logger *logrus.Entry, w http.ResponseWr
 		return caddyhttp.Error(http.StatusNotFound, err)
 	}
 
-	var input interface{}
+	var input any
 	inputSchema := action.GetInput()
 
 	// Parse request body if present
@@ -676,7 +676,7 @@ func (h *UnifiedWoTHandler) handleAction(logger *logrus.Entry, w http.ResponseWr
 	if r.Header.Get(headerPrefer) == preferRespondAsync {
 		w.Header().Set(headerLocation, fmt.Sprintf("/api/things/%s/actions/%s/status/%s", thingID, actionName, actionID))
 		w.WriteHeader(http.StatusAccepted)
-		return json.NewEncoder(w).Encode(map[string]interface{}{
+		return json.NewEncoder(w).Encode(map[string]any{
 			"actionId": actionID,
 			"status":   "pending",
 		})
@@ -807,7 +807,7 @@ func (h *UnifiedWoTHandler) handleListStreams(logger *logrus.Entry, w http.Respo
 	}
 
 	w.Header().Set(headerContentType, contentTypeJSON)
-	return json.NewEncoder(w).Encode(map[string]interface{}{
+	return json.NewEncoder(w).Encode(map[string]any{
 		"streams": streams,
 		"count":   len(streams),
 	})
@@ -932,7 +932,7 @@ func (h *UnifiedWoTHandler) handleListProcessorCollections(logger *logrus.Entry,
 	}
 
 	w.Header().Set(headerContentType, contentTypeJSON)
-	return json.NewEncoder(w).Encode(map[string]interface{}{
+	return json.NewEncoder(w).Encode(map[string]any{
 		"collections": collections,
 		"count":       len(collections),
 	})
@@ -975,7 +975,7 @@ func (h *UnifiedWoTHandler) handleGenerateFromTD(logger *logrus.Entry, w http.Re
 	streamConfigs := h.generateStreamsFromTD(td)
 
 	w.Header().Set(headerContentType, contentTypeJSON)
-	return json.NewEncoder(w).Encode(map[string]interface{}{
+	return json.NewEncoder(w).Encode(map[string]any{
 		"thing_id": request.ThingID,
 		"streams":  streamConfigs,
 		"count":    len(streamConfigs),
@@ -993,12 +993,12 @@ type PropertyCache struct {
 }
 
 type PropertyValue struct {
-	Value     interface{}
+	Value     any
 	UpdatedAt time.Time
 }
 
 // getPropertyValue retrieves property value with caching
-func (h *UnifiedWoTHandler) getPropertyValue(thingID, propertyName string) (interface{}, error) {
+func (h *UnifiedWoTHandler) getPropertyValue(thingID, propertyName string) (any, error) {
 	cacheKey := fmt.Sprintf("%s/%s", thingID, propertyName)
 
 	// Check cache
@@ -1064,13 +1064,13 @@ func (h *UnifiedWoTHandler) negotiateContentType(r *http.Request, property wot.P
 }
 
 // encodeSSEData encodes data for Server-Sent Events
-func (h *UnifiedWoTHandler) encodeSSEData(data interface{}) string {
+func (h *UnifiedWoTHandler) encodeSSEData(data any) string {
 	encoded, _ := json.Marshal(data)
 	return string(encoded)
 }
 
 // decodeJSON helper for JSON decoding
-func (h *UnifiedWoTHandler) decodeJSON(r *http.Request, target interface{}) error {
+func (h *UnifiedWoTHandler) decodeJSON(r *http.Request, target any) error {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
@@ -1115,19 +1115,19 @@ func (h *UnifiedWoTHandler) generateStreamsFromTD(td *wot.ThingDescription) []ty
 				InteractionName: name,
 				Direction:       "input",
 				ProcessorChain: []types.ProcessorConfig{
-					{Type: "license_check", Config: map[string]interface{}{"feature": "property_ingestion"}},
-					{Type: "json_validation", Config: map[string]interface{}{"schema": property.DataSchemaCore}},
-					{Type: "parquet_encode", Config: map[string]interface{}{"schema": "property_schema"}},
+					{Type: "license_check", Config: map[string]any{"feature": "property_ingestion"}},
+					{Type: "json_validation", Config: map[string]any{"schema": property.DataSchemaCore}},
+					{Type: "parquet_encode", Config: map[string]any{"schema": "property_schema"}},
 				},
 				Input: types.StreamEndpointConfig{
 					Type: "kafka",
-					Config: map[string]interface{}{
+					Config: map[string]any{
 						"topic": fmt.Sprintf("things.%s.properties.%s", td.ID, name),
 					},
 				},
 				Output: types.StreamEndpointConfig{
 					Type: "parquet",
-					Config: map[string]interface{}{
+					Config: map[string]any{
 						"path": "${PARQUET_LOG_PATH}/properties/props_${!timestamp_unix():yyyy-MM-dd}.parquet",
 					},
 				},
@@ -1142,18 +1142,18 @@ func (h *UnifiedWoTHandler) generateStreamsFromTD(td *wot.ThingDescription) []ty
 				InteractionName: name,
 				Direction:       "output",
 				ProcessorChain: []types.ProcessorConfig{
-					{Type: "license_check", Config: map[string]interface{}{"feature": "property_commands"}},
-					{Type: "json_validation", Config: map[string]interface{}{"schema": property.DataSchemaCore}},
+					{Type: "license_check", Config: map[string]any{"feature": "property_commands"}},
+					{Type: "json_validation", Config: map[string]any{"schema": property.DataSchemaCore}},
 				},
 				Input: types.StreamEndpointConfig{
 					Type: "http",
-					Config: map[string]interface{}{
+					Config: map[string]any{
 						"path": fmt.Sprintf("/api/things/%s/properties/%s", td.ID, name),
 					},
 				},
 				Output: types.StreamEndpointConfig{
 					Type: "kafka",
-					Config: map[string]interface{}{
+					Config: map[string]any{
 						"topic": fmt.Sprintf("things.%s.properties.%s.commands", td.ID, name),
 					},
 				},
@@ -1169,19 +1169,19 @@ func (h *UnifiedWoTHandler) generateStreamsFromTD(td *wot.ThingDescription) []ty
 			InteractionName: name,
 			Direction:       "bidirectional",
 			ProcessorChain: []types.ProcessorConfig{
-				{Type: "license_check", Config: map[string]interface{}{"feature": "action_invocation"}},
-				{Type: "json_validation", Config: map[string]interface{}{"schema": action.GetInput()}},
-				{Type: "action_tracker", Config: map[string]interface{}{"timeout": "30s"}},
+				{Type: "license_check", Config: map[string]any{"feature": "action_invocation"}},
+				{Type: "json_validation", Config: map[string]any{"schema": action.GetInput()}},
+				{Type: "action_tracker", Config: map[string]any{"timeout": "30s"}},
 			},
 			Input: types.StreamEndpointConfig{
 				Type: "http",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"path": fmt.Sprintf("/api/things/%s/actions/%s", td.ID, name),
 				},
 			},
 			Output: types.StreamEndpointConfig{
 				Type: "kafka",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"topic": fmt.Sprintf("things.%s.actions.%s", td.ID, name),
 				},
 			},
@@ -1196,19 +1196,19 @@ func (h *UnifiedWoTHandler) generateStreamsFromTD(td *wot.ThingDescription) []ty
 			InteractionName: name,
 			Direction:       "input",
 			ProcessorChain: []types.ProcessorConfig{
-				{Type: "license_check", Config: map[string]interface{}{"feature": "event_processing"}},
-				{Type: "event_enrichment", Config: map[string]interface{}{}},
-				{Type: "parquet_encode", Config: map[string]interface{}{"schema": "event_schema"}},
+				{Type: "license_check", Config: map[string]any{"feature": "event_processing"}},
+				{Type: "event_enrichment", Config: map[string]any{}},
+				{Type: "parquet_encode", Config: map[string]any{"schema": "event_schema"}},
 			},
 			Input: types.StreamEndpointConfig{
 				Type: "kafka",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"topic": fmt.Sprintf("things.%s.events.%s", td.ID, name),
 				},
 			},
 			Output: types.StreamEndpointConfig{
 				Type: "parquet",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"path": "${PARQUET_LOG_PATH}/events/events_${!timestamp_unix():yyyy-MM-dd}.parquet",
 				},
 			},

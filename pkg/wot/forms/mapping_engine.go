@@ -3,6 +3,7 @@ package forms
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"text/template"
 )
 
@@ -26,7 +27,7 @@ type MappingConfig struct {
 	Purpose         string // "observation", "command", "persistence", etc.
 	ThingID         string
 	InteractionName string
-	Parameters      map[string]interface{}
+	Parameters      map[string]any
 }
 
 // initializeTemplates sets up the mapping templates
@@ -107,7 +108,7 @@ root.{{.InteractionType}}_name = "{{.InteractionName}}"`+
 // registerTemplate adds a template to the engine
 func (e *MappingEngine) registerTemplate(name string, tmpl string) {
 	funcMap := template.FuncMap{
-		"default": func(defaultVal, val interface{}) interface{} {
+		"default": func(defaultVal, val any) any {
 			if val == nil || val == "" {
 				return defaultVal
 			}
@@ -165,20 +166,18 @@ func (e *MappingEngine) getTemplateKey(config MappingConfig) string {
 }
 
 // prepareTemplateData prepares data for template execution
-func (e *MappingEngine) prepareTemplateData(config MappingConfig) map[string]interface{} {
-	data := map[string]interface{}{
+func (e *MappingEngine) prepareTemplateData(config MappingConfig) map[string]any {
+	data := map[string]any{
 		"ThingID":         config.ThingID,
 		"InteractionName": config.InteractionName,
 		"InteractionType": config.Type,
 	}
 
 	// Copy all parameters
-	for k, v := range config.Parameters {
-		data[k] = v
-	}
+	maps.Copy(data, config.Parameters)
 
 	// Extract common patterns
-	if additionalFields, ok := config.Parameters["additional_fields"].(map[string]interface{}); ok {
+	if additionalFields, ok := config.Parameters["additional_fields"].(map[string]any); ok {
 		data["AdditionalFields"] = additionalFields
 	}
 
@@ -193,7 +192,7 @@ func (e *MappingEngine) generateCustomMapping(expression string) (string, error)
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]interface{}{"Expression": expression}); err != nil {
+	if err := tmpl.Execute(&buf, map[string]any{"Expression": expression}); err != nil {
 		return "", err
 	}
 
