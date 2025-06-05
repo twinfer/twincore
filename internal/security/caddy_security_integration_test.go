@@ -131,7 +131,7 @@ func TestCaddySecurityRealIntegration(t *testing.T) {
 		handler.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var response map[string]any
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		assert.NoError(t, err)
@@ -151,7 +151,7 @@ func TestCaddySecurityRealIntegration(t *testing.T) {
 	t.Run("JWTTokenGeneration", func(t *testing.T) {
 		// Test JWT token generation and validation
 		mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-		securityMgr := NewSimplifiedSystemSecurityManager(db, logger, mockLicenseChecker)
+		securityMgr := NewSystemSecurityManager(db, logger, mockLicenseChecker)
 
 		// Configure JWT settings
 		config := types.SystemSecurityConfig{
@@ -189,7 +189,7 @@ func TestCaddySecurityRealIntegration(t *testing.T) {
 
 	t.Run("IdentityStoreIntegration", func(t *testing.T) {
 		// Test identity store with simulated caddy-security calls
-		
+
 		// Simulate user lookup that caddy-security would perform
 		user, err := store.GetUser(context.Background(), "testuser")
 		require.NoError(t, err)
@@ -291,9 +291,9 @@ func createTestCaddyConfig(t *testing.T, securityConfig json.RawMessage) []byte 
 										"handler": "authorization",
 									},
 									{
-										"handler": "static_response",
+										"handler":     "static_response",
 										"status_code": 200,
-										"body": "API endpoint",
+										"body":        "API endpoint",
 									},
 								},
 							},
@@ -493,7 +493,7 @@ func BenchmarkCaddySecurityIntegration(b *testing.B) {
 	defer db.Close()
 
 	store := NewLocalIdentityStore(db, logger, "twincore_local")
-	
+
 	// Create test user
 	testUser := &AuthUser{
 		Username: "benchuser",

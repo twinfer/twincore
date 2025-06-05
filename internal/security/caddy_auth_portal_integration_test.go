@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/twinfer/twincore/pkg/types"
 	_ "github.com/marcboeker/go-duckdb"
+	"github.com/twinfer/twincore/pkg/types"
 )
 
 // MockUnifiedLicenseChecker for testing
@@ -121,12 +121,12 @@ func (m *MockConfigManager) UpdateCaddyConfig(logger logrus.FieldLogger, path st
 	if m.appliedConfigs == nil {
 		m.appliedConfigs = make(map[string]json.RawMessage)
 	}
-	
+
 	configBytes, err := json.Marshal(config)
 	if err != nil {
 		return err
 	}
-	
+
 	m.appliedConfigs[path] = json.RawMessage(configBytes)
 	return nil
 }
@@ -352,8 +352,8 @@ func TestCaddyAuthPortalBridge(t *testing.T) {
 	})
 }
 
-// TestSimplifiedSystemSecurityManager tests the simplified security manager
-func TestSimplifiedSystemSecurityManager(t *testing.T) {
+// TestSystemSecurityManager tests the  security manager
+func TestSystemSecurityManager(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -367,7 +367,7 @@ func TestSimplifiedSystemSecurityManager(t *testing.T) {
 		valid: true,
 	}
 
-	manager := NewSimplifiedSystemSecurityManager(db, logger, licenseChecker)
+	manager := NewSystemSecurityManager(db, logger, licenseChecker)
 
 	// Configure security
 	config := types.SystemSecurityConfig{
@@ -500,7 +500,7 @@ func TestIntegrationFlow(t *testing.T) {
 	}
 
 	// Create system security manager
-	securityManager := NewSimplifiedSystemSecurityManager(db, logger, licenseChecker)
+	securityManager := NewSystemSecurityManager(db, logger, licenseChecker)
 
 	// Configure security
 	config := types.SystemSecurityConfig{
@@ -597,7 +597,7 @@ func TestErrorHandling(t *testing.T) {
 		// This test verifies error handling with invalid database
 		db, _ := sql.Open("duckdb", ":memory:")
 		db.Close() // Close immediately to simulate error
-		
+
 		store := NewLocalIdentityStore(db, logger, "test")
 		_, err := store.GetUser(context.Background(), "nonexistent")
 		assert.Error(t, err)
@@ -631,7 +631,7 @@ func TestErrorHandling(t *testing.T) {
 			valid: true,
 		}
 
-		manager := NewSimplifiedSystemSecurityManager(db, logger, licenseChecker)
+		manager := NewSystemSecurityManager(db, logger, licenseChecker)
 
 		user := &types.User{
 			Username: "testuser",

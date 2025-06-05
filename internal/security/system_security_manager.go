@@ -12,9 +12,9 @@ import (
 	"github.com/twinfer/twincore/pkg/types"
 )
 
-// SimplifiedSystemSecurityManager provides user management for caddy-auth-portal integration
+// SystemSecurityManager provides user management for caddy-auth-portal integration
 // This version removes session management, MFA, and other functionality now handled by caddy-security
-type SimplifiedSystemSecurityManager struct {
+type SystemSecurityManager struct {
 	db             *sql.DB
 	logger         *logrus.Logger
 	config         *types.SystemSecurityConfig
@@ -22,16 +22,16 @@ type SimplifiedSystemSecurityManager struct {
 	identityStore  *LocalIdentityStore
 }
 
-// NewSimplifiedSystemSecurityManager creates a simplified security manager for caddy-auth-portal
-func NewSimplifiedSystemSecurityManager(
+// NewSystemSecurityManager creates a  security manager for caddy-auth-portal
+func NewSystemSecurityManager(
 	db *sql.DB,
 	logger *logrus.Logger,
 	licenseChecker types.UnifiedLicenseChecker,
-) *SimplifiedSystemSecurityManager {
+) *SystemSecurityManager {
 
 	identityStore := NewLocalIdentityStore(db, logger, "twincore_local")
 
-	return &SimplifiedSystemSecurityManager{
+	return &SystemSecurityManager{
 		db:             db,
 		logger:         logger,
 		licenseChecker: licenseChecker,
@@ -44,7 +44,7 @@ func NewSimplifiedSystemSecurityManager(
 
 // User Management - These methods support the identity store
 
-func (sm *SimplifiedSystemSecurityManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
+func (sm *SystemSecurityManager) GetUser(ctx context.Context, userID string) (*types.User, error) {
 	authUser, err := sm.identityStore.GetUser(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (sm *SimplifiedSystemSecurityManager) GetUser(ctx context.Context, userID s
 	}, nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) ListUsers(ctx context.Context) ([]*types.User, error) {
+func (sm *SystemSecurityManager) ListUsers(ctx context.Context) ([]*types.User, error) {
 	authUsers, err := sm.identityStore.ListUsers(ctx)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (sm *SimplifiedSystemSecurityManager) ListUsers(ctx context.Context) ([]*ty
 	return users, nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) CreateUser(ctx context.Context, user *types.User, password string) error {
+func (sm *SystemSecurityManager) CreateUser(ctx context.Context, user *types.User, password string) error {
 	if !sm.licenseChecker.IsSystemFeatureEnabled(ctx, "local_auth") {
 		return fmt.Errorf("local user management not licensed")
 	}
@@ -114,7 +114,7 @@ func (sm *SimplifiedSystemSecurityManager) CreateUser(ctx context.Context, user 
 	return nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]any) error {
+func (sm *SystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]any) error {
 	if err := sm.identityStore.UpdateUser(ctx, userID, updates); err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
@@ -129,7 +129,7 @@ func (sm *SimplifiedSystemSecurityManager) UpdateUser(ctx context.Context, userI
 	return nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) DeleteUser(ctx context.Context, userID string) error {
+func (sm *SystemSecurityManager) DeleteUser(ctx context.Context, userID string) error {
 	if err := sm.identityStore.DeleteUser(ctx, userID); err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -144,7 +144,7 @@ func (sm *SimplifiedSystemSecurityManager) DeleteUser(ctx context.Context, userI
 	return nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error {
+func (sm *SystemSecurityManager) ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error {
 	// Get current user to verify old password
 	authUser, err := sm.identityStore.GetUser(ctx, userID)
 	if err != nil {
@@ -182,8 +182,8 @@ func (sm *SimplifiedSystemSecurityManager) ChangePassword(ctx context.Context, u
 	return nil
 }
 
-// Authorization - Simplified version for API access control
-func (sm *SimplifiedSystemSecurityManager) AuthorizeAPIAccess(ctx context.Context, user *types.User, resource string, action string) error {
+// Authorization -  version for API access control
+func (sm *SystemSecurityManager) AuthorizeAPIAccess(ctx context.Context, user *types.User, resource string, action string) error {
 	if !sm.config.Enabled {
 		return nil // Security disabled, allow all
 	}
@@ -194,7 +194,7 @@ func (sm *SimplifiedSystemSecurityManager) AuthorizeAPIAccess(ctx context.Contex
 
 // Configuration Management
 
-func (sm *SimplifiedSystemSecurityManager) UpdateConfig(ctx context.Context, config types.SystemSecurityConfig) error {
+func (sm *SystemSecurityManager) UpdateConfig(ctx context.Context, config types.SystemSecurityConfig) error {
 	// Validate config
 	if err := sm.ValidateConfig(ctx, config); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
@@ -211,11 +211,11 @@ func (sm *SimplifiedSystemSecurityManager) UpdateConfig(ctx context.Context, con
 	return nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) GetConfig(ctx context.Context) (*types.SystemSecurityConfig, error) {
+func (sm *SystemSecurityManager) GetConfig(ctx context.Context) (*types.SystemSecurityConfig, error) {
 	return sm.config, nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) ValidateConfig(ctx context.Context, config types.SystemSecurityConfig) error {
+func (sm *SystemSecurityManager) ValidateConfig(ctx context.Context, config types.SystemSecurityConfig) error {
 	// Validate license features
 	if config.AdminAuth != nil {
 		if config.AdminAuth.LDAP != nil && !sm.licenseChecker.IsSystemFeatureEnabled(ctx, "ldap_auth") {
@@ -237,7 +237,7 @@ func (sm *SimplifiedSystemSecurityManager) ValidateConfig(ctx context.Context, c
 
 // Health and Monitoring
 
-func (sm *SimplifiedSystemSecurityManager) HealthCheck(ctx context.Context) error {
+func (sm *SystemSecurityManager) HealthCheck(ctx context.Context) error {
 	// Check database connectivity
 	if err := sm.db.PingContext(ctx); err != nil {
 		return fmt.Errorf("database connectivity failed: %w", err)
@@ -251,7 +251,7 @@ func (sm *SimplifiedSystemSecurityManager) HealthCheck(ctx context.Context) erro
 	return nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]any, error) {
+func (sm *SystemSecurityManager) GetSecurityMetrics(ctx context.Context) (map[string]any, error) {
 	metrics := map[string]any{
 		"total_users":      sm.getUserCount(ctx),
 		"security_enabled": sm.config.Enabled,
@@ -262,8 +262,8 @@ func (sm *SimplifiedSystemSecurityManager) GetSecurityMetrics(ctx context.Contex
 	return metrics, nil
 }
 
-// Audit logging - simplified version that just logs to structured logger
-func (sm *SimplifiedSystemSecurityManager) GetAuditLog(ctx context.Context, filters map[string]any) ([]types.AuditEvent, error) {
+// Audit logging -  version that just logs to structured logger
+func (sm *SystemSecurityManager) GetAuditLog(ctx context.Context, filters map[string]any) ([]types.AuditEvent, error) {
 	// For now, return empty - audit logging is handled by caddy-security
 	// This method is kept for interface compatibility
 	sm.logger.Debug("Audit log retrieval - delegated to caddy-security")
@@ -272,13 +272,13 @@ func (sm *SimplifiedSystemSecurityManager) GetAuditLog(ctx context.Context, filt
 
 // Helper methods
 
-func (sm *SimplifiedSystemSecurityManager) getUserCount(ctx context.Context) int {
+func (sm *SystemSecurityManager) getUserCount(ctx context.Context) int {
 	var count int
 	sm.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM local_users").Scan(&count)
 	return count
 }
 
-func (sm *SimplifiedSystemSecurityManager) validatePassword(password string, policy *types.PasswordPolicy) error {
+func (sm *SystemSecurityManager) validatePassword(password string, policy *types.PasswordPolicy) error {
 	if len(password) < policy.MinLength {
 		return fmt.Errorf("password too short, minimum %d characters", policy.MinLength)
 	}
@@ -302,7 +302,7 @@ func (sm *SimplifiedSystemSecurityManager) validatePassword(password string, pol
 	return nil
 }
 
-func (sm *SimplifiedSystemSecurityManager) simpleRoleCheck(user *types.User, resource string, action string) error {
+func (sm *SystemSecurityManager) simpleRoleCheck(user *types.User, resource string, action string) error {
 	// Simple role-based access without advanced RBAC
 	for _, role := range user.Roles {
 		switch role {
@@ -322,8 +322,8 @@ func (sm *SimplifiedSystemSecurityManager) simpleRoleCheck(user *types.User, res
 	return fmt.Errorf("access denied")
 }
 
-func (sm *SimplifiedSystemSecurityManager) logAuditEvent(ctx context.Context, event types.AuditEvent) {
-	// Simplified audit logging to structured logger
+func (sm *SystemSecurityManager) logAuditEvent(ctx context.Context, event types.AuditEvent) {
+	//  audit logging to structured logger
 	// Detailed audit logging is handled by caddy-security
 	sm.logger.WithFields(logrus.Fields{
 		"type":     event.Type,
@@ -335,64 +335,64 @@ func (sm *SimplifiedSystemSecurityManager) logAuditEvent(ctx context.Context, ev
 }
 
 // GetIdentityStore returns the local identity store for direct access
-func (sm *SimplifiedSystemSecurityManager) GetIdentityStore() *LocalIdentityStore {
+func (sm *SystemSecurityManager) GetIdentityStore() *LocalIdentityStore {
 	return sm.identityStore
 }
 
 // Session Management - REMOVED (now handled by caddy-security)
 // These methods are NOT implemented as they're delegated to caddy-auth-portal
 
-func (sm *SimplifiedSystemSecurityManager) AuthenticateUser(ctx context.Context, credentials types.UserCredentials) (*types.UserSession, error) {
+func (sm *SystemSecurityManager) AuthenticateUser(ctx context.Context, credentials types.UserCredentials) (*types.UserSession, error) {
 	return nil, fmt.Errorf("authentication is handled by caddy-auth-portal")
 }
 
-func (sm *SimplifiedSystemSecurityManager) CreateSession(ctx context.Context, user *types.User) (*types.UserSession, error) {
+func (sm *SystemSecurityManager) CreateSession(ctx context.Context, user *types.User) (*types.UserSession, error) {
 	return nil, fmt.Errorf("session management is handled by caddy-auth-portal")
 }
 
-func (sm *SimplifiedSystemSecurityManager) ValidateSession(ctx context.Context, sessionToken string) (*types.UserSession, error) {
+func (sm *SystemSecurityManager) ValidateSession(ctx context.Context, sessionToken string) (*types.UserSession, error) {
 	return nil, fmt.Errorf("session validation is handled by caddy-auth-portal")
 }
 
-func (sm *SimplifiedSystemSecurityManager) RefreshSession(ctx context.Context, refreshToken string) (*types.UserSession, error) {
+func (sm *SystemSecurityManager) RefreshSession(ctx context.Context, refreshToken string) (*types.UserSession, error) {
 	return nil, fmt.Errorf("session refresh is handled by caddy-auth-portal")
 }
 
-func (sm *SimplifiedSystemSecurityManager) RevokeSession(ctx context.Context, sessionToken string) error {
+func (sm *SystemSecurityManager) RevokeSession(ctx context.Context, sessionToken string) error {
 	return fmt.Errorf("session revocation is handled by caddy-auth-portal")
 }
 
-func (sm *SimplifiedSystemSecurityManager) ListUserSessions(ctx context.Context, userID string) ([]*types.UserSession, error) {
+func (sm *SystemSecurityManager) ListUserSessions(ctx context.Context, userID string) ([]*types.UserSession, error) {
 	return nil, fmt.Errorf("session listing is handled by caddy-auth-portal")
 }
 
-func (sm *SimplifiedSystemSecurityManager) RevokeAllUserSessions(ctx context.Context, userID string) error {
+func (sm *SystemSecurityManager) RevokeAllUserSessions(ctx context.Context, userID string) error {
 	return fmt.Errorf("session management is handled by caddy-auth-portal")
 }
 
-// Policy Management - SIMPLIFIED (advanced RBAC handled by caddy-security)
+// Policy Management -  (advanced RBAC handled by caddy-security)
 
-func (sm *SimplifiedSystemSecurityManager) AddPolicy(ctx context.Context, policy types.APIPolicy) error {
+func (sm *SystemSecurityManager) AddPolicy(ctx context.Context, policy types.APIPolicy) error {
 	return fmt.Errorf("policy management is handled by caddy-security authorization policies")
 }
 
-func (sm *SimplifiedSystemSecurityManager) RemovePolicy(ctx context.Context, policyID string) error {
+func (sm *SystemSecurityManager) RemovePolicy(ctx context.Context, policyID string) error {
 	return fmt.Errorf("policy management is handled by caddy-security authorization policies")
 }
 
-func (sm *SimplifiedSystemSecurityManager) UpdatePolicy(ctx context.Context, policyID string, policy types.APIPolicy) error {
+func (sm *SystemSecurityManager) UpdatePolicy(ctx context.Context, policyID string, policy types.APIPolicy) error {
 	return fmt.Errorf("policy management is handled by caddy-security authorization policies")
 }
 
-func (sm *SimplifiedSystemSecurityManager) GetPolicy(ctx context.Context, policyID string) (*types.APIPolicy, error) {
+func (sm *SystemSecurityManager) GetPolicy(ctx context.Context, policyID string) (*types.APIPolicy, error) {
 	return nil, fmt.Errorf("policy management is handled by caddy-security authorization policies")
 }
 
-func (sm *SimplifiedSystemSecurityManager) ListPolicies(ctx context.Context) ([]types.APIPolicy, error) {
+func (sm *SystemSecurityManager) ListPolicies(ctx context.Context) ([]types.APIPolicy, error) {
 	return nil, fmt.Errorf("policy management is handled by caddy-security authorization policies")
 }
 
-func (sm *SimplifiedSystemSecurityManager) EvaluatePolicy(ctx context.Context, accessCtx *types.AccessContext) error {
+func (sm *SystemSecurityManager) EvaluatePolicy(ctx context.Context, accessCtx *types.AccessContext) error {
 	return fmt.Errorf("policy evaluation is handled by caddy-security authorization")
 }
 
@@ -406,8 +406,8 @@ func (sm *SimplifiedSystemSecurityManager) EvaluatePolicy(ctx context.Context, a
 // - ListUserSessions
 // - RevokeAllUserSessions
 
-// Policy Management - SIMPLIFIED (advanced RBAC handled by caddy-security)
+// Policy Management -  (advanced RBAC handled by caddy-security)
 // Basic policies can be configured through caddy-security authorization policies
 
 // Ensure interface compliance
-var _ types.SystemSecurityManager = (*SimplifiedSystemSecurityManager)(nil)
+var _ types.SystemSecurityManager = (*SystemSecurityManager)(nil)

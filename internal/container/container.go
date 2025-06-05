@@ -75,7 +75,6 @@ type Container struct {
 	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
 	BenthosEnvironment *service.Environment // Benthos v4 environment
 
-
 	// WoT Binding Generation
 	BindingGenerator api.BindingGenerationService
 
@@ -171,8 +170,8 @@ func (c *Container) initSecurity(cfg *Config) error {
 		}
 	}
 
-	// Initialize simplified system security manager for caddy-auth-portal integration
-	systemSecurityMgr := security.NewSimplifiedSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
+	// Initialize  system security manager for caddy-auth-portal integration
+	systemSecurityMgr := security.NewSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
 	// Initialize WoT security manager
