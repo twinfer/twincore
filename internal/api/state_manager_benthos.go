@@ -2,22 +2,21 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/internal/models"
 	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified schema management
-	"slices"
 )
 
 // BenthosStateManager is a refactored StateManager that uses Benthos for Parquet logging
 // Parquet logging is now handled by centralized binding generation with unified schema management
 type BenthosStateManager struct {
-	db             *sql.DB
+	repository     database.StreamRepositoryInterface
 	logger         logrus.FieldLogger
 	parquetEnabled bool
 	schemaRegistry *forms.SchemaRegistry // Added for unified schema management
@@ -26,14 +25,14 @@ type BenthosStateManager struct {
 }
 
 // NewBenthosStateManager creates a new state manager with Benthos Parquet logging and unified schema management
-func NewBenthosStateManager(db *sql.DB, benthosConfigDir, parquetLogPath string, logger logrus.FieldLogger) (*BenthosStateManager, error) {
+func NewBenthosStateManager(repository database.StreamRepositoryInterface, benthosConfigDir, parquetLogPath string, logger logrus.FieldLogger) (*BenthosStateManager, error) {
 	logger.Debug("Creating Benthos state manager with unified schema management")
 
 	// Initialize unified schema registry for Parquet schema management
 	schemaRegistry := forms.NewSchemaRegistry()
 
 	sm := &BenthosStateManager{
-		db:             db,
+		repository:     repository,
 		logger:         logger,
 		schemaRegistry: schemaRegistry,
 	}
@@ -99,16 +98,12 @@ func (sm *BenthosStateManager) GetProperty(thingID, name string) (any, error) {
 		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
 	}()
 
-	query := `SELECT value FROM property_state WHERE thing_id = ? AND property_name = ?`
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Debug("Calling dependency")
-	var valueJSON string
-	err := sm.db.QueryRow(query, thingID, name).Scan(&valueJSON)
+	logger.WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "GetPropertyValue"}).Debug("Calling dependency")
+	ctx := context.Background()
+	valueJSON, err := sm.repository.GetPropertyValue(ctx, thingID, name)
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryRow"}).Error("Dependency call failed")
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("property %s not found for thing %s", name, thingID)
-		}
-		return nil, fmt.Errorf("failed to get property: %w", err)
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "GetPropertyValue"}).Error("Dependency call failed")
+		return nil, fmt.Errorf("property %s not found for thing %s: %w", name, thingID, err)
 	}
 
 	var value any
@@ -149,19 +144,11 @@ func (sm *BenthosStateManager) SetPropertyWithContext(logger logrus.FieldLogger,
 		return fmt.Errorf("failed to marshal property value: %w", err)
 	}
 
-	// Update database
-	query := `
-		INSERT INTO property_state (thing_id, property_name, value, updated_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(thing_id, property_name) DO UPDATE SET
-			value = excluded.value,
-			updated_at = excluded.updated_at
-	`
-	now := time.Now()
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to set property")
-	_, err = sm.db.ExecContext(ctx, query, thingID, name, string(valueJSON), now)
+	// Update database using repository
+	logger.WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "UpsertPropertyState"}).Debug("Calling dependency to set property")
+	err = sm.repository.UpsertPropertyState(ctx, thingID, name, string(valueJSON))
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "UpsertPropertyState"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to update property: %w", err)
 	}
 	logger.Info("Property updated in DB")
@@ -208,34 +195,21 @@ func (sm *BenthosStateManager) GetAllProperties(ctx context.Context, thingID str
 		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
 	}()
 
-	query := `SELECT property_name, value FROM property_state WHERE thing_id = ?`
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryContext"}).Debug("Calling dependency")
-	rows, err := sm.db.QueryContext(ctx, query, thingID)
+	logger.WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "GetThingProperties"}).Debug("Calling dependency")
+	propertyEntities, err := sm.repository.GetThingProperties(ctx, thingID)
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "QueryContext"}).Error("Dependency call failed")
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "GetThingProperties"}).Error("Dependency call failed")
 		return nil, fmt.Errorf("failed to query properties: %w", err)
 	}
-	defer rows.Close()
 
 	properties := make(map[string]any)
-	for rows.Next() {
-		var name, valueJSON string
-		if err := rows.Scan(&name, &valueJSON); err != nil {
-			logger.WithError(err).Error("Failed to scan property row from DB")
-			return nil, fmt.Errorf("failed to scan property row: %w", err)
-		}
-
+	for _, entity := range propertyEntities {
 		var value any
-		if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
-			logger.WithError(err).WithField("property_name", name).Warn("Failed to unmarshal property value from DB")
+		if err := json.Unmarshal([]byte(entity.Value), &value); err != nil {
+			logger.WithError(err).WithField("property_name", entity.PropertyName).Warn("Failed to unmarshal property value from DB")
 			continue
 		}
-		properties[name] = value
-	}
-
-	if err := rows.Err(); err != nil {
-		logger.WithError(err).Error("Error iterating over property rows from DB")
-		return nil, fmt.Errorf("error iterating properties: %w", err)
+		properties[entity.PropertyName] = value
 	}
 	logger.WithField("property_count", len(properties)).Debug("Retrieved all properties successfully")
 	return properties, nil
@@ -250,23 +224,11 @@ func (sm *BenthosStateManager) DeleteProperty(ctx context.Context, thingID, name
 		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
 	}()
 
-	query := `DELETE FROM property_state WHERE thing_id = ? AND property_name = ?`
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to delete property")
-	result, err := sm.db.ExecContext(ctx, query, thingID, name)
+	logger.WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "DeletePropertyState"}).Debug("Calling dependency to delete property")
+	err := sm.repository.DeletePropertyState(ctx, thingID, name)
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "DeletePropertyState"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to delete property: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		logger.WithError(err).Error("Failed to get rows affected after delete")
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		logger.Warn("Property not found for deletion")
-		return fmt.Errorf("property %s not found for thing %s", name, thingID)
 	}
 	logger.Info("Property deleted successfully")
 	return nil
@@ -281,11 +243,10 @@ func (sm *BenthosStateManager) DeleteAllProperties(ctx context.Context, thingID 
 		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
 	}()
 
-	query := `DELETE FROM property_state WHERE thing_id = ?`
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Debug("Calling dependency to delete all properties")
-	_, err := sm.db.ExecContext(ctx, query, thingID)
+	logger.WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "DeleteThingProperties"}).Debug("Calling dependency to delete all properties")
+	err := sm.repository.DeleteThingProperties(ctx, thingID)
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "ExecContext"}).Error("Dependency call failed")
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Repository", "operation": "DeleteThingProperties"}).Error("Dependency call failed")
 		return fmt.Errorf("failed to delete properties: %w", err)
 	}
 	logger.Info("All properties deleted for thing")
@@ -334,17 +295,18 @@ func (sm *BenthosStateManager) HealthCheck() error {
 	logger := sm.logger.WithField("service_method", "HealthCheck")
 	logger.Debug("Performing BenthosStateManager health check")
 
-	// Check database connection
-	if sm.db == nil {
-		return fmt.Errorf("database connection is nil")
+	// Check repository connection
+	if sm.repository == nil {
+		return fmt.Errorf("repository is nil")
 	}
 
-	// Test database connectivity
+	// Test repository connectivity by attempting to get all property states
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := sm.db.PingContext(ctx); err != nil {
-		return fmt.Errorf("database ping failed: %w", err)
+	_, err := sm.repository.GetAllPropertyStates(ctx)
+	if err != nil {
+		return fmt.Errorf("repository connectivity test failed: %w", err)
 	}
 
 	// Check schema registry
@@ -388,7 +350,7 @@ func (sm *BenthosStateManager) GetServiceStatus() map[string]any {
 		"has_schema_registry": sm.schemaRegistry != nil,
 		"subscriber_count":    subscriberCount,
 		"subscription_keys":   keyCount,
-		"database_connected":  sm.db != nil,
+		"repository_available": sm.repository != nil,
 	}
 
 	if sm.schemaRegistry != nil {
@@ -508,7 +470,8 @@ func (sm *BenthosStateManager) UnsubscribeProperty(thingID, propertyName string,
 
 	for i, c := range channels {
 		if c == ch {
-			channels = slices.Delete(channels, i, i+1)
+			// Remove channel from slice manually
+			channels = append(channels[:i], channels[i+1:]...)
 			if len(channels) == 0 {
 				sm.subscribers.Delete(key)
 				logger.Debug("Removed last subscriber, deleting list")

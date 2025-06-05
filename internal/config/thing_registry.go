@@ -2,36 +2,36 @@
 package config
 
 import (
-	"database/sql"
+	"context"
 	_ "embed" // Added for //go:embed
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/kazarena/json-gold/ld"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/api"
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot"
 )
 
 // ThingRegistry manages Thing Descriptions
 type ThingRegistry struct {
-	db        *sql.DB
-	logger    *logrus.Logger
-	jsonld    *ld.JsonLdProcessor
-	validator *api.JSONSchemaValidator
-	cache     sync.Map // id -> *wot.ThingDescription
-	mapper    *WoTMapper
+	repository database.ThingRepositoryInterface
+	logger     *logrus.Logger
+	jsonld     *ld.JsonLdProcessor
+	validator  *api.JSONSchemaValidator
+	cache      sync.Map // id -> *wot.ThingDescription
+	mapper     *WoTMapper
 }
 
-func NewThingRegistry(db *sql.DB, logger *logrus.Logger) *ThingRegistry {
+func NewThingRegistry(repository database.ThingRepositoryInterface, logger *logrus.Logger) *ThingRegistry {
 	r := &ThingRegistry{
-		db:     db,
-		logger: logger,
-		jsonld: ld.NewJsonLdProcessor(),
-		mapper: NewWoTMapper(logger),
+		repository: repository,
+		logger:     logger,
+		jsonld:     ld.NewJsonLdProcessor(),
+		mapper:     NewWoTMapper(logger),
 	}
 
 	// Use the centralized schema validator
@@ -77,18 +77,27 @@ func (r *ThingRegistry) RegisterThing(tdJSONLD string) (*wot.ThingDescription, e
 	// if td.ID == "" { ... }
 
 	// Check if already exists
-	existing, _ := r.GetThing(td.ID)
-	if existing != nil {
+	ctx := context.Background()
+	exists, err := r.repository.Exists(ctx, td.ID)
+	if err != nil {
+		r.logger.Errorf("Failed to check if thing exists: %v", err)
+		return nil, fmt.Errorf("failed to check existence: %w", err)
+	}
+	if exists {
 		return nil, fmt.Errorf("thing with ID %s already exists", td.ID)
 	}
 
-	// Save to database
+	// Save to database using repository
 	tdParsedJSON, _ := json.Marshal(td)
-	_, err = r.db.Exec(`
-        INSERT INTO things (id, title, description, td_jsonld, td_parsed)
-        VALUES (?, ?, ?, ?, ?)
-    `, td.ID, td.Title, td.Description, tdJSONLD, string(tdParsedJSON))
+	entity := &database.ThingEntity{
+		ID:          td.ID,
+		Title:       td.Title,
+		Description: td.Description,
+		TDJSONLD:    tdJSONLD,
+		TDParsed:    string(tdParsedJSON),
+	}
 
+	err = r.repository.Create(ctx, entity)
 	if err != nil {
 		r.logger.Errorf("Failed to save TD to database: %v", err)
 		return nil, fmt.Errorf("failed to save TD: %w", err)
@@ -106,9 +115,13 @@ func (r *ThingRegistry) UpdateThing(thingID string, tdJSONLD string) (*wot.Thing
 	r.logger.Debugf("Updating Thing: %s", thingID)
 
 	// Check if exists
-	_, err := r.GetThing(thingID)
+	ctx := context.Background()
+	exists, err := r.repository.Exists(ctx, thingID)
 	if err != nil {
-		return nil, fmt.Errorf("thing not found: %w", err)
+		return nil, fmt.Errorf("failed to check existence: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("thing not found: %s", thingID)
 	}
 
 	// Parse and validate new TD
@@ -141,14 +154,17 @@ func (r *ThingRegistry) UpdateThing(thingID string, tdJSONLD string) (*wot.Thing
 		return nil, fmt.Errorf("TD ID mismatch: expected %s, got %s", thingID, td.ID)
 	}
 
-	// Update in database
+	// Update in database using repository
 	tdParsedJSON, _ := json.Marshal(td)
-	_, err = r.db.Exec(`
-        UPDATE things 
-        SET title = ?, description = ?, td_jsonld = ?, td_parsed = ?, updated_at = ?
-        WHERE id = ?
-    `, td.Title, td.Description, tdJSONLD, string(tdParsedJSON), time.Now(), thingID)
+	entity := &database.ThingEntity{
+		ID:          td.ID,
+		Title:       td.Title,
+		Description: td.Description,
+		TDJSONLD:    tdJSONLD,
+		TDParsed:    string(tdParsedJSON),
+	}
 
+	err = r.repository.Update(ctx, entity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update TD: %w", err)
 	}
@@ -164,7 +180,8 @@ func (r *ThingRegistry) UpdateThing(thingID string, tdJSONLD string) (*wot.Thing
 func (r *ThingRegistry) DeleteThing(thingID string) error {
 	r.logger.Debugf("Deleting Thing: %s", thingID)
 
-	_, err := r.db.Exec("DELETE FROM things WHERE id = ?", thingID)
+	ctx := context.Background()
+	err := r.repository.Delete(ctx, thingID)
 	if err != nil {
 		return fmt.Errorf("failed to delete TD: %w", err)
 	}
@@ -182,17 +199,11 @@ func (r *ThingRegistry) GetThing(thingID string) (*wot.ThingDescription, error) 
 		return cached.(*wot.ThingDescription), nil
 	}
 
-	// Load from database
-	var tdParsedJSON string
-	err := r.db.QueryRow(`
-        SELECT td_parsed FROM things WHERE id = ?
-    `, thingID).Scan(&tdParsedJSON)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("thing not found")
-	}
+	// Load from database using repository
+	ctx := context.Background()
+	tdParsedJSON, err := r.repository.GetParsedByID(ctx, thingID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("thing not found: %w", err)
 	}
 
 	var td wot.ThingDescription
@@ -265,22 +276,14 @@ func (r *ThingRegistry) GetEvent(thingID, eventName string) (wot.EventAffordance
 
 // ListThings returns all registered Thing Descriptions
 func (r *ThingRegistry) ListThings() ([]*wot.ThingDescription, error) {
-	rows, err := r.db.Query(`
-        SELECT td_parsed FROM things ORDER BY updated_at DESC
-    `)
+	ctx := context.Background()
+	tdJSONList, err := r.repository.ListParsedOnly(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list things: %w", err)
 	}
-	defer rows.Close()
 
 	var things []*wot.ThingDescription
-	for rows.Next() {
-		var tdJSON string
-		if err := rows.Scan(&tdJSON); err != nil {
-			r.logger.Errorf("Failed to scan TD: %v", err)
-			continue
-		}
-
+	for _, tdJSON := range tdJSONList {
 		var td wot.ThingDescription
 		if err := json.Unmarshal([]byte(tdJSON), &td); err != nil {
 			r.logger.Errorf("Failed to unmarshal TD: %v", err)

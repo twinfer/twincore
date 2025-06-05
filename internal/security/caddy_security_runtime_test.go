@@ -35,7 +35,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 	t.Run("CaddyWithSecurityPlugin", func(t *testing.T) {
 		// Test that caddy can load with our security configuration
 		tempDir := t.TempDir()
-		
+
 		// Setup test environment
 		err := setupRuntimeTestEnvironment(t, tempDir)
 		require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 		// Test Caddyfile validation
 		cmd := exec.Command("caddy", "validate", "--config", caddyfilePath)
 		output, err := cmd.CombinedOutput()
-		
+
 		if err != nil {
 			t.Logf("Caddy validation output: %s", string(output))
 			// Don't fail the test - caddy-security might not be installed
@@ -62,7 +62,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 	t.Run("UserAuthenticationFlow", func(t *testing.T) {
 		// Test the complete authentication flow with a running instance
 		tempDir := t.TempDir()
-		
+
 		// Setup test environment with users
 		err := setupRuntimeTestEnvironment(t, tempDir)
 		require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 		defer cancel()
 
 		cmd := exec.CommandContext(ctx, "caddy", "run", "--config", caddyfilePath)
-		
+
 		// Capture output
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -87,7 +87,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 			t.Skip("Cannot start Caddy for runtime test")
 			return
 		}
-		
+
 		err = cmd.Start()
 		if err != nil {
 			t.Logf("Failed to start Caddy: %v", err)
@@ -108,7 +108,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 
 		// Test basic connectivity
 		client := &http.Client{Timeout: 5 * time.Second}
-		
+
 		// Test health endpoint
 		resp, err := client.Get(fmt.Sprintf("http://localhost:%s/health", port))
 		if err != nil {
@@ -130,7 +130,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 	t.Run("ConfigurationReload", func(t *testing.T) {
 		// Test configuration reloading with updated security settings
 		tempDir := t.TempDir()
-		
+
 		// Setup initial configuration
 		err := setupRuntimeTestEnvironment(t, tempDir)
 		require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 		// Validate initial config
 		cmd := exec.Command("caddy", "validate", "--config", caddyfilePath)
 		output, err := cmd.CombinedOutput()
-		
+
 		if err != nil {
 			t.Logf("Initial config validation: %s", string(output))
 		}
@@ -157,7 +157,7 @@ func TestCaddySecurityRuntime(t *testing.T) {
 		// Validate updated config
 		cmd = exec.Command("caddy", "validate", "--config", caddyfilePath)
 		output, err = cmd.CombinedOutput()
-		
+
 		if err != nil {
 			t.Logf("Updated config validation: %s", string(output))
 		}
@@ -387,7 +387,7 @@ func TestCaddySecurityDockerIntegration(t *testing.T) {
 	t.Run("DockerWithCaddySecurity", func(t *testing.T) {
 		// Test running Caddy with security in Docker
 		tempDir := t.TempDir()
-		
+
 		// Setup test environment
 		err := setupRuntimeTestEnvironment(t, tempDir)
 		require.NoError(t, err)
@@ -408,13 +408,13 @@ func TestCaddySecurityDockerIntegration(t *testing.T) {
 		imageName := "twincore-caddy-security-test"
 		cmd := exec.Command("docker", "build", "-t", imageName, tempDir)
 		output, err := cmd.CombinedOutput()
-		
+
 		if err != nil {
 			t.Logf("Docker build output: %s", string(output))
 			t.Logf("Docker build failed (expected if caddy-security not available): %v", err)
 		} else {
 			t.Log("Docker image built successfully!")
-			
+
 			// Clean up image
 			defer func() {
 				exec.Command("docker", "rmi", imageName).Run()
@@ -481,7 +481,7 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		start := time.Now()
 		iterations := 100
 
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_, err := bridge.GenerateAuthPortalConfig(context.Background())
 			require.NoError(t, err)
 		}
@@ -489,11 +489,11 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		elapsed := time.Since(start)
 		avgTime := elapsed / time.Duration(iterations)
 
-		t.Logf("Generated %d configurations in %v (avg: %v per config)", 
+		t.Logf("Generated %d configurations in %v (avg: %v per config)",
 			iterations, elapsed, avgTime)
 
 		// Should be fast enough for practical use
-		assert.Less(t, avgTime.Milliseconds(), int64(100), 
+		assert.Less(t, avgTime.Milliseconds(), int64(100),
 			"Configuration generation should be under 100ms")
 	})
 
@@ -511,7 +511,7 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		userCount := 1000
 		start := time.Now()
 
-		for i := 0; i < userCount; i++ {
+		for i := range userCount {
 			user := &AuthUser{
 				Username: fmt.Sprintf("user%d", i),
 				Email:    fmt.Sprintf("user%d@test.local", i),
@@ -523,14 +523,14 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		}
 
 		createTime := time.Since(start)
-		t.Logf("Created %d users in %v (avg: %v per user)", 
+		t.Logf("Created %d users in %v (avg: %v per user)",
 			userCount, createTime, createTime/time.Duration(userCount))
 
 		// Test user lookup performance
 		start = time.Now()
 		lookups := 100
 
-		for i := 0; i < lookups; i++ {
+		for i := range lookups {
 			username := fmt.Sprintf("user%d", i%userCount)
 			_, err := store.GetUser(context.Background(), username)
 			require.NoError(t, err)
@@ -539,11 +539,11 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		lookupTime := time.Since(start)
 		avgLookup := lookupTime / time.Duration(lookups)
 
-		t.Logf("Performed %d user lookups in %v (avg: %v per lookup)", 
+		t.Logf("Performed %d user lookups in %v (avg: %v per lookup)",
 			lookups, lookupTime, avgLookup)
 
 		// Should be fast enough for authentication
-		assert.Less(t, avgLookup.Milliseconds(), int64(50), 
+		assert.Less(t, avgLookup.Milliseconds(), int64(50),
 			"User lookup should be under 50ms")
 	})
 }

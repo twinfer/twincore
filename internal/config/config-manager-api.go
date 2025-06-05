@@ -2,6 +2,7 @@
 package config
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,13 +11,14 @@ import (
 	"github.com/caddyserver/caddy/v2" // Import caddy
 	"github.com/sirupsen/logrus"      // Import logrus
 	"github.com/wI2L/jsondiff"
+	"github.com/twinfer/twincore/internal/database"
 	"maps"
 )
 
 // ConfigManager manages configurations via API
 type ConfigManager struct {
-	db     *sql.DB
-	logger *logrus.Logger
+	dbManager database.DatabaseManager
+	logger    *logrus.Logger
 
 	// Current configs
 	caddyConfig    *caddy.Config
@@ -28,9 +30,9 @@ type ConfigManager struct {
 	mu sync.RWMutex
 }
 
-func NewConfigManager(db *sql.DB, logger *logrus.Logger) *ConfigManager {
+func NewConfigManager(dbManager database.DatabaseManager, logger *logrus.Logger) *ConfigManager {
 	return &ConfigManager{
-		db:             db,
+		dbManager:      dbManager,
 		logger:         logger,
 		benthosConfigs: make(map[string]string),
 	}
@@ -40,15 +42,17 @@ func NewConfigManager(db *sql.DB, logger *logrus.Logger) *ConfigManager {
 func (cm *ConfigManager) LoadFromDB() error {
 	cm.logger.Debug("Loading configurations from database")
 
-	// Load active Caddy config
-	var configJSON string
-	err := cm.db.QueryRow(`
-        SELECT config FROM caddy_configs 
-        WHERE active = true 
-        ORDER BY created_at DESC 
-        LIMIT 1
-    `).Scan(&configJSON)
+	ctx := context.Background()
 
+	// Load active Caddy config
+	row := cm.dbManager.QueryRow(ctx, "GetActiveCaddyConfig")
+	var configJSON string
+	var id, version int
+	var patches *string
+	var active bool
+	var createdAt string
+	
+	err := row.Scan(&id, &configJSON, &patches, &version, &active, &createdAt)
 	if err == nil {
 		var config caddy.Config
 		if err := json.Unmarshal([]byte(configJSON), &config); err == nil {
@@ -60,10 +64,7 @@ func (cm *ConfigManager) LoadFromDB() error {
 	}
 
 	// Load Benthos configs
-	rows, err := cm.db.Query(`
-        SELECT id, data FROM configs 
-        WHERE type = 'benthos_stream'
-    `)
+	rows, err := cm.dbManager.Query(ctx, "ListStreamConfigs")
 	if err != nil {
 		return fmt.Errorf("failed to load Benthos configs: %w", err)
 	}
@@ -71,7 +72,9 @@ func (cm *ConfigManager) LoadFromDB() error {
 
 	for rows.Next() {
 		var streamName, yamlConfig string
-		if err := rows.Scan(&streamName, &yamlConfig); err != nil {
+		var version int
+		var createdAt, updatedAt string
+		if err := rows.Scan(&streamName, &yamlConfig, &version, &createdAt, &updatedAt); err != nil {
 			cm.logger.Errorf("Failed to scan Benthos config: %v", err)
 			continue
 		}
@@ -124,33 +127,37 @@ func (cm *ConfigManager) UpdateCaddyConfig(newConfig *caddy.Config) error {
 		}
 	}
 
-	// Save to database
+	// Save to database using transaction
 	newJSON, _ := json.Marshal(newConfig) // This is the full new configuration
 	// patchesJSON is already defined above
 
-	tx, err := cm.db.Begin()
+	ctx := context.Background()
+	
+	// Get latest version and insert new config in a transaction-like manner
+	// First deactivate current config
+	_, err := cm.dbManager.Execute(ctx, "SetActiveCaddyConfig", 0) // Deactivate all by setting to version 0
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to deactivate current config: %w", err)
 	}
-	defer tx.Rollback()
 
-	// Deactivate current config
-	_, err = tx.Exec("UPDATE caddy_configs SET active = false WHERE active = true")
-	if err != nil {
-		return err
+	// Get latest version for new config
+	latestVersionRow := cm.dbManager.QueryRow(ctx, "GetLatestCaddyConfigVersion")
+	var latestVersion int
+	if err := latestVersionRow.Scan(&latestVersion); err != nil {
+		latestVersion = 0 // Default to 0 if no configs exist
 	}
+	newVersion := latestVersion + 1
 
 	// Insert new config
-	_, err = tx.Exec(`
-        INSERT INTO caddy_configs (config, patches, version, active)
-        VALUES (?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM caddy_configs), true)
-    `, string(newJSON), string(patchesJSON))
+	_, err = cm.dbManager.Execute(ctx, "InsertCaddyConfig", string(newJSON), string(patchesJSON), newVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to insert new config: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
+	// Set the new config as active
+	_, err = cm.dbManager.Execute(ctx, "SetActiveCaddyConfig", newVersion)
+	if err != nil {
+		return fmt.Errorf("failed to activate new config: %w", err)
 	}
 
 	// Update in-memory config
@@ -182,13 +189,9 @@ func (cm *ConfigManager) UpdateBenthosStream(streamName string, yamlConfig strin
 
 	cm.logger.Debugf("Updating Benthos stream: %s", streamName)
 
-	// Save to database
-	_, err := cm.db.Exec(`
-        INSERT OR REPLACE INTO configs (id, type, data, version)
-        VALUES (?, 'benthos_stream', ?, 
-            (SELECT COALESCE(MAX(version), 0) + 1 FROM configs WHERE id = ?))
-    `, streamName, yamlConfig, streamName)
-
+	// Save to database using repository
+	ctx := context.Background()
+	_, err := cm.dbManager.Execute(ctx, "UpsertStreamConfig", streamName, yamlConfig)
 	if err != nil {
 		return fmt.Errorf("failed to save Benthos config: %w", err)
 	}

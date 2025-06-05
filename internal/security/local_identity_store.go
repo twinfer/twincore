@@ -33,20 +33,20 @@ func NewLocalIdentityStore(db *sql.DB, logger *logrus.Logger, name string) *Loca
 
 // AuthUser represents a user in the identity store format expected by caddy-auth-portal
 type AuthUser struct {
-	ID          string            `json:"id"`
-	Username    string            `json:"username"`
-	Email       string            `json:"email,omitempty"`
-	FullName    string            `json:"name,omitempty"`
-	Roles       []string          `json:"roles,omitempty"`
-	Password    string            `json:"password,omitempty"` // Hashed password
-	Disabled    bool              `json:"disabled,omitempty"`
-	CreatedAt   time.Time         `json:"created_at,omitempty"`
-	UpdatedAt   time.Time         `json:"updated_at,omitempty"`
-	LastLogin   *time.Time        `json:"last_login,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	MFAEnabled  bool              `json:"mfa_enabled,omitempty"`
-	MFASecret   string            `json:"mfa_secret,omitempty"`
-	APIKeys     []string          `json:"api_keys,omitempty"`
+	ID         string            `json:"id"`
+	Username   string            `json:"username"`
+	Email      string            `json:"email,omitempty"`
+	FullName   string            `json:"name,omitempty"`
+	Roles      []string          `json:"roles,omitempty"`
+	Password   string            `json:"password,omitempty"` // Hashed password
+	Disabled   bool              `json:"disabled,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
+	LastLogin  *time.Time        `json:"last_login,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	MFAEnabled bool              `json:"mfa_enabled,omitempty"`
+	MFASecret  string            `json:"mfa_secret,omitempty"`
+	APIKeys    []string          `json:"api_keys,omitempty"`
 }
 
 // GetUser retrieves a user by username for authentication
@@ -180,7 +180,7 @@ func (lis *LocalIdentityStore) UpdateUser(ctx context.Context, username string, 
 	args = append(args, time.Now())
 	args = append(args, username)
 
-	query := fmt.Sprintf("UPDATE local_users SET %s WHERE username = ?", 
+	query := fmt.Sprintf("UPDATE local_users SET %s WHERE username = ?",
 		strings.Join(setParts, ", "))
 
 	_, err := lis.db.ExecContext(ctx, query, args...)
@@ -267,7 +267,7 @@ func (lis *LocalIdentityStore) Validate() error {
 // Helper methods
 
 func (lis *LocalIdentityStore) updateLastLogin(ctx context.Context, username string) error {
-	_, err := lis.db.ExecContext(ctx, 
+	_, err := lis.db.ExecContext(ctx,
 		"UPDATE local_users SET last_login = ? WHERE username = ?",
 		time.Now(), username)
 	return err

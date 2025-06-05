@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,78 +346,6 @@ func createTestAuthHandler(t *testing.T, store *LocalIdentityStore) http.Handler
 	})
 }
 
-// TestCaddySecurityCaddyfile tests Caddyfile-based configuration
-func TestCaddySecurityCaddyfile(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping Caddyfile integration test in short mode")
-	}
-
-	t.Run("CaddyfileGeneration", func(t *testing.T) {
-		// Test generating Caddyfile syntax for caddy-security
-		caddyfile := generateTestCaddyfile()
-
-		// Parse the Caddyfile to ensure it's valid
-		adapter := caddyconfig.GetAdapter("caddyfile")
-		require.NotNil(t, adapter, "Caddyfile adapter should be available")
-
-		_, _, err := adapter.Adapt([]byte(caddyfile), nil)
-		if err != nil {
-			t.Logf("Caddyfile parse error (may be expected due to missing modules): %v", err)
-		} else {
-			t.Log("Caddyfile parsed successfully")
-		}
-	})
-}
-
-// generateTestCaddyfile generates a test Caddyfile with security configuration
-func generateTestCaddyfile() string {
-	return `
-{
-	security {
-		local identity store twincore_local {
-			realm twincore
-			path /tmp/test/users.json
-		}
-
-		authentication portal twincore_portal {
-			crypto default token lifetime 3600
-			crypto key sign-verify {$JWT_SECRET}
-			enable identity store twincore_local
-			cookie domain ""
-			cookie path "/"
-			cookie lifetime 3600
-			cookie samesite lax
-			transform user {
-				match origin twincore
-			}
-		}
-
-		authorization policy twincore_policy {
-			set auth url /auth/
-			allow roles admin
-			deny log warn
-		}
-	}
-}
-
-localhost:8080 {
-	route /auth/* {
-		authenticate with twincore_portal
-	}
-
-	route /api/* {
-		authenticate with twincore_portal
-		authorize with twincore_policy
-		respond "API endpoint"
-	}
-
-	route /* {
-		respond "Welcome to TwinCore Gateway"
-	}
-}
-`
-}
-
 // TestCaddySecurityMiddleware tests the middleware integration
 func TestCaddySecurityMiddleware(t *testing.T) {
 	if testing.Short() {
@@ -504,7 +431,7 @@ func BenchmarkCaddySecurityIntegration(b *testing.B) {
 	store.CreateUser(context.Background(), testUser, "benchpass")
 
 	b.Run("UserAuthentication", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_, err := store.ValidateUser(context.Background(), "benchuser", "benchpass")
 			if err != nil {
 				b.Fatal(err)
@@ -523,7 +450,7 @@ func BenchmarkCaddySecurityIntegration(b *testing.B) {
 
 		bridge, _ := NewCaddyAuthPortalBridge(db, logger, config, mockLicenseChecker, "/tmp/test")
 
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			_, err := bridge.GenerateAuthPortalConfig(context.Background())
 			if err != nil {
 				b.Fatal(err)

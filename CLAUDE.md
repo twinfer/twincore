@@ -228,3 +228,78 @@ form := &wot.TestForm{
     OpValue:          []string{"readproperty"},
 }
 ```
+
+## Security Architecture
+
+### Caddy-Security Integration
+
+TwinCore integrates with [caddy-security](https://github.com/greenpau/caddy-security) for authentication and authorization:
+
+### Key Components
+
+1. **LocalIdentityStore** (`internal/security/local_identity_store.go`):
+   - Implements caddy-security identity store interface
+   - Bridges local user database to caddy-security authentication
+   - Supports user CRUD operations with bcrypt password hashing
+
+2. **CaddyAuthPortalBridge** (`internal/security/caddy_auth_portal_bridge.go`):
+   - Generates caddy-security app configuration
+   - Configures authentication portals and authorization policies
+   - Manages JWT token settings and identity store integration
+
+3. **SimplifiedSystemSecurityManager** (`internal/security/simplified_system_security_manager.go`):
+   - Focuses on user management only
+   - Delegates authentication to caddy-security
+   - Implements role-based access control (RBAC)
+
+### Architecture Principles
+
+- **Separation of Concerns**: Authentication handled by caddy-security, user management by TwinCore
+- **Standards Compliance**: Uses official caddy-security Auth Portal Plugin
+- **License-Aware**: Security features gated by license tier
+- **Database Integration**: User data stored in DuckDB with session management
+
+### Configuration Generation
+
+The system generates complete caddy-security configurations including:
+- Authentication portals with JWT settings
+- Authorization policies for role-based access
+- Local identity store configuration
+- Crypto key management for token signing
+
+### Module Registration
+
+caddy-security modules are imported in `internal/caddy_app/caddy_app.go` to register them with Caddy at startup.
+
+## Database Schema
+
+TwinCore uses DuckDB for data persistence with the following key tables:
+
+### Core Tables
+- `things`: Thing Description storage
+- `properties`: Property state management  
+- `actions`: Action execution tracking
+- `events`: Event data storage
+- `local_users`: User accounts for authentication
+- `user_sessions`: Session management
+- `api_policies`: Authorization policies
+- `audit_logs`: Security event logging
+
+### Configuration Storage
+- `configs`: Application configuration storage
+- `caddy_configs`: Caddy configuration versioning with rollback support
+
+## License System
+
+TwinCore implements a tiered licensing system:
+
+### License Tiers
+- **Basic**: Core WoT functionality
+- **Professional**: Advanced features, enhanced security
+- **Enterprise**: Full feature set, clustering, advanced analytics
+
+### License Integration
+- License validation in `pkg/license/`
+- Feature gating throughout the system via `types.UnifiedLicenseChecker`
+- Default configurations adapt based on license tier
+- Security features require appropriate license level

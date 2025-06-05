@@ -12,6 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/api"
 	"github.com/twinfer/twincore/internal/config"
+	"github.com/twinfer/twincore/internal/database"
+	"github.com/twinfer/twincore/internal/database/repositories"
 	"github.com/twinfer/twincore/internal/security"
 	"github.com/twinfer/twincore/pkg/license"
 	"github.com/twinfer/twincore/pkg/types"
@@ -21,26 +23,12 @@ import (
 	svc "github.com/twinfer/twincore/service"
 )
 
-// configManagerAdapter adapts api.ConfigurationManager to security.ConfigurationManager
-type configManagerAdapter struct {
-	api.ConfigurationManager
-}
-
-// UpdateCaddyConfig implements the security.ConfigurationManager interface
-func (a *configManagerAdapter) UpdateCaddyConfig(logger logrus.FieldLogger, path string, config any) error {
-	// Convert to map for UpdateConfiguration call
-	configMap, ok := config.(map[string]any)
-	if !ok {
-		return fmt.Errorf("config must be map[string]any")
-	}
-	return a.ConfigurationManager.UpdateConfiguration(logger, path, configMap)
-}
 
 // Container holds all application dependencies
 type Container struct {
 	// Core components
-	DB     *sql.DB
-	Logger *logrus.Logger
+	DatabaseFactory *database.DatabaseFactory
+	Logger          *logrus.Logger
 
 	// Security
 	DeviceManager         *security.DeviceManager
@@ -132,20 +120,21 @@ func New(ctx context.Context, cfg *Config) (*Container, error) {
 }
 
 func (c *Container) initDatabase(dbPath string) error {
-	c.Logger.Debug("Initializing database")
+	c.Logger.Debug("Initializing database factory")
 
-	db, err := sql.Open("duckdb", dbPath)
+	// Create database factory with auto-migration enabled
+	config := database.DatabaseConfig{
+		DBPath:      dbPath,
+		AutoMigrate: true,
+	}
+	
+	factory, err := database.NewDatabaseFactoryWithConfig(config, c.Logger)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create database factory: %w", err)
 	}
 
-	// Run migrations
-	if err := runMigrations(db); err != nil {
-		return fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	c.DB = db
-	c.Logger.Info("Database initialized")
+	c.DatabaseFactory = factory
+	c.Logger.Info("Database factory initialized with migrations")
 	return nil
 }
 
@@ -170,12 +159,13 @@ func (c *Container) initSecurity(cfg *Config) error {
 		}
 	}
 
-	// Initialize  system security manager for caddy-auth-portal integration
-	systemSecurityMgr := security.NewSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
+	// Initialize system security manager for caddy-auth-portal integration
+	db := c.DatabaseFactory.GetManager().GetConnection()
+	systemSecurityMgr := security.NewSystemSecurityManager(db, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
 	// Initialize WoT security manager
-	wotSecurityMgr := security.NewDefaultWoTSecurityManager(c.DB, c.Logger, unifiedChecker)
+	wotSecurityMgr := security.NewDefaultWoTSecurityManager(db, c.Logger, unifiedChecker)
 	c.WoTSecurityManager = wotSecurityMgr
 
 	// Register default credential stores for WoT security
@@ -225,15 +215,19 @@ func (c *Container) initSecurity(cfg *Config) error {
 func (c *Container) initConfiguration(cfg *Config) error {
 	c.Logger.Debug("Initializing configuration components")
 
+	// Create repositories
+	dbManager := c.DatabaseFactory.GetManager()
+	thingRepo := repositories.NewThingRepository(dbManager, c.Logger)
+
 	// Initialize config manager (API-based, not file-based)
-	cm := config.NewConfigManager(c.DB, c.Logger)
+	cm := config.NewConfigManager(dbManager, c.Logger)
 	c.ConfigManager = cm
 
 	// Initialize API configuration manager
 	c.ConfigurationMgr = api.NewConfigManager(c.Logger)
 
-	// Initialize thing registry
-	tr := config.NewThingRegistry(c.DB, c.Logger)
+	// Initialize thing registry with repository
+	tr := config.NewThingRegistry(thingRepo, c.Logger)
 	c.ThingRegistry = tr
 
 	// Create license validator adapter
@@ -246,8 +240,10 @@ func (c *Container) initConfiguration(cfg *Config) error {
 	}
 
 	// Initialize lifecycle manager
+	// Note: LifecycleManager might need refactoring to use DatabaseManager too
+	db := c.DatabaseFactory.GetManager().GetConnection()
 	lifecycleManager := config.NewLifecycleManager(
-		c.DB,
+		db,
 		cm,
 		licenseValidator,
 		cfg.DBPath, // Using DBPath as data directory
@@ -271,10 +267,10 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 	c.BenthosEnvironment = service.NewEnvironment()
 
 	// Initialize state manager
-	// NewBenthosStateManager signature: (db *sql.DB, benthosConfigDir, parquetLogPath string, logger logrus.FieldLogger)
-	// Passing empty string for benthosConfigDir as it's not available in cfg here.
-	// c.Logger is *logrus.Logger, which implements logrus.FieldLogger.
-	sm, err := api.NewBenthosStateManager(c.DB, "", cfg.ParquetLogPath, c.Logger)
+	// Create stream repository for state manager
+	streamRepo := repositories.NewStreamRepository(c.DatabaseFactory.GetManager(), c.Logger)
+	
+	sm, err := api.NewBenthosStateManager(streamRepo, "", cfg.ParquetLogPath, c.Logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize Benthos state manager: %w", err)
 	}
@@ -285,8 +281,9 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 
 	// Initialize stream bridge
 	// Pass BenthosEnvironment and ParquetLogPath to NewBenthosStreamBridge
-	// Signature: (env, stateMgr, db, logger, parquetLogPath)
-	sb := api.NewBenthosStreamBridge(c.BenthosEnvironment, c.StateManager, c.DB, c.Logger, cfg.ParquetLogPath)
+	// Note: StreamBridge might need refactoring to use DatabaseManager too
+	db := c.DatabaseFactory.GetManager().GetConnection()
+	sb := api.NewBenthosStreamBridge(c.BenthosEnvironment, c.StateManager, db, c.Logger, cfg.ParquetLogPath)
 	c.StreamBridge = sb
 
 	// Initialize stream composition components
@@ -350,9 +347,10 @@ func (c *Container) initStreamComposition(cfg *Config) error {
 	c.Logger.Debug("Initializing stream composition components")
 
 	// Initialize Benthos stream manager with DuckDB persistence
+	db := c.DatabaseFactory.GetManager().GetConnection()
 	streamManager, err := api.NewSimpleBenthosStreamManager(
 		cfg.ParquetLogPath+"/stream_configs", // Config directory for debug files
-		c.DB,
+		db,
 		c.Logger,
 	)
 	if err != nil {
@@ -463,9 +461,9 @@ func (c *Container) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Close database
-	if c.DB != nil {
-		c.DB.Close()
+	// Close database factory
+	if c.DatabaseFactory != nil {
+		c.DatabaseFactory.Close()
 	}
 
 	return nil
@@ -483,8 +481,9 @@ func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
 	}
 
 	// Create caddy-auth-portal bridge
+	db := c.DatabaseFactory.GetManager().GetConnection()
 	authPortalBridge, err := security.NewCaddyAuthPortalBridge(
-		c.DB,
+		db,
 		c.Logger,
 		systemSecurityConfig,
 		c.UnifiedLicenseChecker,
@@ -495,10 +494,8 @@ func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
 		return
 	}
 
-	// Set the configuration manager on the auth portal bridge for Caddy API integration
-	// Create adapter for ConfigurationManager to bridge interface differences
-	configAdapter := &configManagerAdapter{c.ConfigurationMgr}
-	authPortalBridge.SetConfigManager(configAdapter)
+	// Note: SetConfigManager is only needed for tests that call ApplyAuthConfiguration
+	// Main application doesn't use this functionality
 
 	// Set the auth portal bridge on the HTTP service
 	if httpService, ok := c.HTTPService.(*svc.HTTPService); ok {

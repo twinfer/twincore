@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,38 +8,35 @@ import (
 
 	_ "github.com/marcboeker/go-duckdb"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/database"
+	"github.com/twinfer/twincore/internal/database/repositories"
 )
 
 func TestBenthosStateManager_ParquetReplacement(t *testing.T) {
 	// Create temporary directory for Parquet logs
 	tmpDir := t.TempDir()
 
-	// Create in-memory DuckDB
-	db, err := sql.Open("duckdb", "")
-	if err != nil {
-		t.Fatalf("Failed to open database: %v", err)
-	}
-	defer db.Close()
-
-	// Create property_state table
-	_, err = db.Exec(`
-		CREATE TABLE property_state (
-			thing_id TEXT,
-			property_name TEXT,
-			value TEXT,
-			updated_at TIMESTAMP,
-			PRIMARY KEY (thing_id, property_name)
-		)
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create table: %v", err)
-	}
-
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 
+	// Create database factory with test configuration
+	config := database.DatabaseConfig{
+		DBPath:      "", // In-memory DuckDB
+		AutoMigrate: true,
+	}
+	
+	factory, err := database.NewDatabaseFactoryWithConfig(config, logger)
+	if err != nil {
+		t.Fatalf("Failed to create database factory: %v", err)
+	}
+	defer factory.Close()
+	
+	// Get database manager and create stream repository
+	dbManager := factory.GetManager()
+	streamRepo := repositories.NewStreamRepository(dbManager, logger)
+
 	// Create Benthos state manager
-	sm, err := NewBenthosStateManager(db, "configs/benthos/streams", tmpDir, logger)
+	sm, err := NewBenthosStateManager(streamRepo, "configs/benthos/streams", tmpDir, logger)
 	if err != nil {
 		t.Fatalf("Failed to create Benthos state manager: %v", err)
 	}

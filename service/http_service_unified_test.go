@@ -18,7 +18,7 @@ func TestHTTPServiceUnified_Interface(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	service := NewHTTPServiceUnified(logger)
+	service := NewHTTPService(logger)
 
 	// Verify it implements the Service interface
 	assert.Implements(t, (*types.Service)(nil), service)
@@ -33,7 +33,7 @@ func TestHTTPServiceUnified_BasicLifecycle(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel) // Enable debug logging to see what's happening
 
-	service := NewHTTPServiceUnified(logger)
+	service := NewHTTPService(logger)
 	ctx := context.Background()
 
 	// Create minimal valid config
@@ -82,7 +82,7 @@ func TestHTTPServiceUnified_ConfigValidation(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	service := NewHTTPServiceUnified(logger)
+	service := NewHTTPService(logger)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -151,7 +151,7 @@ func TestHTTPServiceUnified_RouteBuilding(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	service := NewHTTPServiceUnified(logger).(*HTTPServiceUnified)
+	service := NewHTTPService(logger).(*HTTPService)
 
 	tests := []struct {
 		name  string
@@ -204,80 +204,11 @@ func TestHTTPServiceUnified_RouteBuilding(t *testing.T) {
 	}
 }
 
-// NOTE: Security configuration tests removed as part of Phase 2 security separation.
-// Authentication is now handled by SystemSecurityManager, not HTTP service.
-/*
-func TestHTTPServiceUnified_SecurityConfiguration(t *testing.T) {
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
-
-	service := NewHTTPServiceUnified(logger).(*HTTPServiceUnified)
-
-	tests := []struct {
-		name           string
-		securityConfig types.SimpleSecurityConfig
-		expectRoute    bool
-	}{
-		{
-			name: "disabled_security",
-			securityConfig: types.SimpleSecurityConfig{
-				Enabled: false,
-			},
-			expectRoute: false,
-		},
-		{
-			name: "enabled_without_auth",
-			securityConfig: types.SimpleSecurityConfig{
-				Enabled: true,
-			},
-			expectRoute: false,
-		},
-		{
-			name: "basic_auth",
-			securityConfig: types.SimpleSecurityConfig{
-				Enabled: true,
-				BasicAuth: &types.BasicAuthConfig{
-					Users: []types.BasicAuthUser{
-						{Username: "admin", Password: "secret"},
-					},
-				},
-			},
-			expectRoute: true,
-		},
-		{
-			name: "jwt_auth",
-			securityConfig: types.SimpleSecurityConfig{
-				Enabled: true,
-				JWTAuth: &types.JWTAuthConfig{
-					PublicKey: "test-key",
-					Issuer:    "test-issuer",
-					Audience:  "test-audience",
-				},
-			},
-			expectRoute: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			route := service.buildAuthRoute(tt.securityConfig)
-
-			if tt.expectRoute {
-				assert.NotNil(t, route)
-				assert.NotEmpty(t, route.HandlersRaw)
-			} else {
-				assert.Nil(t, route)
-			}
-		})
-	}
-}
-*/
-
 func TestHTTPServiceUnified_UpdateConfig(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	service := NewHTTPServiceUnified(logger)
+	service := NewHTTPService(logger)
 	ctx := context.Background()
 
 	// Start with initial config
