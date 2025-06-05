@@ -160,13 +160,16 @@ func (h *SetupHandler) processAuthStep(logger *logrus.Entry, w http.ResponseWrit
 		// License would be needed if isProviderAvailable checked it based on current license state
 	}
 
-	entryLogger.WithFields(logrus.Fields{"dependency_name": "ConfigManager", "operation": "ConfigureAuth"}).Debug("Calling dependency")
+	// TODO: This should be updated to use CaddySecurityBridge directly instead of ConfigManager
+	entryLogger.WithFields(logrus.Fields{"dependency_name": "ConfigManager", "operation": "ConfigureAuth"}).Debug("Calling deprecated dependency")
 	if err := h.configManager.ConfigureAuth(logger, authRequest); err != nil { // Pass logger
-		entryLogger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ConfigManager", "operation": "ConfigureAuth"}).Error("Dependency call failed")
-		http.Error(w, "Failed to configure auth: "+err.Error(), http.StatusInternalServerError)
+		entryLogger.WithError(err).WithFields(logrus.Fields{"dependency_name": "ConfigManager", "operation": "ConfigureAuth"}).Error("Deprecated dependency call failed")
+		// For now, handle the deprecation gracefully
+		entryLogger.Warn("Authentication configuration through ConfigManager is deprecated - setup flow needs to be updated to use CaddySecurityBridge")
+		http.Error(w, "Authentication configuration unavailable - system needs to be updated to use CaddySecurityBridge", http.StatusServiceUnavailable)
 		return
 	}
-	entryLogger.Info("Authentication configured successfully")
+	entryLogger.Info("Authentication configured successfully (via deprecated method)")
 	h.sendSetupResponse(w, "Authentication configured successfully")
 }
 

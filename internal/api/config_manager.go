@@ -19,8 +19,11 @@ import (
 // Ensure ConfigManager implements ConfigurationManager interface
 var _ ConfigurationManager = (*ConfigManager)(nil)
 
-// ConfigManager provides a unified API for managing all TwinCore configurations
-// It wraps Caddy Admin API and other service configurations
+// ConfigManager provides a unified API for managing TwinCore configurations
+// It wraps Caddy Admin API for HTTP and general configurations
+// 
+// SECURITY NOTE: Authentication and security configuration has been moved to CaddySecurityBridge
+// for proper separation of concerns. This ConfigManager no longer handles security configuration.
 type ConfigManager struct {
 	caddyAdminURL string
 	dbPath        string
@@ -217,150 +220,33 @@ func (cm *ConfigManager) CompleteSetup(logger logrus.FieldLogger) error {
 	return nil
 }
 
-// GetAuthProviders returns available authentication providers based on license
+// GetAuthProviders is deprecated - use CaddySecurityBridge.GetAvailableProviders instead
+// This method now delegates to the security bridge for proper separation of concerns
 func (cm *ConfigManager) GetAuthProviders(license License) []AuthProviderInfo {
-	providers := []AuthProviderInfo{
+	// TODO: This should be removed once callers are updated to use CaddySecurityBridge directly
+	return []AuthProviderInfo{
 		{
 			ID:          "local",
-			Name:        "Local Users",
+			Name:        "Local Users", 
 			Description: "Built-in user database",
 			Available:   true,
 		},
-		{
-			ID:          "jwt",
-			Name:        "JWT Token",
-			Description: "JSON Web Token validation",
-			Available:   license.HasFeature("jwt_auth"),
-		},
-		{
-			ID:          "saml",
-			Name:        "SAML 2.0",
-			Description: "Enterprise Single Sign-On",
-			Available:   license.HasFeature("enterprise_auth"),
-		},
-		{
-			ID:          "oauth2",
-			Name:        "OAuth 2.0 / OIDC",
-			Description: "OAuth2 and OpenID Connect",
-			Available:   license.HasFeature("enterprise_auth"),
-		},
-		{
-			ID:          "ldap",
-			Name:        "LDAP / Active Directory",
-			Description: "Corporate directory integration",
-			Available:   license.HasFeature("enterprise_auth"),
-		},
 	}
-
-	return providers
 }
 
-// ConfigureAuth configures authentication based on user selection
+// ConfigureAuth is deprecated - authentication configuration should be handled by CaddySecurityBridge
+// This method is kept for transition purposes but will be removed
 func (cm *ConfigManager) ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ConfigureAuth", "provider": req.Provider})
 	entryLogger.Debug("Service method called")
-	startTime := time.Now()
-	defer func() {
-		entryLogger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Service method finished")
-	}()
-
-	// Validate provider is available
-	if !cm.isProviderAvailable(req.Provider, req.License) {
-		err := fmt.Errorf("authentication provider %s not available with current license", req.Provider)
-		logger.WithError(err).Warn("Auth provider availability check failed")
-		return err
-	}
-	logger.Debug("Auth provider is available")
-
-	// Build Caddy security configuration
-	logger.Debug("Building Caddy security configuration")
-	securityConfig := cm.buildSecurityConfig(req) // Assuming this is a pure function or uses its own logging if needed
-
-	// Apply to Caddy
-	logger.WithFields(logrus.Fields{"dependency_name": "CaddyAdminAPI", "operation": "updateCaddyConfig", "path": "/apps/security"}).Debug("Calling dependency")
-	if err := cm.updateCaddyConfig(logger, "/apps/security", securityConfig); err != nil {
-		logger.WithError(err).Error("Failed to update Caddy security config")
-		return fmt.Errorf("failed to update security config: %w", err)
-	}
-	logger.Info("Caddy security config updated")
-
-	// Update HTTP routes to use authentication
-	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "updateHTTPRoutes"}).Debug("Calling internal method to update HTTP routes")
-	if err := cm.updateHTTPRoutes(logger, req.Provider); err != nil {
-		logger.WithError(err).Error("Failed to update HTTP routes for auth")
-		return fmt.Errorf("failed to update HTTP routes: %w", err)
-	}
-	logger.Info("HTTP routes updated for new auth provider")
-
-	return nil
+	
+	// TODO: This method should be removed once authentication is fully handled by CaddySecurityBridge
+	// For now, return an error directing users to the proper integration
+	return fmt.Errorf("authentication configuration must be handled through CaddySecurityBridge - ConfigManager.ConfigureAuth is deprecated")
 }
 
-// buildSecurityConfig builds caddy-security configuration
-func (cm *ConfigManager) buildSecurityConfig(req AuthConfigRequest) map[string]any {
-	config := map[string]any{
-		"authentication": map[string]any{
-			"portals": []map[string]any{
-				{
-					"name": "twincore_portal",
-					"ui": map[string]any{
-						"theme":            "basic",
-						"logo_url":         "/portal/assets/logo.png",
-						"logo_description": "TwinCore Gateway",
-					},
-				},
-			},
-		},
-	}
-
-	// Configure based on provider
-	switch req.Provider {
-	case "local":
-		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
-			{
-				"method": "local",
-				"name":   "local_backend",
-				"file":   "/etc/twincore/users.json",
-			},
-		}
-
-	case "saml":
-		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
-			{
-				"method":       "saml",
-				"name":         "saml_backend",
-				"metadata_url": req.Config["metadata_url"],
-				"entity_id":    req.Config["entity_id"],
-				"acs_url":      req.Config["acs_url"],
-			},
-		}
-
-	case "oauth2":
-		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
-			{
-				"method":        "oauth2",
-				"name":          "oauth2_backend",
-				"provider":      req.Config["provider"], // google, github, generic
-				"client_id":     req.Config["client_id"],
-				"client_secret": req.Config["client_secret"],
-				"redirect_url":  req.Config["redirect_url"],
-			},
-		}
-
-	case "ldap":
-		config["authentication"].(map[string]any)["portals"].([]map[string]any)[0]["backends"] = []map[string]any{
-			{
-				"method":        "ldap",
-				"name":          "ldap_backend",
-				"server":        req.Config["server"],
-				"base_dn":       req.Config["base_dn"],
-				"bind_dn":       req.Config["bind_dn"],
-				"bind_password": req.Config["bind_password"],
-			},
-		}
-	}
-
-	return config
-}
+// buildSecurityConfig is deprecated - security configuration is now handled by CaddySecurityBridge
+// This method will be removed in favor of proper separation of concerns
 
 // updateHTTPRoutes updates HTTP routes to use authentication
 func (cm *ConfigManager) updateHTTPRoutes(logger logrus.FieldLogger, provider string) error {
@@ -488,11 +374,11 @@ func (cm *ConfigManager) UpdateConfiguration(logger logrus.FieldLogger, section 
 		logger.Info("Updating HTTP configuration")
 		return cm.updateHTTPConfig(logger, config)
 	case "security":
-		logger.Info("Updating security configuration")
-		return cm.updateSecurityConfig(logger, config)
+		logger.Warn("Security configuration updates should be handled by CaddySecurityBridge")
+		return fmt.Errorf("security configuration must be handled through CaddySecurityBridge - use SystemSecurityManager and CaddySecurityBridge instead")
 	case "streams":
 		logger.Info("Updating streams configuration")
-		return cm.updateStreamConfig(logger, config) // Assuming updateStreamConfig will be updated to use logger
+		return cm.updateStreamConfig(logger, config)
 	default:
 		err := fmt.Errorf("unknown configuration section: %s", section)
 		logger.WithError(err).Error("Attempt to update unknown configuration section")
@@ -606,17 +492,10 @@ func (cm *ConfigManager) saveSetupStatus(complete bool) error { // Assuming this
 	return nil
 }
 
-func (cm *ConfigManager) isProviderAvailable(provider string, license License) bool { // Pure function, no logger needed
-	switch provider {
-	case "local":
-		return true
-	case "jwt":
-		return license.HasFeature("jwt_auth")
-	case "saml", "oauth2", "ldap":
-		return license.HasFeature("enterprise_auth")
-	default:
-		return false
-	}
+// isProviderAvailable is deprecated - provider availability checking is now handled by CaddySecurityBridge
+func (cm *ConfigManager) isProviderAvailable(provider string, license License) bool {
+	// TODO: Remove this method once all callers use CaddySecurityBridge
+	return provider == "local" // Only allow local for transition
 }
 
 func (cm *ConfigManager) buildSetupRoutes() []map[string]any {
@@ -688,9 +567,10 @@ func (cm *ConfigManager) updateHTTPConfig(logger logrus.FieldLogger, config map[
 	return cm.updateCaddyConfig(logger, "/apps/http", config)
 }
 
+// updateSecurityConfig is deprecated - security configuration updates are now handled by CaddySecurityBridge
 func (cm *ConfigManager) updateSecurityConfig(logger logrus.FieldLogger, config map[string]any) error {
-	logger.Info("Applying security configuration to Caddy")
-	return cm.updateCaddyConfig(logger, "/apps/security", config)
+	logger.Warn("updateSecurityConfig is deprecated - use CaddySecurityBridge for security configuration")
+	return fmt.Errorf("security configuration must be handled through CaddySecurityBridge")
 }
 
 func (cm *ConfigManager) updateStreamConfig(logger logrus.FieldLogger, config map[string]any) error {

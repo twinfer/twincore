@@ -1,0 +1,1100 @@
+basePath: /api
+definitions:
+  types.ProcessorCollection:
+    description: Reusable collection of data processors that can be applied to streams
+    properties:
+      created_at:
+        example: "2023-12-01T10:30:00Z"
+        type: string
+      description:
+        example: Standard processing for IoT sensor data
+        type: string
+      id:
+        example: collection-123
+        type: string
+      name:
+        example: IoT Data Pipeline
+        type: string
+      processors:
+        items:
+          $ref: '#/definitions/types.ProcessorConfig'
+        type: array
+      updated_at:
+        example: "2023-12-01T10:30:00Z"
+        type: string
+    type: object
+  types.ProcessorCollectionRequest:
+    description: Request body for creating a new processor collection
+    properties:
+      description:
+        example: Standard processing for IoT sensor data
+        type: string
+      name:
+        example: IoT Data Pipeline
+        type: string
+      processors:
+        items:
+          $ref: '#/definitions/types.ProcessorConfig'
+        type: array
+    type: object
+  types.ProcessorConfig:
+    description: Configuration for a data processor in the processing pipeline
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      type:
+        example: json_validation
+        type: string
+    type: object
+  types.StreamCreationRequest:
+    description: Request body for creating a new data processing stream
+    properties:
+      direction:
+        example: input
+        type: string
+      input:
+        $ref: '#/definitions/types.StreamEndpointConfig'
+      interaction_name:
+        example: temperature
+        type: string
+      interaction_type:
+        example: properties
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      output:
+        $ref: '#/definitions/types.StreamEndpointConfig'
+      processor_chain:
+        items:
+          $ref: '#/definitions/types.ProcessorConfig'
+        type: array
+      thing_id:
+        example: device-001
+        type: string
+    type: object
+  types.StreamEndpointConfig:
+    description: Configuration for stream input or output endpoint
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      type:
+        example: kafka
+        type: string
+    type: object
+  types.StreamInfo:
+    description: Information about a created data processing stream
+    properties:
+      created_at:
+        example: "2023-12-01T10:30:00Z"
+        type: string
+      direction:
+        example: input
+        type: string
+      id:
+        example: stream-123
+        type: string
+      input:
+        $ref: '#/definitions/types.StreamEndpointConfig'
+      interaction_name:
+        example: temperature
+        type: string
+      interaction_type:
+        example: properties
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      output:
+        $ref: '#/definitions/types.StreamEndpointConfig'
+      processor_chain:
+        items:
+          $ref: '#/definitions/types.ProcessorConfig'
+        type: array
+      status:
+        example: running
+        type: string
+      thing_id:
+        example: device-001
+        type: string
+      updated_at:
+        example: "2023-12-01T10:30:00Z"
+        type: string
+    type: object
+  wot.ActionAffordance:
+    properties:
+      $comment:
+        type: string
+      description:
+        type: string
+      descriptions:
+        additionalProperties:
+          type: string
+        type: object
+      forms:
+        description: Must contain at least one form
+        items: {}
+        type: array
+      idempotent:
+        description: Default false
+        type: boolean
+      input:
+        $ref: '#/definitions/wot.DataSchema'
+      output:
+        $ref: '#/definitions/wot.DataSchema'
+      safe:
+        description: Default false
+        type: boolean
+      synchronous:
+        description: Added for W3C WoT TD 1.1
+        type: boolean
+      title:
+        type: string
+      titles:
+        additionalProperties:
+          type: string
+        type: object
+      uriVariables:
+        additionalProperties:
+          $ref: '#/definitions/wot.DataSchema'
+        type: object
+    type: object
+  wot.DataSchema:
+    properties:
+      $comment:
+        type: string
+      '@type':
+        description: Added for W3C WoT TD 1.1
+        items:
+          type: string
+        type: array
+      additionalProperties:
+        description: bool or *DataSchema
+      allOf:
+        items:
+          $ref: '#/definitions/wot.DataSchema'
+        type: array
+      anyOf:
+        items:
+          $ref: '#/definitions/wot.DataSchema'
+        type: array
+      const: {}
+      contentEncoding:
+        type: string
+      contentMediaType:
+        type: string
+      default: {}
+      description:
+        type: string
+      descriptions:
+        additionalProperties:
+          type: string
+        type: object
+      enum:
+        items: {}
+        type: array
+      exclusiveMaximum:
+        type: number
+      exclusiveMinimum:
+        type: number
+      format:
+        description: e.g., "date-time", "uri", "email"
+        type: string
+      items:
+        description: Array-specific
+      maxItems:
+        type: integer
+      maxLength:
+        type: integer
+      maximum:
+        type: number
+      minItems:
+        type: integer
+      minLength:
+        type: integer
+      minimum:
+        description: Number/Integer-specific
+        type: number
+      multipleOf:
+        type: number
+      not:
+        $ref: '#/definitions/wot.DataSchema'
+      observable:
+        description: Default false, relevant for PropertyAffordance
+        type: boolean
+      oneOf:
+        description: Logical keywords
+        items:
+          $ref: '#/definitions/wot.DataSchema'
+        type: array
+      pattern:
+        description: String-specific
+        type: string
+      properties:
+        additionalProperties:
+          $ref: '#/definitions/wot.DataSchema'
+        description: Object-specific
+        type: object
+      propertyNames:
+        $ref: '#/definitions/wot.DataSchema'
+      readOnly:
+        description: WoT specific (often found within PropertyAffordance, but part
+          of DataSchema concept)
+        type: boolean
+      required:
+        items:
+          type: string
+        type: array
+      title:
+        description: Common annotations specific to this DataSchema definition
+        type: string
+      titles:
+        additionalProperties:
+          type: string
+        type: object
+      type:
+        description: Type and format
+        type: string
+      uniqueItems:
+        type: boolean
+      unit:
+        type: string
+      writeOnly:
+        description: Default false
+        type: boolean
+    type: object
+  wot.EventAffordance:
+    properties:
+      $comment:
+        type: string
+      cancellation:
+        $ref: '#/definitions/wot.DataSchema'
+      data:
+        $ref: '#/definitions/wot.DataSchema'
+      dataResponse:
+        allOf:
+        - $ref: '#/definitions/wot.DataSchema'
+        description: Added for W3C WoT TD 1.1
+      description:
+        type: string
+      descriptions:
+        additionalProperties:
+          type: string
+        type: object
+      forms:
+        description: Must contain at least one form
+        items: {}
+        type: array
+      subscription:
+        $ref: '#/definitions/wot.DataSchema'
+      title:
+        type: string
+      titles:
+        additionalProperties:
+          type: string
+        type: object
+      uriVariables:
+        additionalProperties:
+          $ref: '#/definitions/wot.DataSchema'
+        type: object
+    type: object
+  wot.Link:
+    properties:
+      anchor:
+        type: string
+      href:
+        type: string
+      hreflang:
+        description: Added for W3C WoT TD 1.1
+      rel:
+        type: string
+      sizes:
+        description: Added for W3C WoT TD 1.1
+        type: string
+      type:
+        description: Media type
+        type: string
+    type: object
+  wot.PropertyAffordance:
+    properties:
+      $comment:
+        type: string
+      additionalProperties:
+        description: bool or *DataSchema
+      allOf:
+        items:
+          $ref: '#/definitions/wot.DataSchema'
+        type: array
+      anyOf:
+        items:
+          $ref: '#/definitions/wot.DataSchema'
+        type: array
+      const: {}
+      contentEncoding:
+        type: string
+      contentMediaType:
+        type: string
+      default: {}
+      description:
+        type: string
+      descriptions:
+        additionalProperties:
+          type: string
+        type: object
+      enum:
+        items: {}
+        type: array
+      exclusiveMaximum:
+        type: number
+      exclusiveMinimum:
+        type: number
+      format:
+        description: e.g., "date-time", "uri", "email"
+        type: string
+      forms:
+        description: Must contain at least one form
+        items: {}
+        type: array
+      items:
+        description: Array-specific
+      maxItems:
+        type: integer
+      maxLength:
+        type: integer
+      maximum:
+        type: number
+      minItems:
+        type: integer
+      minLength:
+        type: integer
+      minimum:
+        description: Number/Integer-specific
+        type: number
+      multipleOf:
+        type: number
+      not:
+        $ref: '#/definitions/wot.DataSchema'
+      observable:
+        description: Default false, relevant for PropertyAffordance
+        type: boolean
+      oneOf:
+        description: Logical keywords
+        items:
+          $ref: '#/definitions/wot.DataSchema'
+        type: array
+      pattern:
+        description: String-specific
+        type: string
+      properties:
+        additionalProperties:
+          $ref: '#/definitions/wot.DataSchema'
+        description: Object-specific
+        type: object
+      propertyNames:
+        $ref: '#/definitions/wot.DataSchema'
+      readOnly:
+        description: WoT specific (often found within PropertyAffordance, but part
+          of DataSchema concept)
+        type: boolean
+      required:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
+      titles:
+        additionalProperties:
+          type: string
+        type: object
+      type:
+        description: Type and format
+        type: string
+      uniqueItems:
+        type: boolean
+      unit:
+        type: string
+      uriVariables:
+        additionalProperties:
+          $ref: '#/definitions/wot.DataSchema'
+        type: object
+      writeOnly:
+        description: Default false
+        type: boolean
+    type: object
+  wot.SecurityScheme:
+    properties:
+      '@type':
+        description: e.g. "BasicSecurityScheme", "OAuth2SecurityScheme"
+      alg:
+        description: For Bearer
+        type: string
+      authorization:
+        description: For Bearer, OAuth2
+        type: string
+      description:
+        type: string
+      descriptions:
+        additionalProperties:
+          type: string
+        type: object
+      flow:
+        description: For OAuth2
+        type: string
+      format:
+        description: For Bearer
+        type: string
+      identity:
+        description: For PSK
+        type: string
+      in:
+        description: For apikey (location of security information), also used by some
+          other schemes
+        type: string
+      name:
+        description: For apikey (name of header/query param)
+        type: string
+      proxy:
+        description: URI
+        type: string
+      qop:
+        description: Fields for specific security schemes as per TD 1.1
+        type: string
+      refresh:
+        description: For OAuth2
+        type: string
+      scheme:
+        description: e.g. "basic", "bearer", "apikey", "oauth2" - this is the primary
+          discriminator
+        type: string
+      scopes:
+        description: For OAuth2
+        items:
+          type: string
+        type: array
+      token:
+        description: For OAuth2
+        type: string
+    type: object
+  wot.ThingDescription:
+    description: Complete W3C WoT Thing Description 1.1 specification compliant structure
+    properties:
+      $comment:
+        type: string
+      '@context':
+        example: https://www.w3.org/2022/wot/td/v1.1
+        type: string
+      actions:
+        additionalProperties:
+          $ref: '#/definitions/wot.ActionAffordance'
+        type: object
+      base:
+        example: https://device.example.com/
+        type: string
+      created:
+        example: "2023-12-01T10:30:00Z"
+        type: string
+      description:
+        example: A sample IoT device for demonstration
+        type: string
+      descriptions:
+        additionalProperties:
+          type: string
+        type: object
+      events:
+        additionalProperties:
+          $ref: '#/definitions/wot.EventAffordance'
+        type: object
+      forms:
+        items: {}
+        type: array
+      id:
+        example: urn:device:001
+        type: string
+      links:
+        items:
+          $ref: '#/definitions/wot.Link'
+        type: array
+      modified:
+        example: "2023-12-01T10:30:00Z"
+        type: string
+      profile:
+        items:
+          type: string
+        type: array
+      properties:
+        additionalProperties:
+          $ref: '#/definitions/wot.PropertyAffordance'
+        type: object
+      schemaDefinitions:
+        additionalProperties:
+          $ref: '#/definitions/wot.DataSchema'
+        type: object
+      security:
+        example:
+        - '["basic_sc"]'
+        items:
+          type: string
+        type: array
+      securityDefinitions:
+        additionalProperties:
+          $ref: '#/definitions/wot.SecurityScheme'
+        type: object
+      support:
+        example: mailto:support@example.com
+        type: string
+      title:
+        example: My IoT Device
+        type: string
+      titles:
+        additionalProperties:
+          type: string
+        type: object
+      uris:
+        items:
+          type: string
+        type: array
+      version:
+        $ref: '#/definitions/wot.VersionInfo'
+    type: object
+  wot.VersionInfo:
+    properties:
+      instance:
+        type: string
+      model:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@twinfer.com
+    name: TwinCore API Support
+    url: http://www.twinfer.com/support
+  description: TwinCore Gateway is a Web of Things (WoT) gateway that manages IoT
+    devices through W3C Thing Descriptions. It dynamically generates data processing
+    pipelines using Benthos and exposes HTTP APIs for device interaction.
+  license:
+    name: Commercial License
+    url: http://www.twinfer.com/license
+  termsOfService: http://swagger.io/terms/
+  title: TwinCore Gateway API
+  version: "1.0"
+paths:
+  /bindings/generate:
+    post:
+      consumes:
+      - application/json
+      description: Automatically generates stream configurations and protocol bindings
+        from a W3C WoT Thing Description. Creates streams for all properties, actions,
+        and events defined in the TD.
+      parameters:
+      - description: Thing ID to generate bindings for
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Generated stream configurations with count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Generate bindings from Thing Description
+      tags:
+      - Bindings
+  /processors:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves all available processor collections with their configurations.
+        These collections can be referenced when creating streams to apply standardized
+        processing logic.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of processor collections with count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List processor collections
+      tags:
+      - Processors
+    post:
+      consumes:
+      - application/json
+      description: Creates a reusable collection of data processors that can be applied
+        to multiple streams. Collections help organize and standardize processing
+        logic across the platform.
+      parameters:
+      - description: Processor collection configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.ProcessorCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Processor collection created successfully
+          schema:
+            $ref: '#/definitions/types.ProcessorCollection'
+        "400":
+          description: Invalid request body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create processor collection
+      tags:
+      - Processors
+  /processors/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves detailed information about a specific processor collection
+        including its configuration and all associated processors.
+      parameters:
+      - description: Processor collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Processor collection details
+          schema:
+            $ref: '#/definitions/types.ProcessorCollection'
+        "404":
+          description: Processor collection not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get processor collection
+      tags:
+      - Processors
+  /streams:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of all Benthos streams with optional filtering
+        by thing ID, interaction type, or status
+      parameters:
+      - description: Filter by Thing ID
+        in: query
+        name: thing_id
+        type: string
+      - description: Filter by interaction type (properties, actions, events)
+        in: query
+        name: interaction_type
+        type: string
+      - description: Filter by stream status
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of streams with count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List streams
+      tags:
+      - Streams
+    post:
+      consumes:
+      - application/json
+      description: Creates a new Benthos data processing stream for a WoT interaction.
+        Streams handle data flow between devices and the platform with configurable
+        processing pipelines.
+      parameters:
+      - description: Stream configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.StreamCreationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Stream created successfully
+          schema:
+            $ref: '#/definitions/types.StreamInfo'
+        "400":
+          description: Invalid request body or validation failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Referenced thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create stream
+      tags:
+      - Streams
+  /things/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a complete W3C WoT Thing Description by ID
+      parameters:
+      - description: Thing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wot.ThingDescription'
+        "404":
+          description: Thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get Thing Description
+      tags:
+      - Things
+  /things/{id}/actions/{name}:
+    post:
+      consumes:
+      - application/json
+      description: 'Executes a WoT action on a device. Supports both synchronous and
+        asynchronous execution. Use ''Prefer: respond-async'' header for async execution
+        and ''X-Action-Timeout'' header to specify custom timeout.'
+      parameters:
+      - description: Thing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Action name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Action input parameters (optional, depends on action definition)
+        in: body
+        name: input
+        schema:
+          additionalProperties: true
+          type: object
+      - description: Use 'respond-async' for asynchronous execution
+        in: header
+        name: Prefer
+        type: string
+      - description: Custom timeout duration (e.g., '30s', '1m')
+        in: header
+        name: X-Action-Timeout
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Action result (synchronous execution)
+          schema:
+            additionalProperties: true
+            type: object
+        "202":
+          description: Action accepted for async execution
+          schema:
+            additionalProperties: true
+            type: object
+        "204":
+          description: Action completed without output
+        "400":
+          description: Invalid input or validation failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Action or thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "405":
+          description: Method not allowed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "504":
+          description: Action execution timeout
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Invoke action
+      tags:
+      - Actions
+  /things/{id}/events/{name}:
+    get:
+      consumes:
+      - application/json
+      description: Establishes a Server-Sent Events (SSE) stream to receive real-time
+        WoT events from a device. The connection remains open and events are streamed
+        as they occur.
+      parameters:
+      - description: Thing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Event name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE stream established - events will be streamed
+          schema:
+            type: string
+        "404":
+          description: Event or thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "405":
+          description: Method not allowed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error or streaming not supported
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Subscribe to events
+      tags:
+      - Events
+  /things/{id}/properties/{name}:
+    get:
+      consumes:
+      - application/json
+      description: Reads the current value of a WoT property. Supports real-time observation
+        via Server-Sent Events when Accept header is 'text/event-stream' and property
+        is observable.
+      parameters:
+      - description: Thing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Property name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Content type preference - use 'text/event-stream' for real-time
+          observation
+        in: header
+        name: Accept
+        type: string
+      produces:
+      - application/json
+      - text/plain
+      - text/event-stream
+      responses:
+        "200":
+          description: Property value as plain text
+          schema:
+            type: string
+        "404":
+          description: Property or thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "406":
+          description: Content type not acceptable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Read property value
+      tags:
+      - Properties
+    put:
+      consumes:
+      - application/json
+      description: Updates the value of a WoT property. Property must be writable
+        (not read-only). Value is validated against the property's data schema.
+      parameters:
+      - description: Thing ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Property name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: 'Property value to set - can be raw value or wrapped in {''value'':
+          ...}'
+        in: body
+        name: value
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Property updated successfully
+        "400":
+          description: Invalid request body or validation failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Property is read-only
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Property or thing not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Write property value
+      tags:
+      - Properties
+securityDefinitions:
+  ApiKeyAuth:
+    description: API key authentication for device access
+    in: header
+    name: X-API-Key
+    type: apiKey
+  BearerAuth:
+    description: 'JWT Bearer token authentication. Format: "Bearer {token}"'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

@@ -12,6 +12,7 @@ import (
 	"github.com/twinfer/twincore/pkg/types"
 )
 
+
 // TestRateLimiting tests API rate limiting functionality
 func TestRateLimiting(t *testing.T) {
 	logger := logrus.New()
@@ -41,18 +42,25 @@ func TestRateLimiting(t *testing.T) {
 		// Test that rate limiting middleware can be generated for routes
 		secConfig := &types.SystemSecurityConfig{
 			Enabled: true,
+			AdminAuth: &types.AdminAuthConfig{
+				Local: &types.LocalAuthConfig{},
+			},
 			APIAuth: &types.APIAuthConfig{
 				RateLimit: rateLimitConfig,
 			},
 		}
 
-		// Create caddy-security bridge
-		mockSSM := &MockSystemSecurityManager{}
-		bridge := NewCaddySecurityBridge(mockSSM, secConfig, logger)
+		// Create test database for auth portal bridge
+		db := setupTestDB(t)
+		defer db.Close()
 
-		// Generate security app config that should include rate limiting
+		mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
+		bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+		require.NoError(t, err)
+
+		// Generate auth portal config that should include rate limiting
 		ctx := context.Background()
-		appJSON, err := bridge.GenerateSecurityApp(ctx)
+		appJSON, err := bridge.GenerateAuthPortalConfig(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, appJSON)
 
@@ -99,21 +107,28 @@ func TestRateLimiting(t *testing.T) {
 // TestSecurityHeadersGeneration tests HTTP security headers
 func TestSecurityHeadersGeneration(t *testing.T) {
 	logger := logrus.New()
-	mockSSM := &MockSystemSecurityManager{}
+	
+	db := setupTestDB(t)
+	defer db.Close()
 
 	secConfig := &types.SystemSecurityConfig{
 		Enabled: true,
+		AdminAuth: &types.AdminAuthConfig{
+			Local: &types.LocalAuthConfig{},
+		},
 		APIAuth: &types.APIAuthConfig{
 			Methods: []string{"bearer"},
 		},
 	}
 
-	bridge := NewCaddySecurityBridge(mockSSM, secConfig, logger)
+	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
+	bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+	require.NoError(t, err)
 
 	t.Run("GenerateSecurityHeaders", func(t *testing.T) {
 		// Test that security headers are included in caddy configuration
 		ctx := context.Background()
-		appJSON, err := bridge.GenerateSecurityApp(ctx)
+		appJSON, err := bridge.GenerateAuthPortalConfig(ctx)
 		assert.NoError(t, err)
 		assert.NotNil(t, appJSON)
 
@@ -128,10 +143,15 @@ func TestSecurityHeadersGeneration(t *testing.T) {
 // TestCSRFProtection tests CSRF protection mechanisms
 func TestCSRFProtection(t *testing.T) {
 	logger := logrus.New()
-	mockSSM := &MockSystemSecurityManager{}
+	
+	db := setupTestDB(t)
+	defer db.Close()
 
 	secConfig := &types.SystemSecurityConfig{
 		Enabled: true,
+		AdminAuth: &types.AdminAuthConfig{
+			Local: &types.LocalAuthConfig{},
+		},
 		SessionConfig: &types.SessionConfig{
 			CSRFProtection: true,
 			SecureCookies:  true,
@@ -139,7 +159,9 @@ func TestCSRFProtection(t *testing.T) {
 		},
 	}
 
-	bridge := NewCaddySecurityBridge(mockSSM, secConfig, logger)
+	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
+	bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+	require.NoError(t, err)
 
 	t.Run("CSRFConfigurationEnabled", func(t *testing.T) {
 		assert.True(t, secConfig.SessionConfig.CSRFProtection)
@@ -149,7 +171,7 @@ func TestCSRFProtection(t *testing.T) {
 
 	t.Run("GenerateCSRFProtection", func(t *testing.T) {
 		ctx := context.Background()
-		appJSON, err := bridge.GenerateSecurityApp(ctx)
+		appJSON, err := bridge.GenerateAuthPortalConfig(ctx)
 		assert.NoError(t, err)
 		assert.NotNil(t, appJSON)
 
@@ -163,7 +185,9 @@ func TestCSRFProtection(t *testing.T) {
 // TestAuthenticationMethods tests various authentication method configurations
 func TestAuthenticationMethods(t *testing.T) {
 	logger := logrus.New()
-	mockSSM := &MockSystemSecurityManager{}
+	
+	db := setupTestDB(t)
+	defer db.Close()
 
 	testCases := []struct {
 		name          string
@@ -191,6 +215,9 @@ func TestAuthenticationMethods(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			secConfig := &types.SystemSecurityConfig{
 				Enabled: true,
+				AdminAuth: &types.AdminAuthConfig{
+					Local: &types.LocalAuthConfig{},
+				},
 				APIAuth: &types.APIAuthConfig{
 					Methods: tc.authMethods,
 					JWTConfig: &types.JWTConfig{
@@ -202,13 +229,15 @@ func TestAuthenticationMethods(t *testing.T) {
 				},
 			}
 
-			bridge := NewCaddySecurityBridge(mockSSM, secConfig, logger)
+			mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
+			bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+			require.NoError(t, err)
 
 			// Verify configuration includes expected auth methods
 			assert.Equal(t, tc.authMethods, secConfig.APIAuth.Methods)
 
 			ctx := context.Background()
-			appJSON, err := bridge.GenerateSecurityApp(ctx)
+			appJSON, err := bridge.GenerateAuthPortalConfig(ctx)
 			assert.NoError(t, err)
 			assert.NotNil(t, appJSON)
 
@@ -224,7 +253,9 @@ func TestAuthenticationMethods(t *testing.T) {
 // TestAccessControlPolicies tests access control policy generation
 func TestAccessControlPolicies(t *testing.T) {
 	logger := logrus.New()
-	mockSSM := &MockSystemSecurityManager{}
+	
+	db := setupTestDB(t)
+	defer db.Close()
 
 	policies := []types.APIPolicy{
 		{
@@ -255,17 +286,22 @@ func TestAccessControlPolicies(t *testing.T) {
 
 	secConfig := &types.SystemSecurityConfig{
 		Enabled: true,
+		AdminAuth: &types.AdminAuthConfig{
+			Local: &types.LocalAuthConfig{},
+		},
 		APIAuth: &types.APIAuthConfig{
 			Methods:  []string{"jwt"},
 			Policies: policies,
 		},
 	}
 
-	bridge := NewCaddySecurityBridge(mockSSM, secConfig, logger)
+	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
+	bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+	require.NoError(t, err)
 
 	t.Run("PolicyGeneration", func(t *testing.T) {
 		ctx := context.Background()
-		appJSON, err := bridge.GenerateSecurityApp(ctx)
+		appJSON, err := bridge.GenerateAuthPortalConfig(ctx)
 		assert.NoError(t, err)
 		assert.NotNil(t, appJSON)
 

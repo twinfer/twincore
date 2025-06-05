@@ -238,29 +238,30 @@ type AdditionalExpectedResponse struct {
 }
 
 // ThingDescription is the top-level structure for a W3C WoT Thing Description.
+// @Description Complete W3C WoT Thing Description 1.1 specification compliant structure
 type ThingDescription struct {
-	Context             any                            `json:"@context"`     // string or []interface{} - should include "https://www.w3.org/2022/wot/td/v1.1"
-	ID                  string                         `json:"id,omitempty"` // Optional, but recommended for TDs published in a TD Directory
-	Title               string                         `json:"title"`        // Mandatory
-	Titles              map[string]string              `json:"titles,omitempty"`
-	Description         string                         `json:"description,omitempty"`
-	Descriptions        map[string]string              `json:"descriptions,omitempty"`
-	Version             *VersionInfo                   `json:"version,omitempty"`  // Updated for W3C WoT TD 1.1
-	Created             string                         `json:"created,omitempty"`  // Timestamp (string ISO8601)
-	Modified            string                         `json:"modified,omitempty"` // Timestamp (string ISO8601) - Made optional for compliance
-	Support             string                         `json:"support,omitempty"`  // Contact information (URI)
-	Base                string                         `json:"base,omitempty"`     // Base URI
-	Properties          map[string]*PropertyAffordance `json:"properties,omitempty"`
-	Actions             map[string]*ActionAffordance   `json:"actions,omitempty"`
-	Events              map[string]*EventAffordance    `json:"events,omitempty"`
-	Links               []*Link                        `json:"links,omitempty"`
-	Forms               []Form                         `json:"forms,omitempty"`     // Global forms
-	Security            []string                       `json:"security"`            // Array of security definition names (mandatory)
-	SecurityDefinitions map[string]SecurityScheme      `json:"securityDefinitions"` // Mandatory if "security" is not empty and schemes are not "nosec"
-	SchemaDefinitions   map[string]*DataSchema         `json:"schemaDefinitions,omitempty"`
-	Profile             []string                       `json:"profile,omitempty"` // URI identifying a profile
-	URIs                []string                       `json:"uris,omitempty"`    // External URIs for this TD
-	Comment             string                         `json:"$comment,omitempty"`
+	Context             any                            `json:"@context" swaggertype:"string" example:"https://www.w3.org/2022/wot/td/v1.1" description:"JSON-LD context, must include WoT TD 1.1 context"`
+	ID                  string                         `json:"id,omitempty" example:"urn:device:001" description:"Unique identifier for the Thing"`
+	Title               string                         `json:"title" example:"My IoT Device" description:"Human-readable name (mandatory)"`
+	Titles              map[string]string              `json:"titles,omitempty" description:"Multi-language titles"`
+	Description         string                         `json:"description,omitempty" example:"A sample IoT device for demonstration" description:"Human-readable description"`
+	Descriptions        map[string]string              `json:"descriptions,omitempty" description:"Multi-language descriptions"`
+	Version             *VersionInfo                   `json:"version,omitempty" description:"Version information"`
+	Created             string                         `json:"created,omitempty" example:"2023-12-01T10:30:00Z" description:"Creation timestamp (ISO8601)"`
+	Modified            string                         `json:"modified,omitempty" example:"2023-12-01T10:30:00Z" description:"Last modification timestamp (ISO8601)"`
+	Support             string                         `json:"support,omitempty" example:"mailto:support@example.com" description:"Contact information URI"`
+	Base                string                         `json:"base,omitempty" example:"https://device.example.com/" description:"Base URI for relative references"`
+	Properties          map[string]*PropertyAffordance `json:"properties,omitempty" description:"Available properties"`
+	Actions             map[string]*ActionAffordance   `json:"actions,omitempty" description:"Available actions"`
+	Events              map[string]*EventAffordance    `json:"events,omitempty" description:"Available events"`
+	Links               []*Link                        `json:"links,omitempty" description:"Web links"`
+	Forms               []Form                         `json:"forms,omitempty" description:"Global protocol bindings"`
+	Security            []string                       `json:"security" example:"[\"basic_sc\"]" description:"Security schemes (mandatory)"`
+	SecurityDefinitions map[string]SecurityScheme      `json:"securityDefinitions" description:"Security scheme definitions (mandatory)"`
+	SchemaDefinitions   map[string]*DataSchema         `json:"schemaDefinitions,omitempty" description:"Reusable data schemas"`
+	Profile             []string                       `json:"profile,omitempty" description:"Profile URIs"`
+	URIs                []string                       `json:"uris,omitempty" description:"External URIs for this TD"`
+	Comment             string                         `json:"$comment,omitempty" description:"Implementation comments"`
 }
 
 // Validation helpers and compliance methods

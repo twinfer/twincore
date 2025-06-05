@@ -422,7 +422,19 @@ func (h *UnifiedWoTHandler) handleBindingRoutes(logger *logrus.Entry, w http.Res
 	}
 }
 
-// handleThingDirect handles direct thing access /api/things/{id}
+// GetThingDescription godoc
+//
+//	@Summary		Get Thing Description
+//	@Description	Retrieves a complete W3C WoT Thing Description by ID
+//	@Tags			Things
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		string	true	"Thing ID"
+//	@Success		200	{object}	wot.ThingDescription
+//	@Failure		404	{object}	map[string]string	"Thing not found"
+//	@Failure		500	{object}	map[string]string	"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/things/{id} [get]
 func (h *UnifiedWoTHandler) handleThingDirect(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID string) error {
 	logger.WithField("thing_id", thingID).Debug("Handling direct thing access")
 
@@ -472,7 +484,23 @@ func (h *UnifiedWoTHandler) handleProperty(logger *logrus.Entry, w http.Response
 	}
 }
 
-// handlePropertyRead handles GET requests for properties
+// ReadProperty godoc
+//
+//	@Summary		Read property value
+//	@Description	Reads the current value of a WoT property. Supports real-time observation via Server-Sent Events when Accept header is 'text/event-stream' and property is observable.
+//	@Tags			Properties
+//	@Accept			json
+//	@Produce		json,text/plain,text/event-stream
+//	@Param			id		path		string	true	"Thing ID"
+//	@Param			name	path		string	true	"Property name"
+//	@Param			Accept	header		string	false	"Content type preference - use 'text/event-stream' for real-time observation"
+//	@Success		200		{object}	map[string]interface{}	"Property value and timestamp"
+//	@Success		200		{string}	string					"Property value as plain text"
+//	@Failure		404		{object}	map[string]string		"Property or thing not found"
+//	@Failure		406		{object}	map[string]string		"Content type not acceptable"
+//	@Failure		500		{object}	map[string]string		"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/things/{id}/properties/{name} [get]
 func (h *UnifiedWoTHandler) handlePropertyRead(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
 	logger.Debug("Handling property read")
 
@@ -507,7 +535,23 @@ func (h *UnifiedWoTHandler) handlePropertyRead(logger *logrus.Entry, w http.Resp
 	}
 }
 
-// handlePropertyWrite handles PUT requests for properties
+// WriteProperty godoc
+//
+//	@Summary		Write property value
+//	@Description	Updates the value of a WoT property. Property must be writable (not read-only). Value is validated against the property's data schema.
+//	@Tags			Properties
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path	string				true	"Thing ID"
+//	@Param			name	path	string				true	"Property name"
+//	@Param			value	body	map[string]interface{}	true	"Property value to set - can be raw value or wrapped in {'value': ...}"
+//	@Success		204		"Property updated successfully"
+//	@Failure		400		{object}	map[string]string	"Invalid request body or validation failed"
+//	@Failure		403		{object}	map[string]string	"Property is read-only"
+//	@Failure		404		{object}	map[string]string	"Property or thing not found"
+//	@Failure		500		{object}	map[string]string	"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/things/{id}/properties/{name} [put]
 func (h *UnifiedWoTHandler) handlePropertyWrite(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, propertyName string, property wot.PropertyAffordance) error {
 	logger.Debug("Handling property write")
 
@@ -619,7 +663,28 @@ func (h *UnifiedWoTHandler) handlePropertyObserve(logger *logrus.Entry, w http.R
 	}
 }
 
-// handleAction handles action invocations
+// InvokeAction godoc
+//
+//	@Summary		Invoke action
+//	@Description	Executes a WoT action on a device. Supports both synchronous and asynchronous execution. Use 'Prefer: respond-async' header for async execution and 'X-Action-Timeout' header to specify custom timeout.
+//	@Tags			Actions
+//	@Accept			json
+//	@Produce		json
+//	@Param			id					path	string				true	"Thing ID"
+//	@Param			name				path	string				true	"Action name"
+//	@Param			input				body	map[string]interface{}	false	"Action input parameters (optional, depends on action definition)"
+//	@Param			Prefer				header	string				false	"Use 'respond-async' for asynchronous execution"
+//	@Param			X-Action-Timeout	header	string				false	"Custom timeout duration (e.g., '30s', '1m')"
+//	@Success		200					{object}	map[string]interface{}	"Action result (synchronous execution)"
+//	@Success		202					{object}	map[string]interface{}	"Action accepted for async execution"
+//	@Success		204					"Action completed without output"
+//	@Failure		400					{object}	map[string]string		"Invalid input or validation failed"
+//	@Failure		404					{object}	map[string]string		"Action or thing not found"
+//	@Failure		405					{object}	map[string]string		"Method not allowed"
+//	@Failure		500					{object}	map[string]string		"Internal server error"
+//	@Failure		504					{object}	map[string]string		"Action execution timeout"
+//	@Security		BearerAuth
+//	@Router			/things/{id}/actions/{name} [post]
 func (h *UnifiedWoTHandler) handleAction(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, actionName string) error {
 	logger.WithFields(logrus.Fields{
 		"handler":     "handleAction",
@@ -706,7 +771,21 @@ func (h *UnifiedWoTHandler) handleAction(logger *logrus.Entry, w http.ResponseWr
 	return nil
 }
 
-// handleEvent handles event subscriptions
+// SubscribeToEvent godoc
+//
+//	@Summary		Subscribe to events
+//	@Description	Establishes a Server-Sent Events (SSE) stream to receive real-time WoT events from a device. The connection remains open and events are streamed as they occur.
+//	@Tags			Events
+//	@Accept			json
+//	@Produce		text/event-stream
+//	@Param			id		path	string	true	"Thing ID"
+//	@Param			name	path	string	true	"Event name"
+//	@Success		200		{string}	string				"SSE stream established - events will be streamed"
+//	@Failure		404		{object}	map[string]string	"Event or thing not found"
+//	@Failure		405		{object}	map[string]string	"Method not allowed"
+//	@Failure		500		{object}	map[string]string	"Internal server error or streaming not supported"
+//	@Security		BearerAuth
+//	@Router			/things/{id}/events/{name} [get]
 func (h *UnifiedWoTHandler) handleEvent(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID, eventName string) error {
 	logger.WithFields(logrus.Fields{
 		"handler":    "handleEvent",
@@ -759,7 +838,20 @@ func (h *UnifiedWoTHandler) handleEvent(logger *logrus.Entry, w http.ResponseWri
 // Stream Management Handlers (migrated from BenthosBindingHandler)
 // ============================================================================
 
-// handleCreateStream handles stream creation
+// CreateStream godoc
+//
+//	@Summary		Create stream
+//	@Description	Creates a new Benthos data processing stream for a WoT interaction. Streams handle data flow between devices and the platform with configurable processing pipelines.
+//	@Tags			Streams
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		types.StreamCreationRequest	true	"Stream configuration"
+//	@Success		201		{object}	types.StreamInfo			"Stream created successfully"
+//	@Failure		400		{object}	map[string]string			"Invalid request body or validation failed"
+//	@Failure		404		{object}	map[string]string			"Referenced thing not found"
+//	@Failure		500		{object}	map[string]string			"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/streams [post]
 func (h *UnifiedWoTHandler) handleCreateStream(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	logger.Debug("Handling stream creation")
 
@@ -790,7 +882,20 @@ func (h *UnifiedWoTHandler) handleCreateStream(logger *logrus.Entry, w http.Resp
 	return json.NewEncoder(w).Encode(stream)
 }
 
-// handleListStreams handles stream listing
+// ListStreams godoc
+//
+//	@Summary		List streams
+//	@Description	Retrieves a list of all Benthos streams with optional filtering by thing ID, interaction type, or status
+//	@Tags			Streams
+//	@Accept			json
+//	@Produce		json
+//	@Param			thing_id			query		string	false	"Filter by Thing ID"
+//	@Param			interaction_type	query		string	false	"Filter by interaction type (properties, actions, events)"
+//	@Param			status				query		string	false	"Filter by stream status"
+//	@Success		200					{object}	map[string]interface{}	"List of streams with count"
+//	@Failure		500					{object}	map[string]string		"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/streams [get]
 func (h *UnifiedWoTHandler) handleListStreams(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	logger.Debug("Handling stream listing")
 
@@ -900,7 +1005,19 @@ func (h *UnifiedWoTHandler) handleGetStreamStatus(logger *logrus.Entry, w http.R
 	return json.NewEncoder(w).Encode(status)
 }
 
-// handleCreateProcessorCollection handles processor collection creation
+// CreateProcessorCollection godoc
+//
+//	@Summary		Create processor collection
+//	@Description	Creates a reusable collection of data processors that can be applied to multiple streams. Collections help organize and standardize processing logic across the platform.
+//	@Tags			Processors
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		types.ProcessorCollectionRequest	true	"Processor collection configuration"
+//	@Success		201		{object}	types.ProcessorCollection			"Processor collection created successfully"
+//	@Failure		400		{object}	map[string]string					"Invalid request body"
+//	@Failure		500		{object}	map[string]string					"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/processors [post]
 func (h *UnifiedWoTHandler) handleCreateProcessorCollection(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	logger.Debug("Handling processor collection creation")
 
@@ -921,7 +1038,17 @@ func (h *UnifiedWoTHandler) handleCreateProcessorCollection(logger *logrus.Entry
 	return json.NewEncoder(w).Encode(collection)
 }
 
-// handleListProcessorCollections handles listing processor collections
+// ListProcessorCollections godoc
+//
+//	@Summary		List processor collections
+//	@Description	Retrieves all available processor collections with their configurations. These collections can be referenced when creating streams to apply standardized processing logic.
+//	@Tags			Processors
+//	@Accept			json
+//	@Produce		json
+//	@Success		200	{object}	map[string]interface{}	"List of processor collections with count"
+//	@Failure		500	{object}	map[string]string		"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/processors [get]
 func (h *UnifiedWoTHandler) handleListProcessorCollections(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	logger.Debug("Handling processor collection listing")
 
@@ -938,7 +1065,19 @@ func (h *UnifiedWoTHandler) handleListProcessorCollections(logger *logrus.Entry,
 	})
 }
 
-// handleGetProcessorCollection handles getting a specific processor collection
+// GetProcessorCollection godoc
+//
+//	@Summary		Get processor collection
+//	@Description	Retrieves detailed information about a specific processor collection including its configuration and all associated processors.
+//	@Tags			Processors
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		string	true	"Processor collection ID"
+//	@Success		200	{object}	types.ProcessorCollection	"Processor collection details"
+//	@Failure		404	{object}	map[string]string			"Processor collection not found"
+//	@Failure		500	{object}	map[string]string			"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/processors/{id} [get]
 func (h *UnifiedWoTHandler) handleGetProcessorCollection(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, collectionID string) error {
 	logger.WithField("collection_id", collectionID).Debug("Handling get processor collection")
 
@@ -952,7 +1091,20 @@ func (h *UnifiedWoTHandler) handleGetProcessorCollection(logger *logrus.Entry, w
 	return json.NewEncoder(w).Encode(collection)
 }
 
-// handleGenerateFromTD handles generating streams from Thing Description
+// GenerateBindingsFromTD godoc
+//
+//	@Summary		Generate bindings from Thing Description
+//	@Description	Automatically generates stream configurations and protocol bindings from a W3C WoT Thing Description. Creates streams for all properties, actions, and events defined in the TD.
+//	@Tags			Bindings
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		map[string]string		true	"Thing ID to generate bindings for"
+//	@Success		200		{object}	map[string]interface{}	"Generated stream configurations with count"
+//	@Failure		400		{object}	map[string]string		"Invalid request body"
+//	@Failure		404		{object}	map[string]string		"Thing not found"
+//	@Failure		500		{object}	map[string]string		"Internal server error"
+//	@Security		BearerAuth
+//	@Router			/bindings/generate [post]
 func (h *UnifiedWoTHandler) handleGenerateFromTD(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	logger.Debug("Handling TD-to-stream generation")
 

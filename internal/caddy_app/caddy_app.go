@@ -8,6 +8,9 @@ import (
 	"github.com/twinfer/twincore/internal/container"
 
 	"github.com/sirupsen/logrus"
+
+	// Import caddy-security modules to register them with Caddy
+	_ "github.com/greenpau/caddy-security"
 )
 
 // globalContainer holds the application's main container.

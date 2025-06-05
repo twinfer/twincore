@@ -21,6 +21,21 @@ import (
 	svc "github.com/twinfer/twincore/service"
 )
 
+// configManagerAdapter adapts api.ConfigurationManager to security.ConfigurationManager
+type configManagerAdapter struct {
+	api.ConfigurationManager
+}
+
+// UpdateCaddyConfig implements the security.ConfigurationManager interface
+func (a *configManagerAdapter) UpdateCaddyConfig(logger logrus.FieldLogger, path string, config any) error {
+	// Convert to map for UpdateConfiguration call
+	configMap, ok := config.(map[string]any)
+	if !ok {
+		return fmt.Errorf("config must be map[string]any")
+	}
+	return a.ConfigurationManager.UpdateConfiguration(logger, path, configMap)
+}
+
 // Container holds all application dependencies
 type Container struct {
 	// Core components
@@ -60,8 +75,6 @@ type Container struct {
 	// StreamBuilder *service.StreamBuilder // Replaced by BenthosEnvironment
 	BenthosEnvironment *service.Environment // Benthos v4 environment
 
-	// Legacy security integration (deprecated, replaced by simplified license checking)
-	licenseIntegration *security.LicenseIntegration
 
 	// WoT Binding Generation
 	BindingGenerator api.BindingGenerationService
@@ -158,8 +171,8 @@ func (c *Container) initSecurity(cfg *Config) error {
 		}
 	}
 
-	// Initialize system security manager
-	systemSecurityMgr := security.NewDefaultSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
+	// Initialize simplified system security manager for caddy-auth-portal integration
+	systemSecurityMgr := security.NewSimplifiedSystemSecurityManager(c.DB, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
 	// Initialize WoT security manager
@@ -379,15 +392,15 @@ func (c *Container) initServices(cfg *Config) error { // Added cfg for consisten
 	// Create service registry with container's logger
 	c.ServiceRegistry = svc.NewServiceRegistryWithLogger(c.Logger)
 
-	// Create services
-	c.HTTPService = svc.NewHTTPServiceUnified(c.Logger) // Use the unified HTTP service without Admin API
+	// Create services - Updated to use refactored constructors
+	c.HTTPService = svc.NewHTTPService(c.ConfigurationMgr, c.Logger) // Use refactored HTTP service
 
 	// Setup caddy-security integration
 	c.setupCaddySecurityIntegration(cfg)
 
-	// NewStreamService was refactored to take *service.Environment.
-	// Constructor: NewStreamService(env *service.Environment, logger *logrus.Logger)
-	c.StreamService = svc.NewStreamService(c.BenthosEnvironment, c.Logger)
+	// NewStreamService was refactored to delegate to BenthosStreamManager
+	// Constructor: NewStreamService(streamManager api.BenthosStreamManager, logger *logrus.Logger)
+	c.StreamService = svc.NewStreamService(c.BenthosStreamManager, c.Logger)
 	c.WoTService = svc.NewWoTService(c.ThingRegistry, c.ConfigManager, c.Logger) // Assuming this constructor is correct
 
 	// Register services with their configurations
@@ -459,9 +472,9 @@ func (c *Container) Stop(ctx context.Context) error {
 	return nil
 }
 
-// setupCaddySecurityIntegration configures caddy-security integration with SystemSecurityManager
+// setupCaddySecurityIntegration configures caddy-auth-portal integration with local identity store
 func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
-	c.Logger.Debug("Setting up caddy-security integration")
+	c.Logger.Debug("Setting up caddy-auth-portal integration")
 
 	// Get system security configuration from the config manager
 	systemSecurityConfig, err := c.getSystemSecurityConfig()
@@ -470,24 +483,35 @@ func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
 		systemSecurityConfig = c.getDefaultSystemSecurityConfig()
 	}
 
-	// Create caddy-security bridge
-	securityBridge := security.NewCaddySecurityBridge(
-		c.SystemSecurityManager,
-		systemSecurityConfig,
+	// Create caddy-auth-portal bridge
+	authPortalBridge, err := security.NewCaddyAuthPortalBridge(
+		c.DB,
 		c.Logger,
+		systemSecurityConfig,
+		c.UnifiedLicenseChecker,
+		cfg.ParquetLogPath, // Use ParquetLogPath as data directory
 	)
+	if err != nil {
+		c.Logger.WithError(err).Error("Failed to create auth portal bridge")
+		return
+	}
 
-	// Set the security bridge on the HTTP service
-	if httpService, ok := c.HTTPService.(*svc.HTTPServiceUnified); ok {
-		httpService.SetSecurityBridge(securityBridge)
-		c.Logger.Info("Caddy-security integration configured successfully")
+	// Set the configuration manager on the auth portal bridge for Caddy API integration
+	// Create adapter for ConfigurationManager to bridge interface differences
+	configAdapter := &configManagerAdapter{c.ConfigurationMgr}
+	authPortalBridge.SetConfigManager(configAdapter)
 
-		// Sync users to caddy-security user store
-		if err := securityBridge.SyncUsersToUserStore(context.Background()); err != nil {
-			c.Logger.WithError(err).Warn("Failed to sync users to caddy-security user store")
+	// Set the auth portal bridge on the HTTP service
+	if httpService, ok := c.HTTPService.(*svc.HTTPService); ok {
+		httpService.SetSecurityBridge(authPortalBridge)
+		c.Logger.Info("Caddy-auth-portal integration configured successfully")
+
+		// Sync users to identity store (no-op for local store, but good for consistency)
+		if err := authPortalBridge.SyncUsersToIdentityStore(context.Background()); err != nil {
+			c.Logger.WithError(err).Warn("Failed to sync users to identity store")
 		}
 	} else {
-		c.Logger.Error("Failed to cast HTTP service to HTTPServiceUnified")
+		c.Logger.Error("Failed to cast HTTP service to HTTPService")
 	}
 }
 
@@ -719,6 +743,22 @@ func runMigrations(db *sql.DB) error {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     
+    -- System API policies
+    CREATE TABLE IF NOT EXISTS api_policies (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        principal TEXT NOT NULL,     -- user, group, role
+        resources TEXT NOT NULL,     -- JSON array of API endpoints
+        actions TEXT NOT NULL,       -- JSON array of actions
+        conditions TEXT,             -- JSON array of conditions
+        enabled BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_policies_principal ON api_policies(principal);
+    CREATE INDEX IF NOT EXISTS idx_api_policies_enabled ON api_policies(enabled);
+
     -- Security audit events
     CREATE TABLE IF NOT EXISTS security_audit_events (
         id TEXT PRIMARY KEY,

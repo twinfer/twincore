@@ -1,0 +1,1594 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "TwinCore Gateway is a Web of Things (WoT) gateway that manages IoT devices through W3C Thing Descriptions. It dynamically generates data processing pipelines using Benthos and exposes HTTP APIs for device interaction.",
+        "title": "TwinCore Gateway API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "TwinCore API Support",
+            "url": "http://www.twinfer.com/support",
+            "email": "support@twinfer.com"
+        },
+        "license": {
+            "name": "Commercial License",
+            "url": "http://www.twinfer.com/license"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api",
+    "paths": {
+        "/bindings/generate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Automatically generates stream configurations and protocol bindings from a W3C WoT Thing Description. Creates streams for all properties, actions, and events defined in the TD.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Bindings"
+                ],
+                "summary": "Generate bindings from Thing Description",
+                "parameters": [
+                    {
+                        "description": "Thing ID to generate bindings for",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Generated stream configurations with count",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/processors": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all available processor collections with their configurations. These collections can be referenced when creating streams to apply standardized processing logic.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Processors"
+                ],
+                "summary": "List processor collections",
+                "responses": {
+                    "200": {
+                        "description": "List of processor collections with count",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a reusable collection of data processors that can be applied to multiple streams. Collections help organize and standardize processing logic across the platform.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Processors"
+                ],
+                "summary": "Create processor collection",
+                "parameters": [
+                    {
+                        "description": "Processor collection configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.ProcessorCollectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Processor collection created successfully",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProcessorCollection"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/processors/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves detailed information about a specific processor collection including its configuration and all associated processors.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Processors"
+                ],
+                "summary": "Get processor collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Processor collection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Processor collection details",
+                        "schema": {
+                            "$ref": "#/definitions/types.ProcessorCollection"
+                        }
+                    },
+                    "404": {
+                        "description": "Processor collection not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/streams": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves a list of all Benthos streams with optional filtering by thing ID, interaction type, or status",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "List streams",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by Thing ID",
+                        "name": "thing_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction type (properties, actions, events)",
+                        "name": "interaction_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by stream status",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of streams with count",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new Benthos data processing stream for a WoT interaction. Streams handle data flow between devices and the platform with configurable processing pipelines.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "Create stream",
+                "parameters": [
+                    {
+                        "description": "Stream configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.StreamCreationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Stream created successfully",
+                        "schema": {
+                            "$ref": "#/definitions/types.StreamInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or validation failed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Referenced thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/things/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves a complete W3C WoT Thing Description by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Things"
+                ],
+                "summary": "Get Thing Description",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thing ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/wot.ThingDescription"
+                        }
+                    },
+                    "404": {
+                        "description": "Thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/things/{id}/actions/{name}": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Executes a WoT action on a device. Supports both synchronous and asynchronous execution. Use 'Prefer: respond-async' header for async execution and 'X-Action-Timeout' header to specify custom timeout.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Actions"
+                ],
+                "summary": "Invoke action",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thing ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Action name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Action input parameters (optional, depends on action definition)",
+                        "name": "input",
+                        "in": "body",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Use 'respond-async' for asynchronous execution",
+                        "name": "Prefer",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Custom timeout duration (e.g., '30s', '1m')",
+                        "name": "X-Action-Timeout",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Action result (synchronous execution)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "202": {
+                        "description": "Action accepted for async execution",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "204": {
+                        "description": "Action completed without output"
+                    },
+                    "400": {
+                        "description": "Invalid input or validation failed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Action or thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "405": {
+                        "description": "Method not allowed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "504": {
+                        "description": "Action execution timeout",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/things/{id}/events/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Establishes a Server-Sent Events (SSE) stream to receive real-time WoT events from a device. The connection remains open and events are streamed as they occur.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Events"
+                ],
+                "summary": "Subscribe to events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thing ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SSE stream established - events will be streamed",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Event or thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "405": {
+                        "description": "Method not allowed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error or streaming not supported",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/things/{id}/properties/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reads the current value of a WoT property. Supports real-time observation via Server-Sent Events when Accept header is 'text/event-stream' and property is observable.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json",
+                    "text/plain",
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "Properties"
+                ],
+                "summary": "Read property value",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thing ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Property name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Content type preference - use 'text/event-stream' for real-time observation",
+                        "name": "Accept",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Property value as plain text",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Property or thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "406": {
+                        "description": "Content type not acceptable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the value of a WoT property. Property must be writable (not read-only). Value is validated against the property's data schema.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Properties"
+                ],
+                "summary": "Write property value",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thing ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Property name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Property value to set - can be raw value or wrapped in {'value': ...}",
+                        "name": "value",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Property updated successfully"
+                    },
+                    "400": {
+                        "description": "Invalid request body or validation failed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Property is read-only",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Property or thing not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "types.ProcessorCollection": {
+            "description": "Reusable collection of data processors that can be applied to streams",
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2023-12-01T10:30:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Standard processing for IoT sensor data"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "collection-123"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "IoT Data Pipeline"
+                },
+                "processors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProcessorConfig"
+                    }
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2023-12-01T10:30:00Z"
+                }
+            }
+        },
+        "types.ProcessorCollectionRequest": {
+            "description": "Request body for creating a new processor collection",
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "example": "Standard processing for IoT sensor data"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "IoT Data Pipeline"
+                },
+                "processors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProcessorConfig"
+                    }
+                }
+            }
+        },
+        "types.ProcessorConfig": {
+            "description": "Configuration for a data processor in the processing pipeline",
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "type": {
+                    "type": "string",
+                    "example": "json_validation"
+                }
+            }
+        },
+        "types.StreamCreationRequest": {
+            "description": "Request body for creating a new data processing stream",
+            "type": "object",
+            "properties": {
+                "direction": {
+                    "type": "string",
+                    "example": "input"
+                },
+                "input": {
+                    "$ref": "#/definitions/types.StreamEndpointConfig"
+                },
+                "interaction_name": {
+                    "type": "string",
+                    "example": "temperature"
+                },
+                "interaction_type": {
+                    "type": "string",
+                    "example": "properties"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "output": {
+                    "$ref": "#/definitions/types.StreamEndpointConfig"
+                },
+                "processor_chain": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProcessorConfig"
+                    }
+                },
+                "thing_id": {
+                    "type": "string",
+                    "example": "device-001"
+                }
+            }
+        },
+        "types.StreamEndpointConfig": {
+            "description": "Configuration for stream input or output endpoint",
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "type": {
+                    "type": "string",
+                    "example": "kafka"
+                }
+            }
+        },
+        "types.StreamInfo": {
+            "description": "Information about a created data processing stream",
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2023-12-01T10:30:00Z"
+                },
+                "direction": {
+                    "type": "string",
+                    "example": "input"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "stream-123"
+                },
+                "input": {
+                    "$ref": "#/definitions/types.StreamEndpointConfig"
+                },
+                "interaction_name": {
+                    "type": "string",
+                    "example": "temperature"
+                },
+                "interaction_type": {
+                    "type": "string",
+                    "example": "properties"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "output": {
+                    "$ref": "#/definitions/types.StreamEndpointConfig"
+                },
+                "processor_chain": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ProcessorConfig"
+                    }
+                },
+                "status": {
+                    "type": "string",
+                    "example": "running"
+                },
+                "thing_id": {
+                    "type": "string",
+                    "example": "device-001"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2023-12-01T10:30:00Z"
+                }
+            }
+        },
+        "wot.ActionAffordance": {
+            "type": "object",
+            "properties": {
+                "$comment": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "descriptions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "forms": {
+                    "description": "Must contain at least one form",
+                    "type": "array",
+                    "items": {}
+                },
+                "idempotent": {
+                    "description": "Default false",
+                    "type": "boolean"
+                },
+                "input": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "output": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "safe": {
+                    "description": "Default false",
+                    "type": "boolean"
+                },
+                "synchronous": {
+                    "description": "Added for W3C WoT TD 1.1",
+                    "type": "boolean"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "titles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "uriVariables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                }
+            }
+        },
+        "wot.DataSchema": {
+            "type": "object",
+            "properties": {
+                "$comment": {
+                    "type": "string"
+                },
+                "@type": {
+                    "description": "Added for W3C WoT TD 1.1",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "additionalProperties": {
+                    "description": "bool or *DataSchema"
+                },
+                "allOf": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "anyOf": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "const": {},
+                "contentEncoding": {
+                    "type": "string"
+                },
+                "contentMediaType": {
+                    "type": "string"
+                },
+                "default": {},
+                "description": {
+                    "type": "string"
+                },
+                "descriptions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "enum": {
+                    "type": "array",
+                    "items": {}
+                },
+                "exclusiveMaximum": {
+                    "type": "number"
+                },
+                "exclusiveMinimum": {
+                    "type": "number"
+                },
+                "format": {
+                    "description": "e.g., \"date-time\", \"uri\", \"email\"",
+                    "type": "string"
+                },
+                "items": {
+                    "description": "Array-specific"
+                },
+                "maxItems": {
+                    "type": "integer"
+                },
+                "maxLength": {
+                    "type": "integer"
+                },
+                "maximum": {
+                    "type": "number"
+                },
+                "minItems": {
+                    "type": "integer"
+                },
+                "minLength": {
+                    "type": "integer"
+                },
+                "minimum": {
+                    "description": "Number/Integer-specific",
+                    "type": "number"
+                },
+                "multipleOf": {
+                    "type": "number"
+                },
+                "not": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "observable": {
+                    "description": "Default false, relevant for PropertyAffordance",
+                    "type": "boolean"
+                },
+                "oneOf": {
+                    "description": "Logical keywords",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "pattern": {
+                    "description": "String-specific",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Object-specific",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "propertyNames": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "readOnly": {
+                    "description": "WoT specific (often found within PropertyAffordance, but part of DataSchema concept)",
+                    "type": "boolean"
+                },
+                "required": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "title": {
+                    "description": "Common annotations specific to this DataSchema definition",
+                    "type": "string"
+                },
+                "titles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "Type and format",
+                    "type": "string"
+                },
+                "uniqueItems": {
+                    "type": "boolean"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "writeOnly": {
+                    "description": "Default false",
+                    "type": "boolean"
+                }
+            }
+        },
+        "wot.EventAffordance": {
+            "type": "object",
+            "properties": {
+                "$comment": {
+                    "type": "string"
+                },
+                "cancellation": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "data": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "dataResponse": {
+                    "description": "Added for W3C WoT TD 1.1",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wot.DataSchema"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "descriptions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "forms": {
+                    "description": "Must contain at least one form",
+                    "type": "array",
+                    "items": {}
+                },
+                "subscription": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "titles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "uriVariables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                }
+            }
+        },
+        "wot.Link": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "string"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "hreflang": {
+                    "description": "Added for W3C WoT TD 1.1"
+                },
+                "rel": {
+                    "type": "string"
+                },
+                "sizes": {
+                    "description": "Added for W3C WoT TD 1.1",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Media type",
+                    "type": "string"
+                }
+            }
+        },
+        "wot.PropertyAffordance": {
+            "type": "object",
+            "properties": {
+                "$comment": {
+                    "type": "string"
+                },
+                "additionalProperties": {
+                    "description": "bool or *DataSchema"
+                },
+                "allOf": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "anyOf": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "const": {},
+                "contentEncoding": {
+                    "type": "string"
+                },
+                "contentMediaType": {
+                    "type": "string"
+                },
+                "default": {},
+                "description": {
+                    "type": "string"
+                },
+                "descriptions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "enum": {
+                    "type": "array",
+                    "items": {}
+                },
+                "exclusiveMaximum": {
+                    "type": "number"
+                },
+                "exclusiveMinimum": {
+                    "type": "number"
+                },
+                "format": {
+                    "description": "e.g., \"date-time\", \"uri\", \"email\"",
+                    "type": "string"
+                },
+                "forms": {
+                    "description": "Must contain at least one form",
+                    "type": "array",
+                    "items": {}
+                },
+                "items": {
+                    "description": "Array-specific"
+                },
+                "maxItems": {
+                    "type": "integer"
+                },
+                "maxLength": {
+                    "type": "integer"
+                },
+                "maximum": {
+                    "type": "number"
+                },
+                "minItems": {
+                    "type": "integer"
+                },
+                "minLength": {
+                    "type": "integer"
+                },
+                "minimum": {
+                    "description": "Number/Integer-specific",
+                    "type": "number"
+                },
+                "multipleOf": {
+                    "type": "number"
+                },
+                "not": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "observable": {
+                    "description": "Default false, relevant for PropertyAffordance",
+                    "type": "boolean"
+                },
+                "oneOf": {
+                    "description": "Logical keywords",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "pattern": {
+                    "description": "String-specific",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Object-specific",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "propertyNames": {
+                    "$ref": "#/definitions/wot.DataSchema"
+                },
+                "readOnly": {
+                    "description": "WoT specific (often found within PropertyAffordance, but part of DataSchema concept)",
+                    "type": "boolean"
+                },
+                "required": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                },
+                "titles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "Type and format",
+                    "type": "string"
+                },
+                "uniqueItems": {
+                    "type": "boolean"
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "uriVariables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "writeOnly": {
+                    "description": "Default false",
+                    "type": "boolean"
+                }
+            }
+        },
+        "wot.SecurityScheme": {
+            "type": "object",
+            "properties": {
+                "@type": {
+                    "description": "e.g. \"BasicSecurityScheme\", \"OAuth2SecurityScheme\""
+                },
+                "alg": {
+                    "description": "For Bearer",
+                    "type": "string"
+                },
+                "authorization": {
+                    "description": "For Bearer, OAuth2",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "descriptions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "flow": {
+                    "description": "For OAuth2",
+                    "type": "string"
+                },
+                "format": {
+                    "description": "For Bearer",
+                    "type": "string"
+                },
+                "identity": {
+                    "description": "For PSK",
+                    "type": "string"
+                },
+                "in": {
+                    "description": "For apikey (location of security information), also used by some other schemes",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "For apikey (name of header/query param)",
+                    "type": "string"
+                },
+                "proxy": {
+                    "description": "URI",
+                    "type": "string"
+                },
+                "qop": {
+                    "description": "Fields for specific security schemes as per TD 1.1",
+                    "type": "string"
+                },
+                "refresh": {
+                    "description": "For OAuth2",
+                    "type": "string"
+                },
+                "scheme": {
+                    "description": "e.g. \"basic\", \"bearer\", \"apikey\", \"oauth2\" - this is the primary discriminator",
+                    "type": "string"
+                },
+                "scopes": {
+                    "description": "For OAuth2",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "token": {
+                    "description": "For OAuth2",
+                    "type": "string"
+                }
+            }
+        },
+        "wot.ThingDescription": {
+            "description": "Complete W3C WoT Thing Description 1.1 specification compliant structure",
+            "type": "object",
+            "properties": {
+                "$comment": {
+                    "type": "string"
+                },
+                "@context": {
+                    "type": "string",
+                    "example": "https://www.w3.org/2022/wot/td/v1.1"
+                },
+                "actions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.ActionAffordance"
+                    }
+                },
+                "base": {
+                    "type": "string",
+                    "example": "https://device.example.com/"
+                },
+                "created": {
+                    "type": "string",
+                    "example": "2023-12-01T10:30:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "A sample IoT device for demonstration"
+                },
+                "descriptions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "events": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.EventAffordance"
+                    }
+                },
+                "forms": {
+                    "type": "array",
+                    "items": {}
+                },
+                "id": {
+                    "type": "string",
+                    "example": "urn:device:001"
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/wot.Link"
+                    }
+                },
+                "modified": {
+                    "type": "string",
+                    "example": "2023-12-01T10:30:00Z"
+                },
+                "profile": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "properties": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.PropertyAffordance"
+                    }
+                },
+                "schemaDefinitions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.DataSchema"
+                    }
+                },
+                "security": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[\"basic_sc\"]"
+                    ]
+                },
+                "securityDefinitions": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/wot.SecurityScheme"
+                    }
+                },
+                "support": {
+                    "type": "string",
+                    "example": "mailto:support@example.com"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "My IoT Device"
+                },
+                "titles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "uris": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "version": {
+                    "$ref": "#/definitions/wot.VersionInfo"
+                }
+            }
+        },
+        "wot.VersionInfo": {
+            "type": "object",
+            "properties": {
+                "instance": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "description": "API key authentication for device access",
+            "type": "apiKey",
+            "name": "X-API-Key",
+            "in": "header"
+        },
+        "BearerAuth": {
+            "description": "JWT Bearer token authentication. Format: \"Bearer {token}\"",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

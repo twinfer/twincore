@@ -11,11 +11,15 @@ import (
 )
 
 // ConfigurationManager defines the interface for managing application and Caddy configurations.
+// NOTE: Authentication and security configuration has been moved to CaddySecurityBridge
+// for proper separation of concerns.
 type ConfigurationManager interface {
 	IsSetupComplete() bool
 	CompleteSetup(logger logrus.FieldLogger) error
-	GetAuthProviders(license License) []AuthProviderInfo
-	ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error
+	// GetAuthProviders and ConfigureAuth have been moved to CaddySecurityBridge
+	// These methods are kept for transition but will be removed
+	GetAuthProviders(license License) []AuthProviderInfo // DEPRECATED: Use CaddySecurityBridge
+	ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error // DEPRECATED: Use CaddySecurityBridge
 	GetConfiguration(logger logrus.FieldLogger) (map[string]any, error)
 	UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]any) error
 	AddRoute(ctx context.Context, routeID string, route types.HTTPRoute) error

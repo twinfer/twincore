@@ -1,3 +1,50 @@
+// Package main TwinCore Gateway
+//
+//	@title			TwinCore Gateway API
+//	@version		1.0
+//	@description	TwinCore Gateway is a Web of Things (WoT) gateway that manages IoT devices through W3C Thing Descriptions. It dynamically generates data processing pipelines using Benthos and exposes HTTP APIs for device interaction.
+//	@termsOfService	http://swagger.io/terms/
+//
+//	@contact.name	TwinCore API Support
+//	@contact.url	http://www.twinfer.com/support
+//	@contact.email	support@twinfer.com
+//
+//	@license.name	Commercial License
+//	@license.url	http://www.twinfer.com/license
+//
+//	@host		localhost:8080
+//	@BasePath	/api
+//
+//	@securityDefinitions.apikey	BearerAuth
+//	@in							header
+//	@name						Authorization
+//	@description				JWT Bearer token authentication. Format: "Bearer {token}"
+//
+//	@securityDefinitions.apikey	ApiKeyAuth
+//	@in							header
+//	@name						X-API-Key
+//	@description				API key authentication for device access
+//
+//	@tag.name			Things
+//	@tag.description	Web of Things (WoT) Thing Description management and device interactions
+//
+//	@tag.name			Properties
+//	@tag.description	WoT Property interactions - read and write device properties
+//
+//	@tag.name			Actions
+//	@tag.description	WoT Action invocations - execute device actions and commands
+//
+//	@tag.name			Events
+//	@tag.description	WoT Event subscriptions - real-time event streaming via Server-Sent Events
+//
+//	@tag.name			Streams
+//	@tag.description	Benthos stream management - data processing pipeline control
+//
+//	@tag.name			Processors
+//	@tag.description	Benthos processor collection management
+//
+//	@tag.name			Bindings
+//	@tag.description	Protocol binding generation from Thing Descriptions
 package main
 
 import (

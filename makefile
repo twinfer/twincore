@@ -193,6 +193,20 @@ docs:
 	@echo "Generating documentation..."
 	$(GOCMD) doc -all > docs/api.md
 
+# Generate Swagger documentation
+.PHONY: swagger
+swagger:
+	@echo "Generating Swagger documentation..."
+	$(HOME)/go/bin/swag init -g cmd/twincore/main.go -o docs/swagger --parseInternal
+	@echo "Swagger documentation generated in docs/swagger/"
+	@echo "View at: http://localhost:8080/swagger/index.html (when server running)"
+
+# Clean Swagger documentation
+.PHONY: swagger-clean
+swagger-clean:
+	@echo "Cleaning Swagger documentation..."
+	rm -rf docs/swagger/
+
 # Create release
 .PHONY: release
 release: clean fmt lint test build-all docker-build
