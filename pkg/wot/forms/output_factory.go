@@ -153,6 +153,48 @@ func (f *OutputConfigFactory) registerDefaultHandlers() {
 	}
 }
 
+// GenerateFanOutput creates fanout output configuration for analytics destinations
+func (f *OutputConfigFactory) GenerateFanOutput(destinations []map[string]any, thingID string, interactionType string, interactionName string) (types.StreamEndpointConfig, error) {
+	if len(destinations) == 0 {
+		// Default to drop if no destinations configured
+		return f.Generate("drop", StreamEndpointParams{Type: "drop"})
+	}
+
+	if len(destinations) == 1 {
+		// Single destination - no fanout needed
+		dest := destinations[0]
+		destType, _ := dest["type"].(string)
+		return f.Generate(destType, StreamEndpointParams{
+			Type:   destType,
+			Config: dest,
+		})
+	}
+
+	// Multiple destinations - use fanout
+	var outputs []any
+	for _, dest := range destinations {
+		destType, _ := dest["type"].(string)
+		output, err := f.Generate(destType, StreamEndpointParams{
+			Type:   destType,
+			Config: dest,
+		})
+		if err != nil {
+			// Skip invalid outputs with warning
+			continue
+		}
+		outputs = append(outputs, map[string]any{
+			destType: output.Config,
+		})
+	}
+
+	return f.Generate("fanout", StreamEndpointParams{
+		Type: "fanout",
+		Config: map[string]any{
+			"outputs": outputs,
+		},
+	})
+}
+
 // Generate creates an output configuration for the specified type
 func (f *OutputConfigFactory) Generate(outputType string, params StreamEndpointParams) (types.StreamEndpointConfig, error) {
 	// Normalize output type

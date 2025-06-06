@@ -184,7 +184,7 @@ load-test:
 .PHONY: security-scan
 security-scan:
 	@echo "Running security scan..."
-	$(GOGET) github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+	$(GOGET) github.com/securego/gosec/v2/cmd/gosec@latest
 	gosec ./...
 
 # Generate documentation

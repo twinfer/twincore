@@ -73,9 +73,6 @@ import (
 	// Authentication module - loaded as Caddy plugin (will be optional)
 	// _ "github.com/greenpau/caddy-security" // Temporarily disabled due to compilation issues
 
-	// TwinCore custom modules
-	_ "github.com/twinfer/twincore/internal/caddy_app"
-
 	// Import our components
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/caddy_app"
