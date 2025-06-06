@@ -2,13 +2,13 @@ package security
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 )
 
@@ -21,18 +21,18 @@ type ConfigurationManager interface {
 // CaddyAuthPortalBridge provides proper integration with caddy-auth-portal
 // This replaces the old CaddySecurityBridge with correct caddy-security integration
 type CaddyAuthPortalBridge struct {
-	db               *sql.DB
-	logger           *logrus.Logger
-	config           *types.SystemSecurityConfig
-	identityStore    *LocalIdentityStore
-	configManager    ConfigurationManager
-	dataDir          string
-	licenseChecker   types.UnifiedLicenseChecker
+	securityRepo   database.SecurityRepositoryInterface
+	logger         *logrus.Logger
+	config         *types.SystemSecurityConfig
+	identityStore  *LocalIdentityStore
+	configManager  ConfigurationManager
+	dataDir        string
+	licenseChecker types.UnifiedLicenseChecker
 }
 
 // NewCaddyAuthPortalBridge creates a new bridge that properly integrates with caddy-auth-portal
 func NewCaddyAuthPortalBridge(
-	db *sql.DB,
+	securityRepo database.SecurityRepositoryInterface,
 	logger *logrus.Logger,
 	config *types.SystemSecurityConfig,
 	licenseChecker types.UnifiedLicenseChecker,
@@ -40,13 +40,10 @@ func NewCaddyAuthPortalBridge(
 ) (*CaddyAuthPortalBridge, error) {
 
 	// Create local identity store
-	identityStore := NewLocalIdentityStore(db, logger, "twincore_local")
-	if err := identityStore.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate identity store: %w", err)
-	}
+	identityStore := NewLocalIdentityStore(securityRepo, logger, "twincore_local")
 
 	return &CaddyAuthPortalBridge{
-		db:             db,
+		securityRepo:   securityRepo,
 		logger:         logger,
 		config:         config,
 		identityStore:  identityStore,
@@ -103,10 +100,10 @@ func (bridge *CaddyAuthPortalBridge) generatePortalConfig() map[string]any {
 	portalConfig := map[string]any{
 		"name": "TwinCore Gateway Portal",
 		"ui": map[string]any{
-			"logo_url":    "/portal/assets/logo.png",
-			"title":       "TwinCore Gateway",
+			"logo_url":      "/portal/assets/logo.png",
+			"title":         "TwinCore Gateway",
 			"auto_redirect": false,
-			"theme":       "basic",
+			"theme":         "basic",
 		},
 		"cookie": map[string]any{
 			"domain":   "",
@@ -125,9 +122,9 @@ func (bridge *CaddyAuthPortalBridge) generatePortalConfig() map[string]any {
 	// Local authentication backend
 	if bridge.config.AdminAuth != nil && bridge.config.AdminAuth.Local != nil {
 		localBackend := map[string]any{
-			"name":   "twincore_local_backend",
-			"method": "form",
-			"realm":  "twincore",
+			"name":            "twincore_local_backend",
+			"method":          "form",
+			"realm":           "twincore",
 			"identity_stores": []string{"twincore_local"},
 		}
 
@@ -161,7 +158,7 @@ func (bridge *CaddyAuthPortalBridge) generatePortalConfig() map[string]any {
 					"icon":  "las la-home",
 				},
 				{
-					"title": "API Documentation", 
+					"title": "API Documentation",
 					"link":  "/api/docs",
 					"icon":  "las la-book",
 				},
@@ -209,7 +206,7 @@ func (bridge *CaddyAuthPortalBridge) generateAuthorizationPolicy() map[string]an
 				},
 				"action": "allow",
 			},
-			// Viewer access  
+			// Viewer access
 			{
 				"comment": "Viewer read-only access",
 				"conditions": []string{
@@ -264,7 +261,7 @@ func (bridge *CaddyAuthPortalBridge) generateLDAPBackend() map[string]any {
 	ldapConfig := bridge.config.AdminAuth.LDAP
 
 	return map[string]any{
-		"name":   "twincore_ldap_backend", 
+		"name":   "twincore_ldap_backend",
 		"method": "form",
 		"realm":  "twincore",
 		"servers": []map[string]any{
@@ -365,7 +362,7 @@ func (bridge *CaddyAuthPortalBridge) ValidateConfiguration() error {
 
 	// Validate at least one auth method is configured
 	hasLocalAuth := bridge.config.AdminAuth.Local != nil
-	hasLDAPAuth := bridge.config.AdminAuth.LDAP != nil && 
+	hasLDAPAuth := bridge.config.AdminAuth.LDAP != nil &&
 		bridge.licenseChecker.IsSystemFeatureEnabled(context.Background(), "ldap_auth")
 
 	if !hasLocalAuth && !hasLDAPAuth {

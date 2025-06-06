@@ -1,7 +1,7 @@
 package config
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,11 +9,12 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/database"
 )
 
 // LifecycleManager manages the configuration lifecycle of TwinCore
 type LifecycleManager struct {
-	db               *sql.DB
+	configRepo       database.ConfigRepositoryInterface
 	configManager    *ConfigManager
 	defaultProvider  *DefaultConfigProvider
 	logger           *logrus.Logger
@@ -29,9 +30,9 @@ type LicenseValidator interface {
 }
 
 // NewLifecycleManager creates a new lifecycle manager
-func NewLifecycleManager(db *sql.DB, configManager *ConfigManager, licenseValidator LicenseValidator, dataDir string, logger *logrus.Logger) *LifecycleManager {
+func NewLifecycleManager(configRepo database.ConfigRepositoryInterface, configManager *ConfigManager, licenseValidator LicenseValidator, dataDir string, logger *logrus.Logger) *LifecycleManager {
 	return &LifecycleManager{
-		db:               db,
+		configRepo:       configRepo,
 		configManager:    configManager,
 		defaultProvider:  NewDefaultConfigProvider(),
 		logger:           logger,
@@ -95,29 +96,19 @@ func (lm *LifecycleManager) Initialize() error {
 
 // hasExistingConfiguration checks if there's existing configuration in the database
 func (lm *LifecycleManager) hasExistingConfiguration() (bool, error) {
-	var count int
-	err := lm.db.QueryRow(`
-		SELECT COUNT(*) FROM caddy_configs WHERE active = true
-	`).Scan(&count)
-
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+	ctx := context.Background()
+	config, err := lm.configRepo.GetActiveCaddyConfig(ctx)
 	if err != nil {
 		return false, err
 	}
-
-	return count > 0, nil
+	return config != nil, nil
 }
 
 // hasValidLicense checks if there's a valid license in the database
 func (lm *LifecycleManager) hasValidLicense() (bool, error) {
-	var licenseData string
-	err := lm.db.QueryRow(`
-		SELECT data FROM configs WHERE type = 'license' AND id = 'system_license'
-	`).Scan(&licenseData)
-
-	if err == sql.ErrNoRows {
+	ctx := context.Background()
+	licenseData, err := lm.configRepo.GetAppSetting(ctx, "system_license")
+	if err != nil {
 		// Check for license file
 		licensePath := filepath.Join(lm.dataDir, "license.jwt")
 		if data, err := os.ReadFile(licensePath); err == nil {
@@ -131,9 +122,6 @@ func (lm *LifecycleManager) hasValidLicense() (bool, error) {
 			}
 		}
 		return false, nil
-	}
-	if err != nil {
-		return false, err
 	}
 
 	// Validate the license
@@ -167,6 +155,8 @@ func (lm *LifecycleManager) applyDefaultConfiguration() error {
 
 // saveDefaultServiceConfigs saves default service configurations to database
 func (lm *LifecycleManager) saveDefaultServiceConfigs() error {
+	ctx := context.Background()
+	
 	// HTTP service config
 	httpConfig := lm.defaultProvider.GetDefaultHTTPConfig()
 	httpConfigJSON, err := json.Marshal(httpConfig)
@@ -174,11 +164,7 @@ func (lm *LifecycleManager) saveDefaultServiceConfigs() error {
 		return err
 	}
 
-	_, err = lm.db.Exec(`
-		INSERT OR REPLACE INTO configs (id, type, data, version)
-		VALUES ('http_service', 'service_config', ?, 1)
-	`, string(httpConfigJSON))
-	if err != nil {
+	if err := lm.configRepo.UpsertConfig(ctx, "http_service", "service_config", string(httpConfigJSON)); err != nil {
 		return err
 	}
 
@@ -189,11 +175,7 @@ func (lm *LifecycleManager) saveDefaultServiceConfigs() error {
 		return err
 	}
 
-	_, err = lm.db.Exec(`
-		INSERT OR REPLACE INTO configs (id, type, data, version)
-		VALUES ('stream_service', 'service_config', ?, 1)
-	`, string(streamConfigJSON))
-	if err != nil {
+	if err := lm.configRepo.UpsertConfig(ctx, "stream_service", "service_config", string(streamConfigJSON)); err != nil {
 		return err
 	}
 
@@ -204,12 +186,7 @@ func (lm *LifecycleManager) saveDefaultServiceConfigs() error {
 		return err
 	}
 
-	_, err = lm.db.Exec(`
-		INSERT OR REPLACE INTO configs (id, type, data, version)
-		VALUES ('security', 'service_config', ?, 1)
-	`, string(securityConfigJSON))
-
-	return err
+	return lm.configRepo.UpsertConfig(ctx, "security", "service_config", string(securityConfigJSON))
 }
 
 // ensureDirectories creates required directories
@@ -233,46 +210,31 @@ func (lm *LifecycleManager) ensureDirectories() error {
 
 // markInitialized marks the system as initialized
 func (lm *LifecycleManager) markInitialized() error {
-	_, err := lm.db.Exec(`
-		INSERT OR REPLACE INTO configs (id, type, data, version)
-		VALUES ('system_initialized', 'system_flag', 'true', 1)
-	`)
-	return err
+	ctx := context.Background()
+	return lm.configRepo.UpsertConfig(ctx, "system_initialized", "system_flag", "true")
 }
 
 // IsInitialized checks if the system has been initialized
 func (lm *LifecycleManager) IsInitialized() (bool, error) {
-	var data string
-	err := lm.db.QueryRow(`
-		SELECT data FROM configs WHERE id = 'system_initialized' AND type = 'system_flag'
-	`).Scan(&data)
-
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+	ctx := context.Background()
+	config, err := lm.configRepo.GetConfig(ctx, "system_initialized")
 	if err != nil {
-		return false, err
+		return false, nil // Not initialized if config doesn't exist
 	}
 
-	return data == "true", nil
+	return config.Data == "true", nil
 }
 
 // saveLicenseToDatabase saves license to database
 func (lm *LifecycleManager) saveLicenseToDatabase(licenseData string) error {
-	_, err := lm.db.Exec(`
-		INSERT OR REPLACE INTO configs (id, type, data, version)
-		VALUES ('system_license', 'license', ?, 1)
-	`, licenseData)
-	return err
+	ctx := context.Background()
+	return lm.configRepo.UpsertAppSetting(ctx, "system_license", licenseData)
 }
 
 // GetLicense retrieves the stored license
 func (lm *LifecycleManager) GetLicense() (string, error) {
-	var licenseData string
-	err := lm.db.QueryRow(`
-		SELECT data FROM configs WHERE type = 'license' AND id = 'system_license'
-	`).Scan(&licenseData)
-	return licenseData, err
+	ctx := context.Background()
+	return lm.configRepo.GetAppSetting(ctx, "system_license")
 }
 
 // UpdateLicense updates the system license
@@ -301,6 +263,7 @@ func (lm *LifecycleManager) UpdateLicense(licenseData string) error {
 
 // ExportConfiguration exports the current configuration
 func (lm *LifecycleManager) ExportConfiguration() (map[string]any, error) {
+	ctx := context.Background()
 	export := make(map[string]any)
 
 	// Get Caddy config
@@ -310,19 +273,13 @@ func (lm *LifecycleManager) ExportConfiguration() (map[string]any, error) {
 	}
 
 	// Get service configs
-	rows, err := lm.db.Query(`
-		SELECT id, data FROM configs WHERE type = 'service_config'
-	`)
+	configs, err := lm.configRepo.GetConfigsByType(ctx, "service_config")
 	if err == nil {
-		defer rows.Close()
 		services := make(map[string]any)
-		for rows.Next() {
-			var id, data string
-			if err := rows.Scan(&id, &data); err == nil {
-				var config any
-				if err := json.Unmarshal([]byte(data), &config); err == nil {
-					services[id] = config
-				}
+		for _, cfg := range configs {
+			var config any
+			if err := json.Unmarshal([]byte(cfg.Data), &config); err == nil {
+				services[cfg.ID] = config
 			}
 		}
 		export["services"] = services
@@ -358,19 +315,14 @@ func (lm *LifecycleManager) ImportConfiguration(config map[string]any) error {
 
 	// Import service configs
 	if services, ok := config["services"].(map[string]any); ok {
+		ctx := context.Background()
 		for id, serviceConfig := range services {
 			configJSON, err := json.Marshal(serviceConfig)
 			if err != nil {
 				continue
 			}
 
-			_, err = lm.db.Exec(`
-				INSERT OR REPLACE INTO configs (id, type, data, version)
-				VALUES (?, 'service_config', ?, 
-					(SELECT COALESCE(MAX(version), 0) + 1 FROM configs WHERE id = ?))
-			`, id, string(configJSON), id)
-
-			if err != nil {
+			if err := lm.configRepo.UpsertConfig(ctx, id, "service_config", string(configJSON)); err != nil {
 				lm.logger.WithError(err).Errorf("Failed to import service config: %s", id)
 			}
 		}

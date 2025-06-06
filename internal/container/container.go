@@ -160,12 +160,14 @@ func (c *Container) initSecurity(cfg *Config) error {
 	}
 
 	// Initialize system security manager for caddy-auth-portal integration
-	db := c.DatabaseFactory.GetManager().GetConnection()
-	systemSecurityMgr := security.NewSystemSecurityManager(db, c.Logger, unifiedChecker)
+	dbManager := c.DatabaseFactory.GetManager()
+	securityRepo := repositories.NewSecurityRepository(dbManager, c.Logger)
+	
+	systemSecurityMgr := security.NewSystemSecurityManager(securityRepo, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
 	// Initialize WoT security manager
-	wotSecurityMgr := security.NewDefaultWoTSecurityManager(db, c.Logger, unifiedChecker)
+	wotSecurityMgr := security.NewDefaultWoTSecurityManager(securityRepo, c.Logger, unifiedChecker)
 	c.WoTSecurityManager = wotSecurityMgr
 
 	// Register default credential stores for WoT security
@@ -218,6 +220,7 @@ func (c *Container) initConfiguration(cfg *Config) error {
 	// Create repositories
 	dbManager := c.DatabaseFactory.GetManager()
 	thingRepo := repositories.NewThingRepository(dbManager, c.Logger)
+	configRepo := repositories.NewConfigRepository(dbManager, c.Logger)
 
 	// Initialize config manager (API-based, not file-based)
 	cm := config.NewConfigManager(dbManager, c.Logger)
@@ -239,11 +242,9 @@ func (c *Container) initConfiguration(cfg *Config) error {
 		licenseValidator = nil
 	}
 
-	// Initialize lifecycle manager
-	// Note: LifecycleManager might need refactoring to use DatabaseManager too
-	db := c.DatabaseFactory.GetManager().GetConnection()
+	// Initialize lifecycle manager with ConfigRepository
 	lifecycleManager := config.NewLifecycleManager(
-		db,
+		configRepo,
 		cm,
 		licenseValidator,
 		cfg.DBPath, // Using DBPath as data directory
@@ -346,11 +347,11 @@ func (c *Container) initBindingGenerator(cfg *Config) error {
 func (c *Container) initStreamComposition(cfg *Config) error {
 	c.Logger.Debug("Initializing stream composition components")
 
-	// Initialize Benthos stream manager with DuckDB persistence
-	db := c.DatabaseFactory.GetManager().GetConnection()
+	// Initialize Benthos stream manager with centralized database management
+	dbManager := c.DatabaseFactory.GetManager()
 	streamManager, err := api.NewSimpleBenthosStreamManager(
 		cfg.ParquetLogPath+"/stream_configs", // Config directory for debug files
-		db,
+		dbManager,
 		c.Logger,
 	)
 	if err != nil {
@@ -481,9 +482,11 @@ func (c *Container) setupCaddySecurityIntegration(cfg *Config) {
 	}
 
 	// Create caddy-auth-portal bridge
-	db := c.DatabaseFactory.GetManager().GetConnection()
+	// Reuse the SecurityRepository created earlier
+	dbManager := c.DatabaseFactory.GetManager()
+	securityRepo := repositories.NewSecurityRepository(dbManager, c.Logger)
 	authPortalBridge, err := security.NewCaddyAuthPortalBridge(
-		db,
+		securityRepo,
 		c.Logger,
 		systemSecurityConfig,
 		c.UnifiedLicenseChecker,

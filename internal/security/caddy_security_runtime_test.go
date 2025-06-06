@@ -172,11 +172,11 @@ func setupRuntimeTestEnvironment(t *testing.T, tempDir string) error {
 	logger.SetLevel(logrus.ErrorLevel) // Reduce noise
 
 	// Setup test database
-	db := setupTestDB(t)
+	db, securityRepo := setupTestDB(t)
 	defer db.Close()
 
 	// Create identity store
-	store := NewLocalIdentityStore(db, logger, "twincore_local")
+	store := NewLocalIdentityStore(securityRepo, logger, "twincore_local")
 
 	// Create test users
 	testUsers := []*AuthUser{
@@ -195,7 +195,8 @@ func setupRuntimeTestEnvironment(t *testing.T, tempDir string) error {
 	}
 
 	for _, user := range testUsers {
-		err := store.CreateUser(context.Background(), user, "TestPass123!")
+		user.Password = "TestPass123!"
+		err := store.CreateUser(context.Background(), user)
 		if err != nil {
 			return fmt.Errorf("failed to create test user %s: %w", user.Username, err)
 		}
@@ -463,7 +464,7 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		logger := logrus.New()
 		logger.SetLevel(logrus.ErrorLevel)
 
-		db := setupTestDB(t)
+		db, securityRepo := setupTestDB(t)
 		defer db.Close()
 
 		mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
@@ -474,7 +475,7 @@ func TestCaddySecurityPerformance(t *testing.T) {
 			},
 		}
 
-		bridge, err := NewCaddyAuthPortalBridge(db, logger, config, mockLicenseChecker, t.TempDir())
+		bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, config, mockLicenseChecker, t.TempDir())
 		require.NoError(t, err)
 
 		// Measure time for multiple generations
@@ -502,10 +503,10 @@ func TestCaddySecurityPerformance(t *testing.T) {
 		logger := logrus.New()
 		logger.SetLevel(logrus.ErrorLevel)
 
-		db := setupTestDB(t)
+		db, securityRepo := setupTestDB(t)
 		defer db.Close()
 
-		store := NewLocalIdentityStore(db, logger, "perf_test")
+		store := NewLocalIdentityStore(securityRepo, logger, "perf_test")
 
 		// Create many test users
 		userCount := 1000
@@ -517,8 +518,9 @@ func TestCaddySecurityPerformance(t *testing.T) {
 				Email:    fmt.Sprintf("user%d@test.local", i),
 				FullName: fmt.Sprintf("Test User %d", i),
 				Roles:    []string{"user"},
+				Password: "password123",
 			}
-			err := store.CreateUser(context.Background(), user, "password123")
+			err := store.CreateUser(context.Background(), user)
 			require.NoError(t, err)
 		}
 

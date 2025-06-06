@@ -53,10 +53,10 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 
 	t.Run("IdentityStoreFileGeneration", func(t *testing.T) {
 		// Test creating a user file compatible with caddy-security local identity store
-		db := setupTestDB(t)
+		db, securityRepo := setupTestDB(t)
 		defer db.Close()
 
-		store := NewLocalIdentityStore(db, logger, "twincore_local")
+		store := NewLocalIdentityStore(securityRepo, logger, "twincore_local")
 
 		// Create test users
 		users := []*AuthUser{
@@ -81,7 +81,8 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 		}
 
 		for _, user := range users {
-			err := store.CreateUser(context.Background(), user, "password123")
+			user.Password = "password123" // Set password before creating
+			err := store.CreateUser(context.Background(), user)
 			require.NoError(t, err)
 		}
 
@@ -116,7 +117,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 
 	t.Run("SecurityAppConfiguration", func(t *testing.T) {
 		// Test generating a complete security app configuration
-		db := setupTestDB(t)
+		db, securityRepo := setupTestDB(t)
 		defer db.Close()
 
 		mockLicenseChecker := &MockUnifiedLicenseChecker{
@@ -177,7 +178,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 			},
 		}
 
-		bridge, err := NewCaddyAuthPortalBridge(db, logger, config, mockLicenseChecker, t.TempDir())
+		bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, config, mockLicenseChecker, t.TempDir())
 		require.NoError(t, err)
 
 		// Generate the security app configuration
@@ -231,18 +232,19 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 
 	t.Run("CompleteCaddyConfiguration", func(t *testing.T) {
 		// Test creating a complete Caddy configuration that could actually run
-		db := setupTestDB(t)
+		db, securityRepo := setupTestDB(t)
 		defer db.Close()
 
 		// Create test user
-		store := NewLocalIdentityStore(db, logger, "twincore_local")
+		store := NewLocalIdentityStore(securityRepo, logger, "twincore_local")
 		testUser := &AuthUser{
 			Username: "testadmin",
 			Email:    "admin@test.local",
 			FullName: "Test Administrator",
 			Roles:    []string{"admin"},
 		}
-		err := store.CreateUser(context.Background(), testUser, "AdminPass123!")
+		testUser.Password = "AdminPass123!"
+		err := store.CreateUser(context.Background(), testUser)
 		require.NoError(t, err)
 
 		// Generate user file
@@ -260,7 +262,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 			},
 		}
 
-		bridge, err := NewCaddyAuthPortalBridge(db, logger, config, mockLicenseChecker, tempDir)
+		bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, config, mockLicenseChecker, tempDir)
 		require.NoError(t, err)
 
 		securityConfig, err := bridge.GenerateAuthPortalConfig(context.Background())

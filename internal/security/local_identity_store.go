@@ -2,8 +2,6 @@ package security
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,69 +9,53 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 )
 
 // LocalIdentityStore implements a local identity store for caddy-auth-portal
 // This bridges our local user database to caddy-security's authentication system
 type LocalIdentityStore struct {
-	db     *sql.DB
-	logger *logrus.Logger
-	name   string
+	securityRepo database.SecurityRepositoryInterface
+	logger       *logrus.Logger
+	name         string
 }
 
 // NewLocalIdentityStore creates a new local identity store
-func NewLocalIdentityStore(db *sql.DB, logger *logrus.Logger, name string) *LocalIdentityStore {
+func NewLocalIdentityStore(securityRepo database.SecurityRepositoryInterface, logger *logrus.Logger, name string) *LocalIdentityStore {
 	return &LocalIdentityStore{
-		db:     db,
-		logger: logger,
-		name:   name,
+		securityRepo: securityRepo,
+		logger:       logger,
+		name:         name,
 	}
 }
 
 // AuthUser represents a user in the identity store format expected by caddy-auth-portal
 type AuthUser struct {
-	ID         string            `json:"id"`
-	Username   string            `json:"username"`
-	Email      string            `json:"email,omitempty"`
-	FullName   string            `json:"name,omitempty"`
-	Roles      []string          `json:"roles,omitempty"`
-	Password   string            `json:"password,omitempty"` // Hashed password
-	Disabled   bool              `json:"disabled,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	LastLogin  *time.Time        `json:"last_login,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-	MFAEnabled bool              `json:"mfa_enabled,omitempty"`
-	MFASecret  string            `json:"mfa_secret,omitempty"`
-	APIKeys    []string          `json:"api_keys,omitempty"`
+	ID        string            `json:"id"`
+	Username  string            `json:"username"`
+	Email     string            `json:"email,omitempty"`
+	FullName  string            `json:"name,omitempty"`
+	Roles     []string          `json:"roles,omitempty"`
+	Password  string            `json:"password,omitempty"` // Hashed password
+	Disabled  bool              `json:"disabled,omitempty"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+	LastLogin *time.Time        `json:"last_login,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
-// GetUser retrieves a user by username for authentication
+// GetUser retrieves a user for authentication purposes
 func (lis *LocalIdentityStore) GetUser(ctx context.Context, username string) (*AuthUser, error) {
-	var user types.LocalUser
-	var rolesJSON string
-	var lastLogin sql.NullTime // Handle NULL values properly
+	lis.logger.WithField("username", username).Debug("Getting user from local identity store")
 
-	err := lis.db.QueryRowContext(ctx, `
-		SELECT username, password_hash, email, name, roles, disabled, last_login, created_at, updated_at 
-		FROM local_users WHERE username = ?
-	`, username).Scan(&user.Username, &user.PasswordHash, &user.Email, &user.FullName,
-		&rolesJSON, &user.Disabled, &lastLogin, &user.CreatedAt, &user.UpdatedAt)
-
+	user, err := lis.securityRepo.GetUser(ctx, username)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("user not found: %w", err)
 	}
 
-	// Parse roles JSON
-	var roles []string
-	if err := json.Unmarshal([]byte(rolesJSON), &roles); err != nil {
-		lis.logger.WithError(err).Warn("Failed to parse user roles, using empty roles")
-		roles = []string{}
-	}
+	// Roles are already parsed as []string in types.LocalUser
+	roles := user.Roles
 
 	authUser := &AuthUser{
 		ID:        user.Username, // Using username as ID for simplicity
@@ -85,162 +67,172 @@ func (lis *LocalIdentityStore) GetUser(ctx context.Context, username string) (*A
 		Disabled:  user.Disabled,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
-		Metadata:  make(map[string]string),
 	}
 
-	// Handle NULL last_login
-	if lastLogin.Valid {
-		authUser.LastLogin = &lastLogin.Time
+	if !user.LastLogin.IsZero() {
+		authUser.LastLogin = &user.LastLogin
 	}
 
 	return authUser, nil
 }
 
-// ValidateUser validates user credentials for authentication
-func (lis *LocalIdentityStore) ValidateUser(ctx context.Context, username, password string) (*AuthUser, error) {
-	user, err := lis.GetUser(ctx, username)
-	if err != nil {
-		return nil, err
-	}
+// AuthenticateUser verifies user credentials
+func (lis *LocalIdentityStore) AuthenticateUser(ctx context.Context, username, password string) (*AuthUser, error) {
+	lis.logger.WithField("username", username).Debug("Authenticating user")
 
-	if user.Disabled {
-		return nil, fmt.Errorf("user account is disabled")
+	// Get user data for authentication
+	userAuth, err := lis.securityRepo.GetUserForAuth(ctx, username)
+	if err != nil {
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 
 	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(userAuth.PasswordHash), []byte(password)); err != nil {
+		lis.logger.WithField("username", username).Warn("Password verification failed")
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
 	// Update last login
-	if err := lis.updateLastLogin(ctx, username); err != nil {
-		lis.logger.WithError(err).Warn("Failed to update last login time")
+	if err := lis.securityRepo.UpdateLastLogin(ctx, username); err != nil {
+		lis.logger.WithError(err).WithField("username", username).Warn("Failed to update last login")
+		// Don't fail authentication for this
 	}
 
+	// Get full user info and convert to AuthUser
+	user, err := lis.GetUser(ctx, username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info after authentication: %w", err)
+	}
+
+	lis.logger.WithField("username", username).Info("User authenticated successfully")
 	return user, nil
 }
 
 // CreateUser creates a new user in the identity store
-func (lis *LocalIdentityStore) CreateUser(ctx context.Context, user *AuthUser, password string) error {
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
+func (lis *LocalIdentityStore) CreateUser(ctx context.Context, authUser *AuthUser) error {
+	lis.logger.WithField("username", authUser.Username).Debug("Creating user in local identity store")
+
+	// Hash password if provided
+	var passwordHash string
+	if authUser.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(authUser.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("failed to hash password: %w", err)
+		}
+		passwordHash = string(hash)
 	}
 
-	rolesJSON, _ := json.Marshal(user.Roles)
+	// Create types.LocalUser for repository
+	user := &types.LocalUser{
+		Username:     authUser.Username,
+		PasswordHash: passwordHash,
+		Email:        authUser.Email,
+		FullName:     authUser.FullName,
+		Roles:        authUser.Roles,
+		Disabled:     authUser.Disabled,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
 
-	_, err = lis.db.ExecContext(ctx, `
-		INSERT INTO local_users (username, password_hash, email, name, roles, disabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, user.Username, string(hashedPassword), user.Email, user.FullName, string(rolesJSON),
-		user.Disabled, time.Now(), time.Now())
-
-	if err != nil {
+	if err := lis.securityRepo.CreateUser(ctx, user); err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
-	lis.logger.WithField("username", user.Username).Info("Created user in local identity store")
+	lis.logger.WithField("username", authUser.Username).Info("User created successfully")
 	return nil
 }
 
-// UpdateUser updates an existing user in the identity store
-func (lis *LocalIdentityStore) UpdateUser(ctx context.Context, username string, updates map[string]any) error {
-	setParts := []string{}
-	args := []any{}
+// UpdateUser updates an existing user
+func (lis *LocalIdentityStore) UpdateUser(ctx context.Context, authUser *AuthUser) error {
+	lis.logger.WithField("username", authUser.Username).Debug("Updating user in local identity store")
 
-	for field, value := range updates {
-		switch field {
-		case "email", "name", "disabled":
-			setParts = append(setParts, fmt.Sprintf("%s = ?", field))
-			args = append(args, value)
-		case "roles":
-			if roles, ok := value.([]string); ok {
-				rolesJSON, _ := json.Marshal(roles)
-				setParts = append(setParts, "roles = ?")
-				args = append(args, string(rolesJSON))
-			}
-		case "password":
-			if password, ok := value.(string); ok {
-				hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-				if err != nil {
-					return fmt.Errorf("failed to hash password: %w", err)
-				}
-				setParts = append(setParts, "password_hash = ?")
-				args = append(args, string(hashedPassword))
-			}
+	// Hash password if provided and changed
+	var passwordHash string
+	if authUser.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(authUser.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("failed to hash password: %w", err)
 		}
+		passwordHash = string(hash)
+	} else {
+		// Get existing password hash if no new password provided
+		existingUser, err := lis.securityRepo.GetUser(ctx, authUser.Username)
+		if err != nil {
+			return fmt.Errorf("failed to get existing user: %w", err)
+		}
+		passwordHash = existingUser.PasswordHash
 	}
 
-	if len(setParts) == 0 {
-		return fmt.Errorf("no valid fields to update")
+	// Create types.LocalUser for repository
+	user := &types.LocalUser{
+		Username:     authUser.Username,
+		PasswordHash: passwordHash,
+		Email:        authUser.Email,
+		FullName:     authUser.FullName,
+		Roles:        authUser.Roles,
+		Disabled:     authUser.Disabled,
+		UpdatedAt:    time.Now(),
 	}
 
-	setParts = append(setParts, "updated_at = ?")
-	args = append(args, time.Now())
-	args = append(args, username)
-
-	query := fmt.Sprintf("UPDATE local_users SET %s WHERE username = ?",
-		strings.Join(setParts, ", "))
-
-	_, err := lis.db.ExecContext(ctx, query, args...)
-	if err != nil {
+	if err := lis.securityRepo.UpdateUser(ctx, user); err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
-	lis.logger.WithField("username", username).Info("Updated user in local identity store")
+	lis.logger.WithField("username", authUser.Username).Info("User updated successfully")
 	return nil
 }
 
 // DeleteUser removes a user from the identity store
 func (lis *LocalIdentityStore) DeleteUser(ctx context.Context, username string) error {
-	_, err := lis.db.ExecContext(ctx, "DELETE FROM local_users WHERE username = ?", username)
-	if err != nil {
+	lis.logger.WithField("username", username).Debug("Deleting user from local identity store")
+
+	if err := lis.securityRepo.DeleteUser(ctx, username); err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
-	lis.logger.WithField("username", username).Info("Deleted user from local identity store")
+	lis.logger.WithField("username", username).Info("User deleted successfully")
 	return nil
 }
 
-// ListUsers returns all users from the identity store
+// ListUsers returns all users in the identity store
 func (lis *LocalIdentityStore) ListUsers(ctx context.Context) ([]*AuthUser, error) {
-	rows, err := lis.db.QueryContext(ctx, `
-		SELECT username, email, name, roles, disabled, created_at, updated_at, last_login
-		FROM local_users ORDER BY username
-	`)
+	lis.logger.Debug("Listing all users from local identity store")
+
+	users, err := lis.securityRepo.ListUsers(ctx)
 	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var users []*AuthUser
-	for rows.Next() {
-		var user AuthUser
-		var rolesJSON string
-		var lastLogin sql.NullTime
-
-		err := rows.Scan(&user.Username, &user.Email, &user.FullName, &rolesJSON,
-			&user.Disabled, &user.CreatedAt, &user.UpdatedAt, &lastLogin)
-		if err != nil {
-			continue
-		}
-
-		// Parse roles JSON
-		if err := json.Unmarshal([]byte(rolesJSON), &user.Roles); err != nil {
-			user.Roles = []string{}
-		}
-
-		user.ID = user.Username // Using username as ID
-		if lastLogin.Valid {
-			user.LastLogin = &lastLogin.Time
-		}
-		user.Metadata = make(map[string]string)
-
-		users = append(users, &user)
+		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
 
-	return users, nil
+	var authUsers []*AuthUser
+	for _, user := range users {
+		// Roles are already parsed as []string in types.LocalUser
+		roles := user.Roles
+
+		authUser := &AuthUser{
+			ID:        user.Username,
+			Username:  user.Username,
+			Email:     user.Email,
+			FullName:  user.FullName,
+			Roles:     roles,
+			Disabled:  user.Disabled,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+		}
+
+		if !user.LastLogin.IsZero() {
+			authUser.LastLogin = &user.LastLogin
+		}
+
+		authUsers = append(authUsers, authUser)
+	}
+
+	lis.logger.WithField("count", len(authUsers)).Debug("Listed users successfully")
+	return authUsers, nil
+}
+
+// UserExists checks if a user exists in the identity store
+func (lis *LocalIdentityStore) UserExists(ctx context.Context, username string) (bool, error) {
+	return lis.securityRepo.UserExists(ctx, username)
 }
 
 // GetName returns the name of this identity store
@@ -248,42 +240,55 @@ func (lis *LocalIdentityStore) GetName() string {
 	return lis.name
 }
 
-// GetType returns the type of this identity store
-func (lis *LocalIdentityStore) GetType() string {
-	return "local"
-}
+// ChangePassword changes a user's password
+func (lis *LocalIdentityStore) ChangePassword(ctx context.Context, username, newPassword string) error {
+	lis.logger.WithField("username", username).Debug("Changing user password")
 
-// Validate validates the identity store configuration
-func (lis *LocalIdentityStore) Validate() error {
-	if lis.db == nil {
-		return fmt.Errorf("database connection is required")
+	// Get existing user
+	user, err := lis.securityRepo.GetUser(ctx, username)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
 	}
-	if lis.name == "" {
-		return fmt.Errorf("identity store name is required")
+
+	// Hash new password
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
 	}
+
+	// Update password
+	user.PasswordHash = string(hash)
+	user.UpdatedAt = time.Now()
+
+	if err := lis.securityRepo.UpdateUser(ctx, user); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	lis.logger.WithField("username", username).Info("Password changed successfully")
 	return nil
 }
 
-// Helper methods
+// ValidateUserRole checks if a user has a specific role
+func (lis *LocalIdentityStore) ValidateUserRole(ctx context.Context, username string, requiredRole string) (bool, error) {
+	user, err := lis.GetUser(ctx, username)
+	if err != nil {
+		return false, err
+	}
 
-func (lis *LocalIdentityStore) updateLastLogin(ctx context.Context, username string) error {
-	_, err := lis.db.ExecContext(ctx,
-		"UPDATE local_users SET last_login = ? WHERE username = ?",
-		time.Now(), username)
-	return err
+	for _, role := range user.Roles {
+		if strings.EqualFold(role, requiredRole) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
-// SupportsPasswordChange indicates if this store supports password changes
-func (lis *LocalIdentityStore) SupportsPasswordChange() bool {
-	return true
-}
-
-// SupportsUserCreation indicates if this store supports user creation
-func (lis *LocalIdentityStore) SupportsUserCreation() bool {
-	return true
-}
-
-// SupportsUserDeletion indicates if this store supports user deletion
-func (lis *LocalIdentityStore) SupportsUserDeletion() bool {
-	return true
+// GetUserCount returns the total number of users
+func (lis *LocalIdentityStore) GetUserCount(ctx context.Context) (int, error) {
+	users, err := lis.securityRepo.ListUsers(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return len(users), nil
 }

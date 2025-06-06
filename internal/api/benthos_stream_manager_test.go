@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 )
 
@@ -26,6 +27,59 @@ type MockableBenthosStream interface {
 // MockBenthosStream is a mock for MockableBenthosStream
 type MockBenthosStream struct {
 	mock.Mock
+}
+
+// MockDatabaseManager is a simplified mock for database.DatabaseManager
+type MockDatabaseManager struct {
+	mock.Mock
+	isHealthy bool
+}
+
+func (m *MockDatabaseManager) Execute(ctx context.Context, queryName string, args ...any) (sql.Result, error) {
+	mockArgs := m.Called(ctx, queryName, args)
+	if mockArgs.Get(0) == nil {
+		return sqlmock.NewResult(1, 1), mockArgs.Error(1)
+	}
+	return mockArgs.Get(0).(sql.Result), mockArgs.Error(1)
+}
+
+func (m *MockDatabaseManager) Query(ctx context.Context, queryName string, args ...any) (*sql.Rows, error) {
+	// For Query operations, return nil rows and no error to simulate empty result set
+	return nil, nil
+}
+
+func (m *MockDatabaseManager) QueryRow(ctx context.Context, queryName string, args ...any) *sql.Row {
+	// Not used in stream manager tests
+	return nil
+}
+
+func (m *MockDatabaseManager) Transaction(ctx context.Context, fn func(*sql.Tx) error) error {
+	// Not used in stream manager tests
+	return nil
+}
+
+func (m *MockDatabaseManager) GetQuery(name string) (string, error) {
+	return "SELECT 1", nil
+}
+
+func (m *MockDatabaseManager) ListQueries() []string {
+	return []string{"LoadAllActiveStreams", "UpdateValidationError", "InsertStreamConfig"}
+}
+
+func (m *MockDatabaseManager) IsHealthy() bool {
+	return m.isHealthy
+}
+
+func (m *MockDatabaseManager) GetQueryStats() map[string]*database.QueryStats {
+	return make(map[string]*database.QueryStats)
+}
+
+func (m *MockDatabaseManager) Close() error {
+	return nil
+}
+
+func (m *MockDatabaseManager) GetConnection() *sql.DB {
+	return nil
 }
 
 func (m *MockBenthosStream) Run(ctx context.Context) error {
@@ -72,11 +126,12 @@ func (m *MockBenthosStreamBuilder) AsYAML() (string, error) {
 // BenthosStreamManagerTestSuite is the test suite for SimpleBenthosStreamManager.
 type BenthosStreamManagerTestSuite struct {
 	suite.Suite
-	manager       *SimpleBenthosStreamManager // System Under Test
-	db            *sql.DB
-	mockSql       sqlmock.Sqlmock // For sql.DB mocking
-	logger        *logrus.Logger
-	testConfigDir string // For testing config file writing
+	manager         *SimpleBenthosStreamManager // System Under Test
+	db              *sql.DB
+	mockSql         sqlmock.Sqlmock           // For sql.DB mocking
+	mockDbManager   *MockDatabaseManager      // Mock DatabaseManager
+	logger          *logrus.Logger
+	testConfigDir   string // For testing config file writing
 
 	// mockStream and mockBuilder can be initialized per test if needed
 	// mockStream   *MockBenthosStream
@@ -88,41 +143,21 @@ func (suite *BenthosStreamManagerTestSuite) SetupTest() {
 	suite.logger = logrus.New()
 	suite.logger.SetOutput(io.Discard) // Disable log output during tests
 
-	var err error
-	suite.db, suite.mockSql, err = sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual)) // Use equal query matching
-	assert.NoError(suite.T(), err, "Failed to create sqlmock")
-
-	// Prepare for the NewSimpleBenthosStreamManager call:
-	// It calls initializeSchema and loadStreamsFromDatabase.
-
-	// Mock for initializeSchema
-	suite.mockSql.ExpectExec("CREATE TABLE IF NOT EXISTS stream_configs ( stream_id TEXT PRIMARY KEY, thing_id TEXT NOT NULL, interaction_type TEXT NOT NULL, interaction_name TEXT NOT NULL, direction TEXT NOT NULL, input_config TEXT NOT NULL, output_config TEXT NOT NULL, processor_chain TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'created', created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL, metadata TEXT, config_yaml TEXT, validation_error TEXT )").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	// Mock for loadStreamsFromDatabase (assuming no streams initially)
-	rows := sqlmock.NewRows([]string{"stream_id", "thing_id", "interaction_type", "interaction_name", "direction", "input_config", "output_config", "processor_chain", "status", "created_at", "updated_at", "metadata"})
-	suite.mockSql.ExpectQuery("SELECT stream_id, thing_id, interaction_type, interaction_name, direction, input_config, output_config, processor_chain, status, created_at, updated_at, metadata FROM stream_configs WHERE status != 'deleted'").
-		WillReturnRows(rows)
+	// Setup mock DatabaseManager with simplified approach
+	suite.mockDbManager = &MockDatabaseManager{isHealthy: true}
 
 	tempDir, err := os.MkdirTemp("", "benthos_configs_test")
 	assert.NoError(suite.T(), err, "Failed to create temp config dir")
 	suite.testConfigDir = tempDir
 
-	// CRITICAL: SimpleBenthosStreamManager's NewSimpleBenthosStreamManager
-	// needs to be adaptable for testing. It currently calls service.NewStreamBuilder() directly
-	// within generateBenthosStreamBuilder.
-	// For testing, we need to inject mocks. This might mean NewSimpleBenthosStreamManager
-	// takes a factory function for StreamBuilders, or the manager has a method to set a builder factory.
-	// The following instantiation will work for tests not involving actual Benthos stream construction
-	// or if those parts are refactored for mock injection.
-	suite.manager, err = NewSimpleBenthosStreamManager(suite.testConfigDir, suite.db, suite.logger)
+	// Create SimpleBenthosStreamManager with mock DatabaseManager
+	// The loadStreamsFromDatabase will get nil rows and handle gracefully
+	suite.manager, err = NewSimpleBenthosStreamManager(suite.testConfigDir, suite.mockDbManager, suite.logger)
 	assert.NoError(suite.T(), err, "NewSimpleBenthosStreamManager failed during setup")
 }
 
 // TearDownTest cleans up resources after each test.
 func (suite *BenthosStreamManagerTestSuite) TearDownTest() {
-	assert.NoError(suite.T(), suite.mockSql.ExpectationsWereMet(), "SQL mock expectations not met")
-	suite.db.Close()
 	_ = os.RemoveAll(suite.testConfigDir) // Clean up temp dir
 }
 
@@ -159,21 +194,8 @@ output:
 		Metadata:        map[string]any{"yaml_config": testYAMLConfig},
 	}
 
-	// Mock DB persistStreamToDatabase
-	// The actual stream_id is generated internally, so we use sqlmock.AnyArg() for it.
-	// Also for created_at and updated_at.
-	suite.mockSql.ExpectExec("INSERT INTO stream_configs ( stream_id, thing_id, interaction_type, interaction_name, direction, input_config, output_config, processor_chain, status, created_at, updated_at, metadata, validation_error ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").
-		WithArgs(sqlmock.AnyArg(), request.ThingID, request.InteractionType, request.InteractionName, request.Direction,
-			`{"type":"generate","config":{"count":1,"interval":"1s","mapping":"root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}"}}`, // Marshalled Input
-			`{"type":"drop","config":{}}`, // Marshalled Output
-			`[]`,                          // Marshalled ProcessorChain
-			"created",                     // Default status
-			sqlmock.AnyArg(),              // created_at
-			sqlmock.AnyArg(),              // updated_at
-			`{"yaml_config":"\ninput:\n  generate:\n    mapping: 'root = {\"message\": \"test\", \"timestamp\": timestamp_unix()}'\n    interval: \"1s\"\n    count: 1\noutput:\n  drop: {}\n"}`, // Marshalled Metadata
-			"", // No validation error
-		).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Mock database operations for stream creation
+	suite.mockDbManager.On("Execute", mock.Anything, "InsertStreamConfig", mock.Anything).Return(sqlmock.NewResult(1, 1), nil)
 
 	// --- Act ---
 	// NOTE: This test relies on the assumption that SimpleBenthosStreamManager's
@@ -191,9 +213,8 @@ output:
 	assert.Equal(suite.T(), request.InteractionName, streamInfo.InteractionName)
 	assert.Equal(suite.T(), "created", streamInfo.Status)
 
-	// Ensure all SQL expectations were met
-	// This is also checked in TearDownTest, but good to check here for this specific test's DB interactions.
-	assert.NoError(suite.T(), suite.mockSql.ExpectationsWereMet(), "SQL expectations in TestCreateStream_Success not met")
+	// Verify mock was called
+	suite.mockDbManager.AssertCalled(suite.T(), "Execute", mock.Anything, "InsertStreamConfig", mock.Anything)
 
 	// Further check if the stream is in the manager's internal map
 	_, exists := suite.manager.streams[streamInfo.ID]

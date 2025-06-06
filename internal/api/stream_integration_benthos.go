@@ -7,7 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/models"
-	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified schema management
+	"github.com/twinfer/twincore/pkg/wot/forms"
 )
 
 // BenthosStreamIntegration is a refactored StreamIntegration that uses Benthos for Parquet

@@ -216,3 +216,42 @@ LIMIT ?;
 
 -- name: DeleteOldAuditEvents
 DELETE FROM security_audit_events WHERE timestamp < ?;
+
+-- Device Credentials Queries
+-- name: GetDeviceCredentials
+SELECT credential_key, credentials_data, encrypted, expires_at, created_at, updated_at
+FROM device_credentials
+WHERE credential_key = ?;
+
+-- name: SetDeviceCredentials
+INSERT INTO device_credentials (credential_key, credentials_data, encrypted, expires_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(credential_key) DO UPDATE SET
+    credentials_data = excluded.credentials_data,
+    encrypted = excluded.encrypted,
+    expires_at = excluded.expires_at,
+    updated_at = excluded.updated_at;
+
+-- name: DeleteDeviceCredentials
+DELETE FROM device_credentials WHERE credential_key = ?;
+
+-- Security Template Queries
+-- name: GetSecurityTemplate
+SELECT name, template_data, created_at, updated_at
+FROM security_templates
+WHERE name = ?;
+
+-- name: SetSecurityTemplate
+INSERT INTO security_templates (name, template_data, created_at, updated_at)
+VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT(name) DO UPDATE SET
+    template_data = excluded.template_data,
+    updated_at = excluded.updated_at;
+
+-- name: ListSecurityTemplates
+SELECT name, template_data, created_at, updated_at
+FROM security_templates
+ORDER BY name;
+
+-- name: DeleteSecurityTemplate
+DELETE FROM security_templates WHERE name = ?;

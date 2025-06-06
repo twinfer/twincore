@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,24 +14,36 @@ import (
 
 // SecurityRepository provides data access operations for security management
 type SecurityRepository struct {
-	manager DatabaseManager
+	manager database.DatabaseManager
 	logger  *logrus.Logger
 }
 
 // NewSecurityRepository creates a new Security repository
-func NewSecurityRepository(manager DatabaseManager, logger *logrus.Logger) *SecurityRepository {
+func NewSecurityRepository(manager database.DatabaseManager, logger *logrus.Logger) *SecurityRepository {
 	return &SecurityRepository{
 		manager: manager,
 		logger:  logger,
 	}
 }
 
+// IsHealthy checks if the repository is healthy
+func (sr *SecurityRepository) IsHealthy(ctx context.Context) bool {
+	return sr.manager.IsHealthy()
+}
+
 // User management operations
 
 // CreateUser creates a new local user
 func (sr *SecurityRepository) CreateUser(ctx context.Context, user *types.LocalUser) error {
-	_, err := sr.manager.Execute(ctx, "CreateUser",
-		user.Username, user.PasswordHash, user.Roles, user.Email, user.FullName, user.Disabled)
+	// Marshal roles to JSON for database storage
+	rolesJSON, err := json.Marshal(user.Roles)
+	if err != nil {
+		sr.logger.WithError(err).WithField("username", user.Username).Error("Failed to marshal roles")
+		return fmt.Errorf("failed to marshal roles for user %s: %w", user.Username, err)
+	}
+
+	_, err = sr.manager.Execute(ctx, "CreateUser",
+		user.Username, user.PasswordHash, string(rolesJSON), user.Email, user.FullName, user.Disabled)
 	
 	if err != nil {
 		sr.logger.WithError(err).WithField("username", user.Username).Error("Failed to create user")
@@ -65,8 +78,16 @@ func (sr *SecurityRepository) GetUser(ctx context.Context, username string) (*ty
 		user.LastLogin = lastLogin.Time
 	}
 
-	// Set roles as string (will be parsed by caller if needed as []string)
-	user.Roles = []string{roles} // Note: This may need adjustment based on storage format
+	// Unmarshal roles from JSON
+	if roles != "" {
+		err = json.Unmarshal([]byte(roles), &user.Roles)
+		if err != nil {
+			sr.logger.WithError(err).WithField("username", username).Error("Failed to unmarshal roles")
+			return nil, fmt.Errorf("failed to unmarshal roles for user %s: %w", username, err)
+		}
+	} else {
+		user.Roles = []string{} // Default to empty slice
+	}
 
 	return &user, nil
 }
@@ -91,8 +112,15 @@ func (sr *SecurityRepository) GetUserForAuth(ctx context.Context, username strin
 
 // UpdateUser updates an existing user
 func (sr *SecurityRepository) UpdateUser(ctx context.Context, user *types.LocalUser) error {
+	// Marshal roles to JSON for database storage
+	rolesJSON, err := json.Marshal(user.Roles)
+	if err != nil {
+		sr.logger.WithError(err).WithField("username", user.Username).Error("Failed to marshal roles")
+		return fmt.Errorf("failed to marshal roles for user %s: %w", user.Username, err)
+	}
+
 	result, err := sr.manager.Execute(ctx, "UpdateUser",
-		user.PasswordHash, user.Roles, user.Email, user.FullName, user.Disabled, user.Username)
+		user.PasswordHash, string(rolesJSON), user.Email, user.FullName, user.Disabled, user.Username)
 	
 	if err != nil {
 		sr.logger.WithError(err).WithField("username", user.Username).Error("Failed to update user")
@@ -523,5 +551,239 @@ func (sr *SecurityRepository) DeleteOldAuditEvents(ctx context.Context, before t
 	}
 
 	sr.logger.WithField("before", before).Debug("Old audit events deleted successfully")
+	return nil
+}
+
+// Security policies operations
+
+// CreateThingSecurityPolicy creates or updates a security policy for a Thing
+func (sr *SecurityRepository) CreateThingSecurityPolicy(ctx context.Context, thingID, policyData string) error {
+	_, err := sr.manager.Execute(ctx, "CreateThingSecurityPolicy", thingID, policyData)
+	if err != nil {
+		sr.logger.WithError(err).WithField("thing_id", thingID).Error("Failed to create thing security policy")
+		return fmt.Errorf("failed to create thing security policy: %w", err)
+	}
+
+	sr.logger.WithField("thing_id", thingID).Info("Thing security policy created successfully")
+	return nil
+}
+
+// GetThingSecurityPolicy retrieves a security policy for a Thing
+func (sr *SecurityRepository) GetThingSecurityPolicy(ctx context.Context, thingID string) (string, error) {
+	row := sr.manager.QueryRow(ctx, "GetThingSecurityPolicy", thingID)
+	
+	var thingIDResult, policyData string
+	var createdAt, updatedAt time.Time
+	
+	err := row.Scan(&thingIDResult, &policyData, &createdAt, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("security policy not found for thing: %s", thingID)
+		}
+		sr.logger.WithError(err).WithField("thing_id", thingID).Error("Failed to get thing security policy")
+		return "", fmt.Errorf("failed to get thing security policy: %w", err)
+	}
+
+	sr.logger.WithField("thing_id", thingID).Debug("Thing security policy retrieved successfully")
+	return policyData, nil
+}
+
+// DeleteThingSecurityPolicy removes a security policy for a Thing
+func (sr *SecurityRepository) DeleteThingSecurityPolicy(ctx context.Context, thingID string) error {
+	result, err := sr.manager.Execute(ctx, "DeleteThingSecurityPolicy", thingID)
+	if err != nil {
+		sr.logger.WithError(err).WithField("thing_id", thingID).Error("Failed to delete thing security policy")
+		return fmt.Errorf("failed to delete thing security policy: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("security policy not found for thing: %s", thingID)
+	}
+
+	sr.logger.WithField("thing_id", thingID).Info("Thing security policy deleted successfully")
+	return nil
+}
+
+// Device credentials management operations
+
+// GetDeviceCredentials retrieves device credentials by key
+func (sr *SecurityRepository) GetDeviceCredentials(ctx context.Context, credentialKey string) (*types.DeviceCredentials, error) {
+	row := sr.manager.QueryRow(ctx, "GetDeviceCredentials", credentialKey)
+	
+	var key, credentialsData string
+	var encrypted bool
+	var expiresAt sql.NullTime
+	var createdAt, updatedAt time.Time
+	
+	err := row.Scan(&key, &credentialsData, &encrypted, &expiresAt, &createdAt, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("credentials not found: %s", credentialKey)
+		}
+		sr.logger.WithError(err).WithField("credential_key", credentialKey).Error("Failed to get device credentials")
+		return nil, fmt.Errorf("failed to get device credentials: %w", err)
+	}
+	
+	var credentials types.DeviceCredentials
+	if err := json.Unmarshal([]byte(credentialsData), &credentials); err != nil {
+		return nil, fmt.Errorf("failed to parse credentials: %w", err)
+	}
+	
+	sr.logger.WithField("credential_key", credentialKey).Debug("Device credentials retrieved successfully")
+	return &credentials, nil
+}
+
+// SetDeviceCredentials stores or updates device credentials
+func (sr *SecurityRepository) SetDeviceCredentials(ctx context.Context, credentialKey string, credentials *types.DeviceCredentials) error {
+	credentialsJSON, err := json.Marshal(credentials)
+	if err != nil {
+		return fmt.Errorf("failed to marshal credentials: %w", err)
+	}
+	
+	// Default to encrypted credentials
+	encrypted := true
+	var expiresAt *time.Time
+	
+	// Check if credentials have an expiration (zero time means no expiration)
+	if !credentials.ExpiresAt.IsZero() {
+		expiresAt = &credentials.ExpiresAt
+	}
+	
+	_, err = sr.manager.Execute(ctx, "SetDeviceCredentials", 
+		credentialKey, string(credentialsJSON), encrypted, expiresAt)
+	if err != nil {
+		sr.logger.WithError(err).WithField("credential_key", credentialKey).Error("Failed to set device credentials")
+		return fmt.Errorf("failed to set device credentials: %w", err)
+	}
+	
+	sr.logger.WithField("credential_key", credentialKey).Info("Device credentials stored successfully")
+	return nil
+}
+
+// DeleteDeviceCredentials removes device credentials
+func (sr *SecurityRepository) DeleteDeviceCredentials(ctx context.Context, credentialKey string) error {
+	result, err := sr.manager.Execute(ctx, "DeleteDeviceCredentials", credentialKey)
+	if err != nil {
+		sr.logger.WithError(err).WithField("credential_key", credentialKey).Error("Failed to delete device credentials")
+		return fmt.Errorf("failed to delete device credentials: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("credentials not found: %s", credentialKey)
+	}
+	
+	sr.logger.WithField("credential_key", credentialKey).Info("Device credentials deleted successfully")
+	return nil
+}
+
+// Security templates management operations
+
+// GetSecurityTemplate retrieves a security template by name
+func (sr *SecurityRepository) GetSecurityTemplate(ctx context.Context, name string) (*types.SecurityTemplate, error) {
+	row := sr.manager.QueryRow(ctx, "GetSecurityTemplate", name)
+	
+	var templateName, templateData string
+	var createdAt, updatedAt time.Time
+	
+	err := row.Scan(&templateName, &templateData, &createdAt, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("security template not found: %s", name)
+		}
+		sr.logger.WithError(err).WithField("template_name", name).Error("Failed to get security template")
+		return nil, fmt.Errorf("failed to get security template: %w", err)
+	}
+	
+	var template types.SecurityTemplate
+	if err := json.Unmarshal([]byte(templateData), &template); err != nil {
+		return nil, fmt.Errorf("failed to parse security template: %w", err)
+	}
+	
+	sr.logger.WithField("template_name", name).Debug("Security template retrieved successfully")
+	return &template, nil
+}
+
+// SetSecurityTemplate stores or updates a security template
+func (sr *SecurityRepository) SetSecurityTemplate(ctx context.Context, name string, template *types.SecurityTemplate) error {
+	templateJSON, err := json.Marshal(template)
+	if err != nil {
+		return fmt.Errorf("failed to marshal template: %w", err)
+	}
+	
+	_, err = sr.manager.Execute(ctx, "SetSecurityTemplate", name, string(templateJSON))
+	if err != nil {
+		sr.logger.WithError(err).WithField("template_name", name).Error("Failed to set security template")
+		return fmt.Errorf("failed to set security template: %w", err)
+	}
+	
+	sr.logger.WithField("template_name", name).Info("Security template stored successfully")
+	return nil
+}
+
+// ListSecurityTemplates retrieves all security templates
+func (sr *SecurityRepository) ListSecurityTemplates(ctx context.Context) ([]*types.SecurityTemplate, error) {
+	rows, err := sr.manager.Query(ctx, "ListSecurityTemplates")
+	if err != nil {
+		sr.logger.WithError(err).Error("Failed to list security templates")
+		return nil, fmt.Errorf("failed to list security templates: %w", err)
+	}
+	defer rows.Close()
+	
+	var templates []*types.SecurityTemplate
+	for rows.Next() {
+		var name, templateData string
+		var createdAt, updatedAt time.Time
+		
+		err := rows.Scan(&name, &templateData, &createdAt, &updatedAt)
+		if err != nil {
+			sr.logger.WithError(err).Error("Failed to scan security template")
+			return nil, fmt.Errorf("failed to scan security template: %w", err)
+		}
+		
+		var template types.SecurityTemplate
+		if err := json.Unmarshal([]byte(templateData), &template); err != nil {
+			sr.logger.WithError(err).WithField("template_name", name).Warn("Failed to parse security template, skipping")
+			continue
+		}
+		
+		templates = append(templates, &template)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating security templates: %w", err)
+	}
+	
+	sr.logger.WithField("count", len(templates)).Debug("Security templates listed successfully")
+	return templates, nil
+}
+
+// DeleteSecurityTemplate removes a security template
+func (sr *SecurityRepository) DeleteSecurityTemplate(ctx context.Context, name string) error {
+	result, err := sr.manager.Execute(ctx, "DeleteSecurityTemplate", name)
+	if err != nil {
+		sr.logger.WithError(err).WithField("template_name", name).Error("Failed to delete security template")
+		return fmt.Errorf("failed to delete security template: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("security template not found: %s", name)
+	}
+	
+	sr.logger.WithField("template_name", name).Info("Security template deleted successfully")
 	return nil
 }

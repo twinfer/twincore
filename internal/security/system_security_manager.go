@@ -2,20 +2,20 @@ package security
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 )
 
 // SystemSecurityManager provides user management for caddy-auth-portal integration
 // This version removes session management, MFA, and other functionality now handled by caddy-security
 type SystemSecurityManager struct {
-	db             *sql.DB
+	securityRepo   database.SecurityRepositoryInterface
 	logger         *logrus.Logger
 	config         *types.SystemSecurityConfig
 	licenseChecker types.UnifiedLicenseChecker
@@ -24,15 +24,15 @@ type SystemSecurityManager struct {
 
 // NewSystemSecurityManager creates a  security manager for caddy-auth-portal
 func NewSystemSecurityManager(
-	db *sql.DB,
+	securityRepo database.SecurityRepositoryInterface,
 	logger *logrus.Logger,
 	licenseChecker types.UnifiedLicenseChecker,
 ) *SystemSecurityManager {
 
-	identityStore := NewLocalIdentityStore(db, logger, "twincore_local")
+	identityStore := NewLocalIdentityStore(securityRepo, logger, "twincore_local")
 
 	return &SystemSecurityManager{
-		db:             db,
+		securityRepo:   securityRepo,
 		logger:         logger,
 		licenseChecker: licenseChecker,
 		identityStore:  identityStore,
@@ -97,10 +97,11 @@ func (sm *SystemSecurityManager) CreateUser(ctx context.Context, user *types.Use
 		Email:    user.Email,
 		FullName: user.FullName,
 		Roles:    user.Roles,
+		Password: password, // Set password in the AuthUser struct
 		Disabled: false,
 	}
 
-	if err := sm.identityStore.CreateUser(ctx, authUser, password); err != nil {
+	if err := sm.identityStore.CreateUser(ctx, authUser); err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -115,7 +116,30 @@ func (sm *SystemSecurityManager) CreateUser(ctx context.Context, user *types.Use
 }
 
 func (sm *SystemSecurityManager) UpdateUser(ctx context.Context, userID string, updates map[string]any) error {
-	if err := sm.identityStore.UpdateUser(ctx, userID, updates); err != nil {
+	// Get existing user first
+	existingUser, err := sm.identityStore.GetUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get existing user: %w", err)
+	}
+
+	// Apply updates to the existing user
+	if email, ok := updates["email"].(string); ok {
+		existingUser.Email = email
+	}
+	if fullName, ok := updates["full_name"].(string); ok {
+		existingUser.FullName = fullName
+	}
+	if roles, ok := updates["roles"].([]string); ok {
+		existingUser.Roles = roles
+	}
+	if disabled, ok := updates["disabled"].(bool); ok {
+		existingUser.Disabled = disabled
+	}
+	if password, ok := updates["password"].(string); ok {
+		existingUser.Password = password
+	}
+
+	if err := sm.identityStore.UpdateUser(ctx, existingUser); err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
@@ -164,11 +188,7 @@ func (sm *SystemSecurityManager) ChangePassword(ctx context.Context, userID stri
 	}
 
 	// Update password through identity store
-	updates := map[string]any{
-		"password": newPassword,
-	}
-
-	if err := sm.identityStore.UpdateUser(ctx, userID, updates); err != nil {
+	if err := sm.identityStore.ChangePassword(ctx, userID, newPassword); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
@@ -238,9 +258,9 @@ func (sm *SystemSecurityManager) ValidateConfig(ctx context.Context, config type
 // Health and Monitoring
 
 func (sm *SystemSecurityManager) HealthCheck(ctx context.Context) error {
-	// Check database connectivity
-	if err := sm.db.PingContext(ctx); err != nil {
-		return fmt.Errorf("database connectivity failed: %w", err)
+	// Check database connectivity via SecurityRepository
+	if !sm.securityRepo.IsHealthy(ctx) {
+		return fmt.Errorf("database connectivity failed")
 	}
 
 	// Check license validity
@@ -273,8 +293,11 @@ func (sm *SystemSecurityManager) GetAuditLog(ctx context.Context, filters map[st
 // Helper methods
 
 func (sm *SystemSecurityManager) getUserCount(ctx context.Context) int {
-	var count int
-	sm.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM local_users").Scan(&count)
+	count, err := sm.identityStore.GetUserCount(ctx)
+	if err != nil {
+		sm.logger.WithError(err).Warn("Failed to get user count")
+		return 0
+	}
 	return count
 }
 

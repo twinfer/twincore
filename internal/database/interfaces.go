@@ -117,6 +117,17 @@ type SecurityRepositoryInterface interface {
 	GetAuditEvents(ctx context.Context, startTime, endTime time.Time, limit int) ([]*types.AuditEvent, error)
 	GetUserAuditEvents(ctx context.Context, userID string, since time.Time, limit int) ([]*types.AuditEvent, error)
 	DeleteOldAuditEvents(ctx context.Context, before time.Time) error
+	
+	// Device credentials management
+	GetDeviceCredentials(ctx context.Context, credentialKey string) (*types.DeviceCredentials, error)
+	SetDeviceCredentials(ctx context.Context, credentialKey string, credentials *types.DeviceCredentials) error
+	DeleteDeviceCredentials(ctx context.Context, credentialKey string) error
+	
+	// Security templates management
+	GetSecurityTemplate(ctx context.Context, name string) (*types.SecurityTemplate, error)
+	SetSecurityTemplate(ctx context.Context, name string, template *types.SecurityTemplate) error
+	ListSecurityTemplates(ctx context.Context) ([]*types.SecurityTemplate, error)
+	DeleteSecurityTemplate(ctx context.Context, name string) error
 }
 
 // StreamRepositoryInterface defines stream data access operations

@@ -105,6 +105,18 @@ SELECT COUNT(*) FROM stream_configs WHERE status != 'deleted';
 -- name: StreamExists
 SELECT EXISTS(SELECT 1 FROM stream_configs WHERE stream_id = ? AND status != 'deleted');
 
+-- name: UpdateValidationError
+UPDATE stream_configs 
+SET validation_error = ?, updated_at = CURRENT_TIMESTAMP
+WHERE stream_id = ?;
+
+-- name: LoadAllActiveStreams
+SELECT stream_id, thing_id, interaction_type, interaction_name, direction,
+       input_config, output_config, processor_chain, status,
+       created_at, updated_at, metadata
+FROM stream_configs
+WHERE status != 'deleted';
+
 -- Property State Queries
 -- name: UpsertPropertyState
 INSERT OR REPLACE INTO property_state (thing_id, property_name, value, updated_at)

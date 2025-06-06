@@ -3,7 +3,6 @@ package security
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,13 +13,14 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 	"slices"
 )
 
 // DefaultWoTSecurityManager implements WoTSecurityManager interface
 type DefaultWoTSecurityManager struct {
-	db               *sql.DB
+	securityRepo     database.SecurityRepositoryInterface
 	logger           *logrus.Logger
 	config           *types.WoTSecurityConfig
 	licenseChecker   types.UnifiedLicenseChecker
@@ -28,9 +28,9 @@ type DefaultWoTSecurityManager struct {
 }
 
 // NewDefaultWoTSecurityManager creates a new WoT security manager
-func NewDefaultWoTSecurityManager(db *sql.DB, logger *logrus.Logger, licenseChecker types.UnifiedLicenseChecker) *DefaultWoTSecurityManager {
+func NewDefaultWoTSecurityManager(securityRepo database.SecurityRepositoryInterface, logger *logrus.Logger, licenseChecker types.UnifiedLicenseChecker) *DefaultWoTSecurityManager {
 	return &DefaultWoTSecurityManager{
-		db:               db,
+		securityRepo:     securityRepo,
 		logger:           logger,
 		licenseChecker:   licenseChecker,
 		credentialStores: make(map[string]types.CredentialStore),
@@ -236,16 +236,10 @@ func (wsm *DefaultWoTSecurityManager) GetThingSecurityPolicy(ctx context.Context
 		return &policy, nil
 	}
 
-	// Check database
-	var policyJSON string
-	err := wsm.db.QueryRowContext(ctx, `
-		SELECT policy_data FROM thing_security_policies WHERE thing_id = ?
-	`, thingID).Scan(&policyJSON)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("security policy not found for Thing %s", thingID)
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to retrieve security policy: %w", err)
+	// Check database via SecurityRepository
+	policyJSON, err := wsm.securityRepo.GetThingSecurityPolicy(ctx, thingID)
+	if err != nil {
+		return nil, fmt.Errorf("security policy not found for Thing %s: %w", thingID, err)
 	}
 
 	var policy types.ThingSecurityPolicy
@@ -265,13 +259,8 @@ func (wsm *DefaultWoTSecurityManager) SetThingSecurityPolicy(ctx context.Context
 		return fmt.Errorf("failed to marshal security policy: %w", err)
 	}
 
-	// Store in database
-	_, err = wsm.db.ExecContext(ctx, `
-		INSERT OR REPLACE INTO thing_security_policies (thing_id, policy_data, updated_at)
-		VALUES (?, ?, ?)
-	`, thingID, string(policyJSON), time.Now())
-
-	if err != nil {
+	// Store in database via SecurityRepository
+	if err = wsm.securityRepo.CreateThingSecurityPolicy(ctx, thingID, string(policyJSON)); err != nil {
 		return fmt.Errorf("failed to store security policy: %w", err)
 	}
 
@@ -487,18 +476,12 @@ func (wsm *DefaultWoTSecurityManager) CreateSecurityTemplate(ctx context.Context
 
 	wsm.config.SecurityTemplates[template.Name] = template
 
-	// Store in database
-	templateJSON, err := json.Marshal(template)
-	if err != nil {
-		return fmt.Errorf("failed to marshal template: %w", err)
+	// Store in database via SecurityRepository
+	if err := wsm.securityRepo.SetSecurityTemplate(ctx, template.Name, &template); err != nil {
+		return fmt.Errorf("failed to store template: %w", err)
 	}
 
-	_, err = wsm.db.ExecContext(ctx, `
-		INSERT OR REPLACE INTO security_templates (name, template_data, created_at)
-		VALUES (?, ?, ?)
-	`, template.Name, string(templateJSON), time.Now())
-
-	return err
+	return nil
 }
 
 func (wsm *DefaultWoTSecurityManager) GetSecurityTemplate(ctx context.Context, name string) (*types.SecurityTemplate, error) {
@@ -506,27 +489,16 @@ func (wsm *DefaultWoTSecurityManager) GetSecurityTemplate(ctx context.Context, n
 		return &template, nil
 	}
 
-	// Check database
-	var templateJSON string
-	err := wsm.db.QueryRowContext(ctx, `
-		SELECT template_data FROM security_templates WHERE name = ?
-	`, name).Scan(&templateJSON)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("security template %s not found", name)
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to retrieve template: %w", err)
-	}
-
-	var template types.SecurityTemplate
-	if err := json.Unmarshal([]byte(templateJSON), &template); err != nil {
-		return nil, fmt.Errorf("failed to parse template: %w", err)
+	// Check database via SecurityRepository
+	template, err := wsm.securityRepo.GetSecurityTemplate(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("security template %s not found: %w", name, err)
 	}
 
 	// Cache in memory
-	wsm.config.SecurityTemplates[name] = template
+	wsm.config.SecurityTemplates[name] = *template
 
-	return &template, nil
+	return template, nil
 }
 
 func (wsm *DefaultWoTSecurityManager) ListSecurityTemplates(ctx context.Context) ([]types.SecurityTemplate, error) {
@@ -630,9 +602,9 @@ func (wsm *DefaultWoTSecurityManager) ValidateConfig(ctx context.Context, config
 // Health and Monitoring
 
 func (wsm *DefaultWoTSecurityManager) HealthCheck(ctx context.Context) error {
-	// Check database connectivity
-	if err := wsm.db.PingContext(ctx); err != nil {
-		return fmt.Errorf("database connectivity failed: %w", err)
+	// Check database connectivity via SecurityRepository
+	if !wsm.securityRepo.IsHealthy(ctx) {
+		return fmt.Errorf("database connectivity failed")
 	}
 
 	// Check license validity
@@ -922,23 +894,7 @@ func (wsm *DefaultWoTSecurityManager) getCredentialsFromEnv(storeRef types.Crede
 }
 
 func (wsm *DefaultWoTSecurityManager) getCredentialsFromDB(ctx context.Context, storeRef types.CredentialRef) (*types.DeviceCredentials, error) {
-	var credentialsJSON string
-	err := wsm.db.QueryRowContext(ctx, `
-		SELECT credentials_data FROM device_credentials WHERE credential_key = ?
-	`, storeRef.Key).Scan(&credentialsJSON)
-
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("credentials not found for key %s", storeRef.Key)
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to retrieve credentials: %w", err)
-	}
-
-	var credentials types.DeviceCredentials
-	if err := json.Unmarshal([]byte(credentialsJSON), &credentials); err != nil {
-		return nil, fmt.Errorf("failed to parse credentials: %w", err)
-	}
-
-	return &credentials, nil
+	return wsm.securityRepo.GetDeviceCredentials(ctx, storeRef.Key)
 }
 
 func (wsm *DefaultWoTSecurityManager) getCredentialsFromFile(storeRef types.CredentialRef) (*types.DeviceCredentials, error) {
@@ -947,17 +903,7 @@ func (wsm *DefaultWoTSecurityManager) getCredentialsFromFile(storeRef types.Cred
 }
 
 func (wsm *DefaultWoTSecurityManager) setCredentialsInDB(ctx context.Context, storeRef types.CredentialRef, credentials *types.DeviceCredentials) error {
-	credentialsJSON, err := json.Marshal(credentials)
-	if err != nil {
-		return fmt.Errorf("failed to marshal credentials: %w", err)
-	}
-
-	_, err = wsm.db.ExecContext(ctx, `
-		INSERT OR REPLACE INTO device_credentials (credential_key, credentials_data, created_at, updated_at)
-		VALUES (?, ?, ?, ?)
-	`, storeRef.Key, string(credentialsJSON), time.Now(), time.Now())
-
-	return err
+	return wsm.securityRepo.SetDeviceCredentials(ctx, storeRef.Key, credentials)
 }
 
 func (wsm *DefaultWoTSecurityManager) setCredentialsInFile(storeRef types.CredentialRef, credentials *types.DeviceCredentials) error {

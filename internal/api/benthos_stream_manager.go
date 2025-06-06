@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redpanda-data/benthos/v4/public/service"
 	"github.com/sirupsen/logrus"
+	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/pkg/types"
 	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified stream configuration
 
@@ -23,10 +23,10 @@ import (
 )
 
 // SimpleBenthosStreamManager implements BenthosStreamManager for dynamic stream management
-// This implementation uses DuckDB for persistent stream configuration storage
+// This implementation uses centralized DatabaseManager for persistent stream configuration storage
 type SimpleBenthosStreamManager struct {
 	configDir            string
-	db                   *sql.DB
+	dbManager            database.DatabaseManager
 	streams              map[string]*types.StreamInfo // Changed type
 	streamBuilders       map[string]*service.StreamBuilder
 	activeStreams        map[string]*service.Stream
@@ -38,9 +38,9 @@ type SimpleBenthosStreamManager struct {
 	mu                  sync.RWMutex
 }
 
-// NewSimpleBenthosStreamManager creates a new simple Benthos stream manager with DuckDB persistence
-func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.FieldLogger) (*SimpleBenthosStreamManager, error) {
-	logger.Debug("Creating NewSimpleBenthosStreamManager")
+// NewSimpleBenthosStreamManager creates a new simple Benthos stream manager with centralized database management
+func NewSimpleBenthosStreamManager(configDir string, dbManager database.DatabaseManager, logger logrus.FieldLogger) (*SimpleBenthosStreamManager, error) {
+	logger.Debug("Creating NewSimpleBenthosStreamManager with centralized database manager")
 
 	// Initialize unified stream configuration components
 	schemaRegistry := forms.NewSchemaRegistry()
@@ -48,7 +48,7 @@ func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.F
 
 	sm := &SimpleBenthosStreamManager{
 		configDir:            configDir,
-		db:                   db,
+		dbManager:            dbManager,
 		streams:              make(map[string]*types.StreamInfo),
 		streamBuilders:       make(map[string]*service.StreamBuilder),
 		activeStreams:        make(map[string]*service.Stream),
@@ -58,12 +58,7 @@ func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.F
 		logger:               logger,
 	}
 
-	// Initialize database schema
-	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "initializeSchema"}).Debug("Calling internal method")
-	if err := sm.initializeSchema(); err != nil {
-		logger.WithError(err).Error("Failed to initialize database schema")
-		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
-	}
+	// Database schema is managed by centralized migration system
 
 	// Load existing stream configurations from database
 	logger.WithFields(logrus.Fields{"dependency_name": "self", "operation": "loadStreamsFromDatabase"}).Debug("Calling internal method")
@@ -75,37 +70,6 @@ func NewSimpleBenthosStreamManager(configDir string, db *sql.DB, logger logrus.F
 	return sm, nil
 }
 
-// initializeSchema creates the necessary tables for stream persistence
-func (sm *SimpleBenthosStreamManager) initializeSchema() error {
-	sm.logger.WithFields(logrus.Fields{"internal_method": "initializeSchema"}).Debug("Initializing database schema for stream manager")
-	// Create stream_configs table for persisting stream configurations
-	sm.logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec", "table_name": "stream_configs"}).Debug("Calling dependency")
-	_, err := sm.db.Exec(`
-		CREATE TABLE IF NOT EXISTS stream_configs (
-			stream_id TEXT PRIMARY KEY,
-			thing_id TEXT NOT NULL,
-			interaction_type TEXT NOT NULL,
-			interaction_name TEXT NOT NULL,
-			direction TEXT NOT NULL,
-			input_config TEXT NOT NULL,
-			output_config TEXT NOT NULL,
-			processor_chain TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'created',
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL,
-			metadata TEXT,
-			config_yaml TEXT,
-			validation_error TEXT
-		)
-	`)
-	if err != nil {
-		sm.logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed")
-		return &ErrBenthosDatabaseOperationFailed{Operation: "initialize_schema_create_table", WrappedErr: err}
-	}
-
-	sm.logger.Info("Initialized DuckDB schema for stream configuration persistence")
-	return nil
-}
 
 // loadStreamsFromDatabase loads and validates all stored stream configurations at startup
 func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
@@ -116,15 +80,10 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 		logger.WithField("duration_ms", time.Since(startTime).Milliseconds()).Debug("Finished loading streams from database")
 	}()
 
-	query := `
-		SELECT stream_id, thing_id, interaction_type, interaction_name, direction,
-		       input_config, output_config, processor_chain, status,
-		       created_at, updated_at, metadata
-		FROM stream_configs
-		WHERE status != 'deleted'
-	`
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Query"}).Debug("Calling dependency to query stream configs")
-	rows, err := sm.db.Query(query)
+	ctx := context.Background()
+
+	logger.WithFields(logrus.Fields{"dependency_name": "DatabaseManager", "operation": "Query"}).Debug("Calling dependency to query stream configs")
+	rows, err := sm.dbManager.Query(ctx, "LoadAllActiveStreams")
 	if err != nil {
 		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Query"}).Error("Dependency call failed")
 		return &ErrBenthosDatabaseOperationFailed{Operation: "load_streams_query", WrappedErr: err}
@@ -243,17 +202,12 @@ func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 func (sm *SimpleBenthosStreamManager) updateValidationError(logger logrus.FieldLogger, streamID, errorMsg string) {
 	entryLogger := logger.WithFields(logrus.Fields{"internal_method": "updateValidationError", "stream_id": streamID, "error_message": errorMsg})
 	entryLogger.Debug("Internal method called to update validation error in DB")
-	// logger itself might already have request_id if this was called from a request-scoped path.
-	// If not, and if this method is critical enough to trace, streamID is a good identifier.
 
-	_, err := sm.db.Exec(`
-		UPDATE stream_configs 
-		SET validation_error = ?, updated_at = ?
-		WHERE stream_id = ?
-	`, errorMsg, time.Now(), streamID)
+	ctx := context.Background()
+	_, err := sm.dbManager.Execute(ctx, "UpdateValidationError", errorMsg, streamID)
 
 	if err != nil {
-		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec", "stream_id": streamID}).Error("Dependency call failed (updateValidationError)")
+		logger.WithError(err).WithFields(logrus.Fields{"dependency_name": "DatabaseManager", "operation": "Execute", "stream_id": streamID}).Error("Dependency call failed (updateValidationError)")
 	}
 }
 
@@ -262,15 +216,12 @@ func (sm *SimpleBenthosStreamManager) updateStreamStatusInDatabase(logger logrus
 	entryLogger := logger.WithFields(logrus.Fields{"internal_method": "updateStreamStatusInDatabase", "stream_id": streamID, "new_status": status})
 	entryLogger.Debug("Internal method called to update stream status in DB")
 
-	_, err := sm.db.Exec(`
-		UPDATE stream_configs 
-		SET status = ?, updated_at = ?
-		WHERE stream_id = ?
-	`, status, time.Now().UTC().Format(time.RFC3339), streamID)
+	ctx := context.Background()
+	_, err := sm.dbManager.Execute(ctx, "UpdateStreamStatus", status, streamID)
 
 	if err != nil {
 		dbErr := &ErrBenthosDatabaseOperationFailed{Operation: "update_stream_status", WrappedErr: err}
-		logger.WithError(dbErr).WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Error("Dependency call failed (updateStreamStatusInDatabase)")
+		logger.WithError(dbErr).WithFields(logrus.Fields{"dependency_name": "DatabaseManager", "operation": "Execute"}).Error("Dependency call failed (updateStreamStatusInDatabase)")
 		return dbErr
 	}
 	logger.WithFields(logrus.Fields{"stream_id": streamID, "status": status}).Debug("Stream status updated in DB")
@@ -387,18 +338,12 @@ func (sm *SimpleBenthosStreamManager) persistStreamToDatabase(logger logrus.Fiel
 		}
 	}
 
-	// Insert into database
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Debug("Calling dependency to insert stream config")
-	_, err = sm.db.Exec(`
-		INSERT INTO stream_configs (
-			stream_id, thing_id, interaction_type, interaction_name, direction,
-			input_config, output_config, processor_chain, status,
-			created_at, updated_at, metadata, validation_error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`,
+	// Insert into database using named query
+	logger.WithFields(logrus.Fields{"dependency_name": "DatabaseManager", "operation": "Execute"}).Debug("Calling dependency to insert stream config")
+	_, err = sm.dbManager.Execute(context.Background(), "InsertStreamConfig",
 		stream.ID, stream.ThingID, stream.InteractionType, stream.InteractionName, stream.Direction,
 		string(inputConfigJSON), string(outputConfigJSON), string(processorChainJSON), stream.Status,
-		stream.CreatedAt, stream.UpdatedAt, string(metadataJSON), "", // No validation error on creation
+		string(metadataJSON), "", "", // config_yaml, validation_error
 	)
 
 	if err != nil {
@@ -513,16 +458,12 @@ func (sm *SimpleBenthosStreamManager) updateStreamInDatabase(logger logrus.Field
 		}
 	}
 
-	// Update in database
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Debug("Calling dependency to update stream config")
-	_, err = sm.db.Exec(`
-		UPDATE stream_configs SET
-			input_config = ?, output_config = ?, processor_chain = ?,
-			updated_at = ?, metadata = ?, validation_error = ?
-		WHERE stream_id = ?
-	`,
+	// Update in database using named query
+	logger.WithFields(logrus.Fields{"dependency_name": "DatabaseManager", "operation": "Execute"}).Debug("Calling dependency to update stream config")
+	_, err = sm.dbManager.Execute(context.Background(), "UpdateStreamConfig",
+		stream.ThingID, stream.InteractionType, stream.InteractionName, stream.Direction,
 		string(inputConfigJSON), string(outputConfigJSON), string(processorChainJSON),
-		stream.UpdatedAt, string(metadataJSON), "", // Clear validation error on successful update
+		stream.Status, string(metadataJSON), "", "", // config_yaml, validation_error
 		stream.ID,
 	)
 
@@ -557,12 +498,8 @@ func (sm *SimpleBenthosStreamManager) DeleteStream(ctx context.Context, streamID
 	logger.Debug("Found stream for deletion")
 
 	// Mark as deleted in database (soft delete for audit trail)
-	logger.WithFields(logrus.Fields{"dependency_name": "Database", "operation": "Exec"}).Debug("Calling dependency to mark stream as deleted")
-	_, err := sm.db.Exec(`
-		UPDATE stream_configs 
-		SET status = 'deleted', updated_at = ?
-		WHERE stream_id = ?
-	`, time.Now().Format(time.RFC3339), streamID)
+	logger.WithFields(logrus.Fields{"dependency_name": "DatabaseManager", "operation": "Execute"}).Debug("Calling dependency to mark stream as deleted")
+	_, err := sm.dbManager.Execute(ctx, "DeleteStreamConfig", streamID)
 
 	if err != nil {
 		dbErr := &ErrBenthosDatabaseOperationFailed{Operation: "delete_stream_mark_deleted", WrappedErr: err}
