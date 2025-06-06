@@ -8,6 +8,13 @@ import (
 	"github.com/twinfer/twincore/pkg/types"
 )
 
+// DBInterface provides low-level database operations used by repositories
+type DBInterface interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 // DatabaseManager defines the interface for centralized database access
 type DatabaseManager interface {
 	// Query operations
@@ -202,6 +209,25 @@ type ConfigRepositoryInterface interface {
 	UpsertAppSetting(ctx context.Context, id, data string) error
 	GetAppSetting(ctx context.Context, id string) (string, error)
 	ListAppSettings(ctx context.Context) ([]*ConfigEntity, error)
+}
+
+// AuthProviderRepository defines authentication provider data access operations
+type AuthProviderRepository interface {
+	RepositoryBase
+
+	// Provider management
+	CreateProvider(ctx context.Context, provider *types.AuthProvider) error
+	GetProvider(ctx context.Context, id string) (*types.AuthProvider, error)
+	ListProviders(ctx context.Context) ([]*types.AuthProvider, error)
+	UpdateProvider(ctx context.Context, id string, updates map[string]any) error
+	DeleteProvider(ctx context.Context, id string) error
+
+	// User associations
+	AssociateUserWithProvider(ctx context.Context, userID, providerID, externalID string, attributes map[string]any) error
+	GetUserProviderAssociations(ctx context.Context, userID string) ([]*types.UserProviderAssociation, error)
+
+	// Metadata
+	UpdateProviderMetadata(ctx context.Context, providerID string, metadata map[string]any) error
 }
 
 // Database-specific entity types that don't exist in pkg/types

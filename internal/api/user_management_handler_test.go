@@ -16,7 +16,6 @@ import (
 	"github.com/twinfer/twincore/pkg/types"
 )
 
-
 // MockSystemSecurityManager is a mock implementation of types.SystemSecurityManager
 type MockSystemSecurityManager struct {
 	mock.Mock
@@ -155,12 +154,59 @@ func (m *MockSystemSecurityManager) GetAuditLog(ctx context.Context, filters map
 	return args.Get(0).([]types.AuditEvent), args.Error(1)
 }
 
+// Auth Provider Management methods
+func (m *MockSystemSecurityManager) AddAuthProvider(ctx context.Context, provider *types.AuthProvider) error {
+	args := m.Called(ctx, provider)
+	return args.Error(0)
+}
+
+func (m *MockSystemSecurityManager) UpdateAuthProvider(ctx context.Context, id string, updates map[string]any) error {
+	args := m.Called(ctx, id, updates)
+	return args.Error(0)
+}
+
+func (m *MockSystemSecurityManager) RemoveAuthProvider(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *MockSystemSecurityManager) GetAuthProvider(ctx context.Context, id string) (*types.AuthProvider, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.AuthProvider), args.Error(1)
+}
+
+func (m *MockSystemSecurityManager) ListAuthProviders(ctx context.Context) ([]*types.AuthProvider, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*types.AuthProvider), args.Error(1)
+}
+
+func (m *MockSystemSecurityManager) TestAuthProvider(ctx context.Context, id string) (*types.AuthProviderTestResult, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.AuthProviderTestResult), args.Error(1)
+}
+
+func (m *MockSystemSecurityManager) ListProviderUsers(ctx context.Context, providerID string, search string, limit int) ([]*types.ProviderUser, error) {
+	args := m.Called(ctx, providerID, search, limit)
+	return args.Get(0).([]*types.ProviderUser), args.Error(1)
+}
+
+func (m *MockSystemSecurityManager) RefreshAuthConfiguration(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
 // Helper function to create a test handler
 func createTestHandler() (*UserManagementHandler, *MockSystemSecurityManager) {
 	mockSecurityManager := &MockSystemSecurityManager{}
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	
+
 	handler := NewUserManagementHandler(mockSecurityManager, logger)
 	return handler, mockSecurityManager
 }
@@ -334,10 +380,10 @@ func TestCreateUser(t *testing.T) {
 			if tt.requestBody.Username != "" && tt.requestBody.Email != "" && tt.requestBody.Password != "" {
 				// First call to check if user exists
 				mockSecurityManager.On("GetUser", mock.Anything, tt.requestBody.Username).Return(tt.existingUser, tt.getError).Once()
-				
+
 				if tt.existingUser == nil {
 					mockSecurityManager.On("CreateUser", mock.Anything, mock.AnythingOfType("*types.User"), tt.requestBody.Password).Return(tt.createError)
-					
+
 					if tt.createError == nil {
 						createdUser := &types.User{
 							ID:       tt.requestBody.Username,
@@ -489,10 +535,10 @@ func TestUpdateUser(t *testing.T) {
 
 			// Setup mock expectations
 			mockSecurityManager.On("GetUser", mock.Anything, tt.userID).Return(tt.existingUser, tt.getUserError).Once()
-			
+
 			if tt.getUserError == nil {
 				mockSecurityManager.On("UpdateUser", mock.Anything, tt.userID, mock.AnythingOfType("map[string]interface {}")).Return(tt.updateError)
-				
+
 				if tt.updateError == nil {
 					updatedUser := &types.User{
 						ID:       tt.existingUser.ID,
@@ -581,7 +627,7 @@ func TestDeleteUser(t *testing.T) {
 
 			// Setup mock expectations
 			mockSecurityManager.On("GetUser", mock.Anything, tt.userID).Return(tt.existingUser, tt.getUserError)
-			
+
 			if tt.getUserError == nil {
 				mockSecurityManager.On("DeleteUser", mock.Anything, tt.userID).Return(tt.deleteError)
 			}
@@ -772,7 +818,7 @@ func TestHandleUserRoutes(t *testing.T) {
 			} else {
 				body = bytes.NewBuffer([]byte{})
 			}
-			
+
 			req := httptest.NewRequest(tt.method, tt.path, body)
 			if body.Len() > 0 {
 				req.Header.Set("Content-Type", "application/json")

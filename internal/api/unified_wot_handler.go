@@ -45,8 +45,9 @@ type UnifiedWoTHandler struct {
 	streamManager BenthosStreamManager
 
 	// User management components
-	userHandler *UserManagementHandler
-	authHandler *AuthHandler
+	userHandler         *UserManagementHandler
+	authHandler         *AuthHandler
+	authProviderHandler *AuthProviderHandler
 
 	// Caching and utilities
 	propertyCache *PropertyCache
@@ -256,8 +257,10 @@ func (h *UnifiedWoTHandler) Provision(ctx caddy.Context) error {
 
 	// Initialize user management and auth handlers
 	securityManager := coreProvider.GetSystemSecurityManager()
+	configManager := coreProvider.GetConfigurationManager()
 	h.userHandler = NewUserManagementHandler(securityManager, h.logger)
 	h.authHandler = NewAuthHandler(h.logger)
+	h.authProviderHandler = NewAuthProviderHandler(securityManager, configManager, h.logger)
 
 	// Validate dependencies
 	if h.logger == nil {
@@ -330,6 +333,10 @@ func (h *UnifiedWoTHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, ne
 		return h.userHandler.handleUserRoutes(logger, w, r, path)
 	case strings.HasPrefix(path, authPrefix):
 		return h.authHandler.handleAuthRoutes(logger, w, r, path)
+
+	// Auth provider management routes (admin only)
+	case strings.HasPrefix(path, "/admin/auth/providers"):
+		return h.authProviderHandler.handleAuthProviderRoutes(logger, w, r, strings.TrimPrefix(path, "/admin/auth"))
 
 	default:
 		logger.WithField("path", path).Warn("Unknown API endpoint")

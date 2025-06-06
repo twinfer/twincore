@@ -60,7 +60,7 @@ func (h *AuthHandler) handleAuthRoutes(logger *logrus.Entry, w http.ResponseWrit
 func (h *AuthHandler) getAuthStatus(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	// Extract user information from request context (set by caddy-security middleware)
 	user := h.extractUserFromContext(r.Context())
-	
+
 	if user == nil {
 		return caddyhttp.Error(http.StatusUnauthorized, fmt.Errorf("not authenticated"))
 	}
@@ -87,7 +87,7 @@ func (h *AuthHandler) getAuthStatus(logger *logrus.Entry, w http.ResponseWriter,
 func (h *AuthHandler) getUserProfile(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
 	// Extract user information from request context (set by caddy-security middleware)
 	user := h.extractUserFromContext(r.Context())
-	
+
 	if user == nil {
 		return caddyhttp.Error(http.StatusUnauthorized, fmt.Errorf("not authenticated"))
 	}
@@ -101,7 +101,7 @@ func (h *AuthHandler) getUserProfile(logger *logrus.Entry, w http.ResponseWriter
 func (h *AuthHandler) extractUserFromContext(ctx context.Context) *types.UserResponse {
 	// TODO: Implement actual user extraction from caddy-security context
 	// This is a placeholder implementation
-	// 
+	//
 	// caddy-security typically sets user information in the context or headers
 	// We need to extract it according to how caddy-security provides it
 	//
@@ -109,9 +109,8 @@ func (h *AuthHandler) extractUserFromContext(ctx context.Context) *types.UserRes
 	// 1. User info in JWT claims (already validated by caddy-security)
 	// 2. User info in request headers set by caddy-security
 	// 3. User info in context values set by caddy-security middleware
-	
+
 	// For now, return nil to indicate user extraction is not implemented
 	// This should be implemented based on how caddy-security exposes user info
 	return nil
 }
-

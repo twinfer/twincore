@@ -161,8 +161,9 @@ func (c *Container) initSecurity(cfg *Config) error {
 	// Initialize system security manager for caddy-auth-portal integration
 	dbManager := c.DatabaseFactory.GetManager()
 	securityRepo := repositories.NewSecurityRepository(dbManager, c.Logger)
+	authProviderRepo := repositories.NewAuthProviderRepository(dbManager.GetConnection(), c.Logger)
 
-	systemSecurityMgr := security.NewSystemSecurityManager(securityRepo, c.Logger, unifiedChecker)
+	systemSecurityMgr := security.NewSystemSecurityManager(securityRepo, authProviderRepo, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
 	// Initialize WoT security manager

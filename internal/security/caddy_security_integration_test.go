@@ -151,7 +151,10 @@ func TestCaddySecurityRealIntegration(t *testing.T) {
 	t.Run("JWTTokenGeneration", func(t *testing.T) {
 		// Test JWT token generation and validation
 		mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-		securityMgr := NewSystemSecurityManager(securityRepo, logger, mockLicenseChecker)
+		// Create mock auth provider repository
+		mockAuthProviderRepo := &MockAuthProviderRepository{}
+
+		securityMgr := NewSystemSecurityManager(securityRepo, mockAuthProviderRepo, logger, mockLicenseChecker)
 
 		// Note: UpdateConfig method doesn't exist in current implementation
 		// This would be handled through the configuration system

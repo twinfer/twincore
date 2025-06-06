@@ -95,13 +95,13 @@ func (h *UserManagementHandler) listUsers(logger *logrus.Entry, w http.ResponseW
 	// Parse pagination parameters
 	page := 1
 	limit := 10
-	
+
 	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
 		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
 			page = p
 		}
 	}
-	
+
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
@@ -120,7 +120,7 @@ func (h *UserManagementHandler) listUsers(logger *logrus.Entry, w http.ResponseW
 	for _, user := range systemUsers {
 		userResponse := types.NewUserResponse(
 			user.ID,
-			user.Username, 
+			user.Username,
 			user.Email,
 			user.FullName,
 			user.Roles,
@@ -135,7 +135,7 @@ func (h *UserManagementHandler) listUsers(logger *logrus.Entry, w http.ResponseW
 	total := len(users)
 	start := (page - 1) * limit
 	end := start + limit
-	
+
 	if start >= total {
 		users = []types.UserResponse{}
 	} else {
@@ -198,7 +198,7 @@ func (h *UserManagementHandler) createUser(logger *logrus.Entry, w http.Response
 		FullName: createReq.FullName,
 		Roles:    createReq.Roles,
 	}
-	
+
 	if err := h.securityManager.CreateUser(ctx, user, createReq.Password); err != nil {
 		logger.WithError(err).WithField("username", createReq.Username).Error("Failed to create user")
 		return caddyhttp.Error(http.StatusInternalServerError, err)
@@ -213,11 +213,11 @@ func (h *UserManagementHandler) createUser(logger *logrus.Entry, w http.Response
 
 	response := types.NewUserResponse(
 		createdUser.ID,
-		createdUser.Username, 
+		createdUser.Username,
 		createdUser.Email,
 		createdUser.FullName,
 		createdUser.Roles,
-		false, // disabled - we'll need to get this from somewhere else or default to false
+		false,                       // disabled - we'll need to get this from somewhere else or default to false
 		time.Now(), time.Now(), nil, // placeholder timestamps
 	)
 	w.Header().Set(headerContentType, contentTypeJSON)
@@ -247,11 +247,11 @@ func (h *UserManagementHandler) getUser(logger *logrus.Entry, w http.ResponseWri
 
 	response := types.NewUserResponse(
 		user.ID,
-		user.Username, 
+		user.Username,
 		user.Email,
 		user.FullName,
 		user.Roles,
-		false, // disabled - placeholder
+		false,                       // disabled - placeholder
 		time.Now(), time.Now(), nil, // placeholder timestamps
 	)
 	w.Header().Set(headerContentType, contentTypeJSON)
@@ -325,11 +325,11 @@ func (h *UserManagementHandler) updateUser(logger *logrus.Entry, w http.Response
 
 	response := types.NewUserResponse(
 		updatedUser.ID,
-		updatedUser.Username, 
+		updatedUser.Username,
 		updatedUser.Email,
 		updatedUser.FullName,
 		updatedUser.Roles,
-		false, // disabled - placeholder
+		false,                       // disabled - placeholder
 		time.Now(), time.Now(), nil, // placeholder timestamps
 	)
 	w.Header().Set(headerContentType, contentTypeJSON)

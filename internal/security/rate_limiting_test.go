@@ -50,11 +50,11 @@ func TestRateLimiting(t *testing.T) {
 		}
 
 		// Create test database for auth portal bridge
-		db := setupTestDB(t)
+		db, securityRepo := setupTestDB(t)
 		defer db.Close()
 
 		mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-		bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+		bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, secConfig, mockLicenseChecker, "/tmp/test")
 		require.NoError(t, err)
 
 		// Generate auth portal config that should include rate limiting
@@ -107,7 +107,7 @@ func TestRateLimiting(t *testing.T) {
 func TestSecurityHeadersGeneration(t *testing.T) {
 	logger := logrus.New()
 
-	db := setupTestDB(t)
+	db, securityRepo := setupTestDB(t)
 	defer db.Close()
 
 	secConfig := &types.SystemSecurityConfig{
@@ -121,7 +121,7 @@ func TestSecurityHeadersGeneration(t *testing.T) {
 	}
 
 	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-	bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+	bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, secConfig, mockLicenseChecker, "/tmp/test")
 	require.NoError(t, err)
 
 	t.Run("GenerateSecurityHeaders", func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestSecurityHeadersGeneration(t *testing.T) {
 func TestCSRFProtection(t *testing.T) {
 	logger := logrus.New()
 
-	db := setupTestDB(t)
+	db, securityRepo := setupTestDB(t)
 	defer db.Close()
 
 	secConfig := &types.SystemSecurityConfig{
@@ -159,7 +159,7 @@ func TestCSRFProtection(t *testing.T) {
 	}
 
 	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-	bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+	bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, secConfig, mockLicenseChecker, "/tmp/test")
 	require.NoError(t, err)
 
 	t.Run("CSRFConfigurationEnabled", func(t *testing.T) {
@@ -185,7 +185,7 @@ func TestCSRFProtection(t *testing.T) {
 func TestAuthenticationMethods(t *testing.T) {
 	logger := logrus.New()
 
-	db := setupTestDB(t)
+	db, securityRepo := setupTestDB(t)
 	defer db.Close()
 
 	testCases := []struct {
@@ -229,7 +229,7 @@ func TestAuthenticationMethods(t *testing.T) {
 			}
 
 			mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-			bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+			bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, secConfig, mockLicenseChecker, "/tmp/test")
 			require.NoError(t, err)
 
 			// Verify configuration includes expected auth methods
@@ -253,7 +253,7 @@ func TestAuthenticationMethods(t *testing.T) {
 func TestAccessControlPolicies(t *testing.T) {
 	logger := logrus.New()
 
-	db := setupTestDB(t)
+	db, securityRepo := setupTestDB(t)
 	defer db.Close()
 
 	policies := []types.APIPolicy{
@@ -295,7 +295,7 @@ func TestAccessControlPolicies(t *testing.T) {
 	}
 
 	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-	bridge, err := NewCaddyAuthPortalBridge(db, logger, secConfig, mockLicenseChecker, "/tmp/test")
+	bridge, err := NewCaddyAuthPortalBridge(securityRepo, logger, secConfig, mockLicenseChecker, "/tmp/test")
 	require.NoError(t, err)
 
 	t.Run("PolicyGeneration", func(t *testing.T) {

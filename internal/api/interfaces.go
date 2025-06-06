@@ -120,7 +120,7 @@ type CoreProvider interface {
 	GetThingRegistry() ThingRegistry // Should this be ThingRegistryExt if that's what services need? For now, keeping as ThingRegistry.
 	GetEventBroker() *EventBroker    // EventBroker is a concrete type, not an interface here.
 	GetBenthosStreamManager() BenthosStreamManager
-	GetConfigurationManager() ConfigurationManager // Added
+	GetConfigurationManager() ConfigurationManager         // Added
 	GetSystemSecurityManager() types.SystemSecurityManager // Added for user management
 	// GetThingRegistrationService() ThingRegistrationService - Consider if this should be here
 	// GetTDStreamCompositionService() TDStreamCompositionService - Consider if this should be here

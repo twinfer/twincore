@@ -255,6 +255,16 @@ type SystemSecurityManager interface {
 	GetConfig(ctx context.Context) (*SystemSecurityConfig, error)
 	ValidateConfig(ctx context.Context, config SystemSecurityConfig) error
 
+	// Auth Provider Management
+	AddAuthProvider(ctx context.Context, provider *AuthProvider) error
+	UpdateAuthProvider(ctx context.Context, id string, updates map[string]any) error
+	RemoveAuthProvider(ctx context.Context, id string) error
+	GetAuthProvider(ctx context.Context, id string) (*AuthProvider, error)
+	ListAuthProviders(ctx context.Context) ([]*AuthProvider, error)
+	TestAuthProvider(ctx context.Context, id string) (*AuthProviderTestResult, error)
+	ListProviderUsers(ctx context.Context, providerID string, search string, limit int) ([]*ProviderUser, error)
+	RefreshAuthConfiguration(ctx context.Context) error
+
 	// Health and Monitoring
 	HealthCheck(ctx context.Context) error
 	GetSecurityMetrics(ctx context.Context) (map[string]any, error)

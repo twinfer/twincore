@@ -73,7 +73,7 @@ func TestCreateUserRequest_ToLocalUser(t *testing.T) {
 			assert.Equal(t, tt.expected.FullName, result.FullName)
 			assert.Equal(t, tt.expected.Roles, result.Roles)
 			assert.Equal(t, tt.expected.Disabled, result.Disabled)
-			
+
 			// Check that timestamps are set
 			assert.False(t, result.CreatedAt.IsZero())
 			assert.False(t, result.UpdatedAt.IsZero())
@@ -199,11 +199,11 @@ func TestUpdateUserRequest_ApplyUpdate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		updateRequest  UpdateUserRequest
-		expectedEmail  string
-		expectedName   string
-		expectedRoles  []string
+		name             string
+		updateRequest    UpdateUserRequest
+		expectedEmail    string
+		expectedName     string
+		expectedRoles    []string
 		expectedDisabled bool
 	}{
 		{
@@ -250,7 +250,7 @@ func TestUpdateUserRequest_ApplyUpdate(t *testing.T) {
 			expectedDisabled: true,
 		},
 		{
-			name: "empty update request",
+			name:          "empty update request",
 			updateRequest: UpdateUserRequest{
 				// All fields empty/nil
 			},

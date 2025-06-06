@@ -90,6 +90,51 @@ func (m *MockUnifiedLicenseChecker) ValidateWoTOperation(ctx context.Context, op
 	return nil
 }
 
+// MockAuthProviderRepository for testing
+type MockAuthProviderRepository struct{}
+
+func (m *MockAuthProviderRepository) IsHealthy(ctx context.Context) bool {
+	return true
+}
+
+func (m *MockAuthProviderRepository) CreateProvider(ctx context.Context, provider *types.AuthProvider) error {
+	return nil
+}
+
+func (m *MockAuthProviderRepository) GetProvider(ctx context.Context, id string) (*types.AuthProvider, error) {
+	return &types.AuthProvider{
+		ID:      id,
+		Type:    "ldap",
+		Name:    "Test Provider",
+		Enabled: true,
+		Config:  map[string]any{},
+	}, nil
+}
+
+func (m *MockAuthProviderRepository) ListProviders(ctx context.Context) ([]*types.AuthProvider, error) {
+	return []*types.AuthProvider{}, nil
+}
+
+func (m *MockAuthProviderRepository) UpdateProvider(ctx context.Context, id string, updates map[string]any) error {
+	return nil
+}
+
+func (m *MockAuthProviderRepository) DeleteProvider(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *MockAuthProviderRepository) AssociateUserWithProvider(ctx context.Context, userID, providerID, externalID string, attributes map[string]any) error {
+	return nil
+}
+
+func (m *MockAuthProviderRepository) GetUserProviderAssociations(ctx context.Context, userID string) ([]*types.UserProviderAssociation, error) {
+	return []*types.UserProviderAssociation{}, nil
+}
+
+func (m *MockAuthProviderRepository) UpdateProviderMetadata(ctx context.Context, providerID string, metadata map[string]any) error {
+	return nil
+}
+
 func (m *MockUnifiedLicenseChecker) ValidateSecurityScheme(ctx context.Context, scheme string) error {
 	return nil
 }
@@ -488,7 +533,10 @@ func TestSystemSecurityManager(t *testing.T) {
 		valid: true,
 	}
 
-	manager := NewSystemSecurityManager(securityRepo, logger, mockLicenseChecker)
+	// Create mock auth provider repository
+	mockAuthProviderRepo := &MockAuthProviderRepository{}
+
+	manager := NewSystemSecurityManager(securityRepo, mockAuthProviderRepo, logger, mockLicenseChecker)
 
 	t.Run("CreateUser", func(t *testing.T) {
 		user := &types.User{
@@ -559,7 +607,10 @@ func TestIntegrationWorkflow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create system security manager
-	securityManager := NewSystemSecurityManager(securityRepo, logger, mockLicenseChecker)
+	// Create mock auth provider repository
+	mockAuthProviderRepo2 := &MockAuthProviderRepository{}
+
+	securityManager := NewSystemSecurityManager(securityRepo, mockAuthProviderRepo2, logger, mockLicenseChecker)
 
 	t.Run("CompleteUserWorkflow", func(t *testing.T) {
 		// 1. Create user via security manager

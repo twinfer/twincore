@@ -281,6 +281,59 @@ DROP TABLE IF EXISTS user_sessions;
 DROP TABLE IF EXISTS local_users;
 `,
 		},
+		{
+			Version:     4,
+			Description: "Add authentication provider tables",
+			Up: `
+-- Create auth_providers table
+CREATE TABLE IF NOT EXISTS auth_providers (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('ldap', 'saml', 'oidc', 'oauth2')),
+    name TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    priority INTEGER DEFAULT 0,
+    config TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create user_providers table for associating users with external providers
+CREATE TABLE IF NOT EXISTS user_providers (
+    user_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    attributes TEXT,
+    last_login TIMESTAMP,
+    PRIMARY KEY (user_id, provider_id),
+    FOREIGN KEY (provider_id) REFERENCES auth_providers(id) ON DELETE CASCADE
+);
+
+-- Create provider_metadata table for storing provider-specific metadata
+CREATE TABLE IF NOT EXISTS provider_metadata (
+    provider_id TEXT PRIMARY KEY,
+    metadata TEXT NOT NULL,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (provider_id) REFERENCES auth_providers(id) ON DELETE CASCADE
+);
+
+-- Create auth provider indexes
+CREATE INDEX IF NOT EXISTS idx_auth_providers_type ON auth_providers(type);
+CREATE INDEX IF NOT EXISTS idx_auth_providers_enabled ON auth_providers(enabled);
+CREATE INDEX IF NOT EXISTS idx_auth_providers_priority ON auth_providers(priority);
+CREATE INDEX IF NOT EXISTS idx_user_providers_external ON user_providers(provider_id, external_id);
+CREATE INDEX IF NOT EXISTS idx_user_providers_user ON user_providers(user_id);
+`,
+			Down: `
+DROP INDEX IF EXISTS idx_user_providers_user;
+DROP INDEX IF EXISTS idx_user_providers_external;
+DROP INDEX IF EXISTS idx_auth_providers_priority;
+DROP INDEX IF EXISTS idx_auth_providers_enabled;
+DROP INDEX IF EXISTS idx_auth_providers_type;
+DROP TABLE IF EXISTS provider_metadata;
+DROP TABLE IF EXISTS user_providers;
+DROP TABLE IF EXISTS auth_providers;
+`,
+		},
 	}
 
 	// Calculate checksums for all migrations

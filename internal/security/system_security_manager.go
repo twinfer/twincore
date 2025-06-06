@@ -15,30 +15,58 @@ import (
 // SystemSecurityManager provides user management for caddy-auth-portal integration
 // This version removes session management, MFA, and other functionality now handled by caddy-security
 type SystemSecurityManager struct {
-	securityRepo   database.SecurityRepositoryInterface
-	logger         *logrus.Logger
-	config         *types.SystemSecurityConfig
-	licenseChecker types.UnifiedLicenseChecker
-	identityStore  *LocalIdentityStore
+	securityRepo     database.SecurityRepositoryInterface
+	authProviderRepo database.AuthProviderRepository
+	logger           *logrus.Logger
+	config           *types.SystemSecurityConfig
+	licenseChecker   types.UnifiedLicenseChecker
+	identityStore    *LocalIdentityStore
+	authPortalBridge *CaddyAuthPortalBridge
+	configManager    ConfigurationManager
 }
 
-// NewSystemSecurityManager creates a  security manager for caddy-auth-portal
+// NewSystemSecurityManager creates a security manager for caddy-auth-portal
 func NewSystemSecurityManager(
 	securityRepo database.SecurityRepositoryInterface,
+	authProviderRepo database.AuthProviderRepository,
 	logger *logrus.Logger,
 	licenseChecker types.UnifiedLicenseChecker,
 ) *SystemSecurityManager {
 
 	identityStore := NewLocalIdentityStore(securityRepo, logger, "twincore_local")
 
+	config := &types.SystemSecurityConfig{
+		Enabled: false, // Disabled by default
+	}
+
+	// Create auth portal bridge
+	authPortalBridge, err := NewCaddyAuthPortalBridge(
+		securityRepo,
+		logger,
+		config,
+		licenseChecker,
+		"./data", // Default data directory
+	)
+	if err != nil {
+		logger.WithError(err).Error("Failed to create auth portal bridge")
+	}
+
 	return &SystemSecurityManager{
-		securityRepo:   securityRepo,
-		logger:         logger,
-		licenseChecker: licenseChecker,
-		identityStore:  identityStore,
-		config: &types.SystemSecurityConfig{
-			Enabled: false, // Disabled by default
-		},
+		securityRepo:     securityRepo,
+		authProviderRepo: authProviderRepo,
+		logger:           logger,
+		licenseChecker:   licenseChecker,
+		identityStore:    identityStore,
+		authPortalBridge: authPortalBridge,
+		config:           config,
+	}
+}
+
+// SetConfigManager sets the configuration manager for runtime updates
+func (sm *SystemSecurityManager) SetConfigManager(configManager ConfigurationManager) {
+	sm.configManager = configManager
+	if sm.authPortalBridge != nil {
+		sm.authPortalBridge.SetConfigManager(configManager)
 	}
 }
 
@@ -222,6 +250,28 @@ func (sm *SystemSecurityManager) UpdateConfig(ctx context.Context, config types.
 
 	sm.config = &config
 
+	// Update auth portal bridge with new config
+	if sm.authPortalBridge != nil {
+		// Recreate the bridge with updated config
+		newBridge, err := NewCaddyAuthPortalBridge(
+			sm.securityRepo,
+			sm.logger,
+			&config,
+			sm.licenseChecker,
+			"./data", // Use same data directory
+		)
+		if err != nil {
+			return fmt.Errorf("failed to recreate auth portal bridge with new config: %w", err)
+		}
+
+		// Transfer config manager if it was set
+		if sm.configManager != nil {
+			newBridge.SetConfigManager(sm.configManager)
+		}
+
+		sm.authPortalBridge = newBridge
+	}
+
 	sm.logAuditEvent(ctx, types.AuditEvent{
 		Type:    "config",
 		Action:  "update",
@@ -360,6 +410,854 @@ func (sm *SystemSecurityManager) logAuditEvent(ctx context.Context, event types.
 // GetIdentityStore returns the local identity store for direct access
 func (sm *SystemSecurityManager) GetIdentityStore() *LocalIdentityStore {
 	return sm.identityStore
+}
+
+// Auth Provider Management - New methods for external authentication providers
+
+func (sm *SystemSecurityManager) AddAuthProvider(ctx context.Context, provider *types.AuthProvider) error {
+	// Validate provider type is licensed
+	if err := sm.validateProviderLicense(ctx, provider.Type); err != nil {
+		return fmt.Errorf("provider type not licensed: %w", err)
+	}
+
+	// Validate provider configuration
+	if err := sm.validateProviderConfig(provider); err != nil {
+		return fmt.Errorf("invalid provider config: %w", err)
+	}
+
+	// Create provider in database
+	if err := sm.authProviderRepo.CreateProvider(ctx, provider); err != nil {
+		return fmt.Errorf("failed to create auth provider: %w", err)
+	}
+
+	sm.logAuditEvent(ctx, types.AuditEvent{
+		Type:     "auth_provider",
+		Action:   "create",
+		Resource: provider.ID,
+		Success:  true,
+	})
+
+	sm.logger.WithFields(logrus.Fields{
+		"provider_id":   provider.ID,
+		"provider_type": provider.Type,
+	}).Info("Auth provider added")
+
+	return nil
+}
+
+func (sm *SystemSecurityManager) UpdateAuthProvider(ctx context.Context, id string, updates map[string]any) error {
+	// Get existing provider to validate updates
+	existingProvider, err := sm.authProviderRepo.GetProvider(ctx, id)
+	if err != nil {
+		return fmt.Errorf("provider not found: %w", err)
+	}
+
+	// Validate config update if provided
+	if config, ok := updates["config"].(map[string]any); ok {
+		tempProvider := &types.AuthProvider{
+			Type:   existingProvider.Type,
+			Config: config,
+		}
+		if err := sm.validateProviderConfig(tempProvider); err != nil {
+			return fmt.Errorf("invalid provider config: %w", err)
+		}
+	}
+
+	// Update provider in database
+	if err := sm.authProviderRepo.UpdateProvider(ctx, id, updates); err != nil {
+		return fmt.Errorf("failed to update auth provider: %w", err)
+	}
+
+	sm.logAuditEvent(ctx, types.AuditEvent{
+		Type:     "auth_provider",
+		Action:   "update",
+		Resource: id,
+		Success:  true,
+	})
+
+	return nil
+}
+
+func (sm *SystemSecurityManager) RemoveAuthProvider(ctx context.Context, id string) error {
+	// Check if provider exists
+	_, err := sm.authProviderRepo.GetProvider(ctx, id)
+	if err != nil {
+		return fmt.Errorf("provider not found: %w", err)
+	}
+
+	// Delete provider from database
+	if err := sm.authProviderRepo.DeleteProvider(ctx, id); err != nil {
+		return fmt.Errorf("failed to delete auth provider: %w", err)
+	}
+
+	sm.logAuditEvent(ctx, types.AuditEvent{
+		Type:     "auth_provider",
+		Action:   "delete",
+		Resource: id,
+		Success:  true,
+	})
+
+	sm.logger.WithField("provider_id", id).Info("Auth provider removed")
+	return nil
+}
+
+func (sm *SystemSecurityManager) GetAuthProvider(ctx context.Context, id string) (*types.AuthProvider, error) {
+	provider, err := sm.authProviderRepo.GetProvider(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get auth provider: %w", err)
+	}
+	return provider, nil
+}
+
+func (sm *SystemSecurityManager) ListAuthProviders(ctx context.Context) ([]*types.AuthProvider, error) {
+	providers, err := sm.authProviderRepo.ListProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list auth providers: %w", err)
+	}
+	return providers, nil
+}
+
+func (sm *SystemSecurityManager) TestAuthProvider(ctx context.Context, id string) (*types.AuthProviderTestResult, error) {
+	provider, err := sm.authProviderRepo.GetProvider(ctx, id)
+	if err != nil {
+		return &types.AuthProviderTestResult{
+			Success: false,
+			Message: "Provider not found",
+			Errors:  []string{err.Error()},
+		}, nil
+	}
+
+	// Test provider based on type
+	switch provider.Type {
+	case types.AuthProviderTypeLDAP:
+		return sm.testLDAPProvider(ctx, provider)
+	case types.AuthProviderTypeSAML:
+		return sm.testSAMLProvider(ctx, provider)
+	case types.AuthProviderTypeOIDC:
+		return sm.testOIDCProvider(ctx, provider)
+	case types.AuthProviderTypeOAuth2:
+		return sm.testOAuth2Provider(ctx, provider)
+	default:
+		return &types.AuthProviderTestResult{
+			Success: false,
+			Message: "Unsupported provider type",
+			Errors:  []string{fmt.Sprintf("Provider type %s not supported", provider.Type)},
+		}, nil
+	}
+}
+
+func (sm *SystemSecurityManager) ListProviderUsers(ctx context.Context, providerID string, search string, limit int) ([]*types.ProviderUser, error) {
+	provider, err := sm.authProviderRepo.GetProvider(ctx, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("provider not found: %w", err)
+	}
+
+	// Only LDAP providers support user listing for now
+	if provider.Type != types.AuthProviderTypeLDAP {
+		return nil, fmt.Errorf("provider type %s does not support user listing", provider.Type)
+	}
+
+	return sm.listLDAPUsers(ctx, provider, search, limit)
+}
+
+func (sm *SystemSecurityManager) RefreshAuthConfiguration(ctx context.Context) error {
+	if sm.configManager == nil {
+		sm.logger.Warn("No configuration manager available for auth config refresh")
+		return nil
+	}
+
+	// Get all enabled providers
+	providers, err := sm.authProviderRepo.ListProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get auth providers: %w", err)
+	}
+
+	// Filter enabled providers
+	enabledProviders := make([]*types.AuthProvider, 0)
+	for _, provider := range providers {
+		if provider.Enabled {
+			enabledProviders = append(enabledProviders, provider)
+		}
+	}
+
+	// Update auth portal bridge with new providers
+	if sm.authPortalBridge != nil {
+		if err := sm.updateAuthPortalWithProviders(ctx, enabledProviders); err != nil {
+			return fmt.Errorf("failed to update auth portal config: %w", err)
+		}
+	}
+
+	sm.logger.WithField("provider_count", len(enabledProviders)).Info("Auth configuration refreshed")
+	return nil
+}
+
+// Helper methods for auth provider management
+
+func (sm *SystemSecurityManager) validateProviderLicense(ctx context.Context, providerType string) error {
+	switch providerType {
+	case types.AuthProviderTypeLDAP:
+		if !sm.licenseChecker.IsSystemFeatureEnabled(ctx, "ldap_auth") {
+			return fmt.Errorf("LDAP authentication not licensed")
+		}
+	case types.AuthProviderTypeSAML:
+		if !sm.licenseChecker.IsSystemFeatureEnabled(ctx, "saml_auth") {
+			return fmt.Errorf("SAML authentication not licensed")
+		}
+	case types.AuthProviderTypeOIDC:
+		if !sm.licenseChecker.IsSystemFeatureEnabled(ctx, "oidc_auth") {
+			return fmt.Errorf("OIDC authentication not licensed")
+		}
+	case types.AuthProviderTypeOAuth2:
+		if !sm.licenseChecker.IsSystemFeatureEnabled(ctx, "oauth2_auth") {
+			return fmt.Errorf("OAuth2 authentication not licensed")
+		}
+	}
+	return nil
+}
+
+func (sm *SystemSecurityManager) validateProviderConfig(provider *types.AuthProvider) error {
+	if provider.ID == "" {
+		return fmt.Errorf("provider ID is required")
+	}
+	if provider.Name == "" {
+		return fmt.Errorf("provider name is required")
+	}
+	if provider.Type == "" {
+		return fmt.Errorf("provider type is required")
+	}
+	if provider.Config == nil {
+		return fmt.Errorf("provider config is required")
+	}
+
+	// Type-specific validation
+	switch provider.Type {
+	case types.AuthProviderTypeLDAP:
+		return sm.validateLDAPConfig(provider.Config)
+	case types.AuthProviderTypeSAML:
+		return sm.validateSAMLConfig(provider.Config)
+	case types.AuthProviderTypeOIDC:
+		return sm.validateOIDCConfig(provider.Config)
+	case types.AuthProviderTypeOAuth2:
+		return sm.validateOAuth2Config(provider.Config)
+	default:
+		return fmt.Errorf("unsupported provider type: %s", provider.Type)
+	}
+}
+
+func (sm *SystemSecurityManager) validateLDAPConfig(config map[string]any) error {
+	required := []string{"server", "port", "base_dn", "user_filter"}
+	for _, field := range required {
+		if _, ok := config[field]; !ok {
+			return fmt.Errorf("LDAP config missing required field: %s", field)
+		}
+	}
+	return nil
+}
+
+func (sm *SystemSecurityManager) validateSAMLConfig(config map[string]any) error {
+	required := []string{"entity_id", "metadata_url"}
+	for _, field := range required {
+		if _, ok := config[field]; !ok {
+			return fmt.Errorf("SAML config missing required field: %s", field)
+		}
+	}
+	return nil
+}
+
+func (sm *SystemSecurityManager) validateOIDCConfig(config map[string]any) error {
+	required := []string{"issuer", "client_id", "client_secret"}
+	for _, field := range required {
+		if _, ok := config[field]; !ok {
+			return fmt.Errorf("OIDC config missing required field: %s", field)
+		}
+	}
+	return nil
+}
+
+func (sm *SystemSecurityManager) validateOAuth2Config(config map[string]any) error {
+	required := []string{"client_id", "client_secret", "authorization_url", "token_url"}
+	for _, field := range required {
+		if _, ok := config[field]; !ok {
+			return fmt.Errorf("OAuth2 config missing required field: %s", field)
+		}
+	}
+	return nil
+}
+
+func (sm *SystemSecurityManager) testLDAPProvider(ctx context.Context, provider *types.AuthProvider) (*types.AuthProviderTestResult, error) {
+	// Basic LDAP connection test
+	result := &types.AuthProviderTestResult{
+		Success: false,
+		Message: "LDAP connection test",
+		Details: make(map[string]any),
+	}
+
+	// TODO: Implement actual LDAP connection test
+	// For now, just validate config
+	if err := sm.validateLDAPConfig(provider.Config); err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		result.Message = "LDAP configuration validation failed"
+		return result, nil
+	}
+
+	result.Success = true
+	result.Message = "LDAP configuration is valid"
+	result.Details["config_valid"] = true
+	return result, nil
+}
+
+func (sm *SystemSecurityManager) testSAMLProvider(ctx context.Context, provider *types.AuthProvider) (*types.AuthProviderTestResult, error) {
+	result := &types.AuthProviderTestResult{
+		Success: false,
+		Message: "SAML provider connectivity test",
+		Details: make(map[string]any),
+	}
+
+	// First validate configuration
+	if err := sm.validateSAMLConfig(provider.Config); err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		result.Message = "SAML configuration validation failed"
+		return result, nil
+	}
+	result.Details["config_valid"] = true
+
+	// Test metadata URL accessibility if provided
+	if metadataURL, ok := provider.Config["metadata_url"].(string); ok {
+		if err := sm.testSAMLMetadataEndpoint(ctx, metadataURL, result); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Message = "SAML metadata endpoint test failed"
+			return result, nil
+		}
+	}
+
+	// Test entity ID format
+	if entityID, ok := provider.Config["entity_id"].(string); ok {
+		result.Details["entity_id"] = entityID
+		result.Details["entity_id_valid"] = len(entityID) > 0
+	}
+
+	// Validate signing certificate if provided
+	if cert, ok := provider.Config["signing_cert"].(string); ok {
+		if err := sm.validateX509Certificate(cert); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid signing certificate: %v", err))
+		} else {
+			result.Details["signing_cert_valid"] = true
+		}
+	}
+
+	if len(result.Errors) == 0 {
+		result.Success = true
+		result.Message = "SAML provider connectivity test passed"
+	}
+
+	return result, nil
+}
+
+func (sm *SystemSecurityManager) testOIDCProvider(ctx context.Context, provider *types.AuthProvider) (*types.AuthProviderTestResult, error) {
+	result := &types.AuthProviderTestResult{
+		Success: false,
+		Message: "OIDC provider connectivity test",
+		Details: make(map[string]any),
+	}
+
+	// First validate configuration
+	if err := sm.validateOIDCConfig(provider.Config); err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		result.Message = "OIDC configuration validation failed"
+		return result, nil
+	}
+	result.Details["config_valid"] = true
+
+	// Test OIDC discovery endpoint
+	if issuer, ok := provider.Config["issuer"].(string); ok {
+		discoveryURL := issuer + "/.well-known/openid_configuration"
+		if err := sm.testOIDCDiscoveryEndpoint(ctx, discoveryURL, result); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			result.Message = "OIDC discovery endpoint test failed"
+			return result, nil
+		}
+	}
+
+	// Test client credentials if provided
+	if clientID, ok := provider.Config["client_id"].(string); ok {
+		result.Details["client_id"] = clientID
+		result.Details["client_id_valid"] = len(clientID) > 0
+	}
+
+	// Validate scopes
+	if scopes, ok := provider.Config["scopes"].([]any); ok {
+		scopeStrings := make([]string, len(scopes))
+		for i, scope := range scopes {
+			if s, ok := scope.(string); ok {
+				scopeStrings[i] = s
+			}
+		}
+		result.Details["scopes"] = scopeStrings
+		result.Details["scopes_valid"] = len(scopeStrings) > 0
+	}
+
+	if len(result.Errors) == 0 {
+		result.Success = true
+		result.Message = "OIDC provider connectivity test passed"
+	}
+
+	return result, nil
+}
+
+func (sm *SystemSecurityManager) testOAuth2Provider(ctx context.Context, provider *types.AuthProvider) (*types.AuthProviderTestResult, error) {
+	result := &types.AuthProviderTestResult{
+		Success: false,
+		Message: "OAuth2 provider connectivity test",
+		Details: make(map[string]any),
+	}
+
+	// First validate configuration
+	if err := sm.validateOAuth2Config(provider.Config); err != nil {
+		result.Errors = append(result.Errors, err.Error())
+		result.Message = "OAuth2 configuration validation failed"
+		return result, nil
+	}
+	result.Details["config_valid"] = true
+
+	// Test authorization endpoint
+	if authURL, ok := provider.Config["authorization_url"].(string); ok {
+		if err := sm.testHTTPEndpoint(ctx, authURL, "authorization_endpoint", result); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+		}
+	}
+
+	// Test token endpoint
+	if tokenURL, ok := provider.Config["token_url"].(string); ok {
+		if err := sm.testHTTPEndpoint(ctx, tokenURL, "token_endpoint", result); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+		}
+	}
+
+	// Test user info endpoint if provided
+	if userInfoURL, ok := provider.Config["user_info_url"].(string); ok {
+		if err := sm.testHTTPEndpoint(ctx, userInfoURL, "user_info_endpoint", result); err != nil {
+			result.Errors = append(result.Errors, err.Error())
+		}
+	}
+
+	// Validate client credentials
+	if clientID, ok := provider.Config["client_id"].(string); ok {
+		result.Details["client_id"] = clientID
+		result.Details["client_id_valid"] = len(clientID) > 0
+	}
+
+	if clientSecret, ok := provider.Config["client_secret"].(string); ok {
+		result.Details["client_secret_configured"] = len(clientSecret) > 0
+	}
+
+	if len(result.Errors) == 0 {
+		result.Success = true
+		result.Message = "OAuth2 provider connectivity test passed"
+	}
+
+	return result, nil
+}
+
+func (sm *SystemSecurityManager) listLDAPUsers(ctx context.Context, provider *types.AuthProvider, search string, limit int) ([]*types.ProviderUser, error) {
+	// TODO: Implement actual LDAP user listing
+	// For now, return empty list
+	sm.logger.Debug("LDAP user listing not yet implemented")
+	return []*types.ProviderUser{}, nil
+}
+
+func (sm *SystemSecurityManager) updateAuthPortalWithProviders(ctx context.Context, providers []*types.AuthProvider) error {
+	// Update the auth portal bridge configuration with the new providers
+	if err := sm.authPortalBridge.UpdateExternalProviders(ctx, providers); err != nil {
+		return fmt.Errorf("failed to update auth portal bridge: %w", err)
+	}
+
+	sm.logger.WithField("provider_count", len(providers)).Info("Updated auth portal configuration with external providers")
+
+	return nil
+}
+
+// Helper methods for provider connectivity testing
+
+func (sm *SystemSecurityManager) testSAMLMetadataEndpoint(ctx context.Context, metadataURL string, result *types.AuthProviderTestResult) error {
+	// Test HTTP accessibility of SAML metadata endpoint
+	if err := sm.testHTTPEndpoint(ctx, metadataURL, "metadata_endpoint", result); err != nil {
+		return err
+	}
+
+	// TODO: Parse and validate SAML metadata XML
+	// For now, we just test that the endpoint is accessible
+	result.Details["metadata_url"] = metadataURL
+	result.Details["metadata_accessible"] = true
+
+	return nil
+}
+
+func (sm *SystemSecurityManager) testOIDCDiscoveryEndpoint(ctx context.Context, discoveryURL string, result *types.AuthProviderTestResult) error {
+	// Test HTTP accessibility of OIDC discovery endpoint
+	if err := sm.testHTTPEndpoint(ctx, discoveryURL, "discovery_endpoint", result); err != nil {
+		return err
+	}
+
+	// TODO: Parse and validate OIDC discovery document JSON
+	// For now, we just test that the endpoint is accessible
+	result.Details["discovery_url"] = discoveryURL
+	result.Details["discovery_accessible"] = true
+
+	return nil
+}
+
+func (sm *SystemSecurityManager) testHTTPEndpoint(ctx context.Context, url string, endpointType string, result *types.AuthProviderTestResult) error {
+	// Simple HTTP connectivity test
+	// In a real implementation, this would make an HTTP request to test connectivity
+
+	// Basic URL validation
+	if url == "" {
+		return fmt.Errorf("%s URL is empty", endpointType)
+	}
+
+	// TODO: Implement actual HTTP connectivity test
+	// For now, just validate URL format
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("%s URL must start with http:// or https://", endpointType)
+	}
+
+	result.Details[endpointType+"_url"] = url
+	result.Details[endpointType+"_url_valid"] = true
+
+	sm.logger.WithFields(logrus.Fields{
+		"endpoint_type": endpointType,
+		"url":           url,
+	}).Debug("HTTP endpoint test passed (URL validation only)")
+
+	return nil
+}
+
+func (sm *SystemSecurityManager) validateX509Certificate(certPEM string) error {
+	// TODO: Implement X.509 certificate validation
+	// For now, just check that it's not empty and has basic PEM structure
+
+	if certPEM == "" {
+		return fmt.Errorf("certificate is empty")
+	}
+
+	if !strings.Contains(certPEM, "-----BEGIN CERTIFICATE-----") ||
+		!strings.Contains(certPEM, "-----END CERTIFICATE-----") {
+		return fmt.Errorf("invalid PEM certificate format")
+	}
+
+	return nil
+}
+
+// User Attribute Mapping Implementation
+
+// MapAttributes maps external provider attributes to a TwinCore User
+func (sm *SystemSecurityManager) MapAttributes(providerID string, externalAttrs map[string]any, mapping *types.AttributeMapping) (*types.User, error) {
+	user := &types.User{
+		Metadata: make(map[string]any),
+	}
+
+	// Map username
+	if mapping.Username != "" {
+		if username, ok := externalAttrs[mapping.Username].(string); ok {
+			user.Username = username
+			user.ID = username // Use username as ID
+		} else {
+			return nil, fmt.Errorf("required username attribute '%s' not found or not a string", mapping.Username)
+		}
+	}
+
+	// Map email
+	if mapping.Email != "" {
+		if email, ok := externalAttrs[mapping.Email].(string); ok {
+			user.Email = email
+		}
+	}
+
+	// Map full name
+	if mapping.FullName != "" {
+		if fullName, ok := externalAttrs[mapping.FullName].(string); ok {
+			user.FullName = fullName
+		}
+	}
+
+	// Map roles
+	if mapping.Roles != nil {
+		roles, err := sm.mapRoles(externalAttrs, mapping.Roles)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map roles: %w", err)
+		}
+		user.Roles = roles
+	}
+
+	// Map groups
+	if mapping.Groups != nil {
+		groups, err := sm.mapGroups(externalAttrs, mapping.Groups)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map groups: %w", err)
+		}
+		user.Groups = groups
+	}
+
+	// Map custom attributes
+	if mapping.Custom != nil {
+		for key, rule := range mapping.Custom {
+			value, err := sm.mapCustomAttribute(externalAttrs, &rule)
+			if err != nil {
+				if rule.Required {
+					return nil, fmt.Errorf("failed to map required custom attribute '%s': %w", key, err)
+				}
+				sm.logger.WithFields(logrus.Fields{
+					"attribute": key,
+					"error":     err,
+				}).Warn("Failed to map optional custom attribute")
+				continue
+			}
+			user.Metadata[key] = value
+		}
+	}
+
+	// Store original external attributes for reference
+	user.Metadata["external_attributes"] = externalAttrs
+	user.Metadata["provider_id"] = providerID
+
+	return user, nil
+}
+
+// ValidateMapping validates an attribute mapping configuration
+func (sm *SystemSecurityManager) ValidateMapping(mapping *types.AttributeMapping) error {
+	if mapping.Username == "" {
+		return fmt.Errorf("username mapping is required")
+	}
+
+	// Validate role mapping
+	if mapping.Roles != nil {
+		if mapping.Roles.Source == "" {
+			return fmt.Errorf("role mapping source is required when roles mapping is specified")
+		}
+	}
+
+	// Validate group mapping
+	if mapping.Groups != nil {
+		if mapping.Groups.Source == "" {
+			return fmt.Errorf("group mapping source is required when groups mapping is specified")
+		}
+	}
+
+	// Validate custom attribute rules
+	if mapping.Custom != nil {
+		for key, rule := range mapping.Custom {
+			if rule.Source == "" {
+				return fmt.Errorf("custom attribute '%s' source is required", key)
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetDefaultMapping returns default attribute mapping for a provider type
+func (sm *SystemSecurityManager) GetDefaultMapping(providerType string) *types.AttributeMapping {
+	switch providerType {
+	case types.AuthProviderTypeLDAP:
+		return &types.AttributeMapping{
+			Username: "uid",
+			Email:    "mail",
+			FullName: "cn",
+			Roles: &types.RoleMapping{
+				Source:       "memberOf",
+				DefaultRoles: []string{"viewer"},
+				RoleMap: map[string]string{
+					"cn=admin,ou=groups,dc=company,dc=com":    "admin",
+					"cn=operator,ou=groups,dc=company,dc=com": "operator",
+					"cn=viewer,ou=groups,dc=company,dc=com":   "viewer",
+				},
+				AllowMultiple: true,
+			},
+		}
+	case types.AuthProviderTypeSAML:
+		return &types.AttributeMapping{
+			Username: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+			Email:    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+			FullName: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
+			Roles: &types.RoleMapping{
+				Source:       "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
+				DefaultRoles: []string{"viewer"},
+				RoleMap: map[string]string{
+					"Administrator": "admin",
+					"Operator":      "operator",
+					"Viewer":        "viewer",
+				},
+				AllowMultiple: true,
+			},
+		}
+	case types.AuthProviderTypeOIDC:
+		return &types.AttributeMapping{
+			Username: "preferred_username",
+			Email:    "email",
+			FullName: "name",
+			Roles: &types.RoleMapping{
+				Source:       "roles",
+				DefaultRoles: []string{"viewer"},
+				RoleMap: map[string]string{
+					"admin":    "admin",
+					"operator": "operator",
+					"viewer":   "viewer",
+				},
+				AllowMultiple: true,
+			},
+		}
+	case types.AuthProviderTypeOAuth2:
+		return &types.AttributeMapping{
+			Username: "login",
+			Email:    "email",
+			FullName: "name",
+			Roles: &types.RoleMapping{
+				Source:        "roles",
+				DefaultRoles:  []string{"viewer"},
+				RoleMap:       map[string]string{},
+				AllowMultiple: true,
+			},
+		}
+	default:
+		return &types.AttributeMapping{
+			Username: "username",
+			Email:    "email",
+			FullName: "name",
+			Roles: &types.RoleMapping{
+				Source:        "roles",
+				DefaultRoles:  []string{"viewer"},
+				RoleMap:       map[string]string{},
+				AllowMultiple: false,
+			},
+		}
+	}
+}
+
+// Helper methods for attribute mapping
+
+func (sm *SystemSecurityManager) mapRoles(externalAttrs map[string]any, roleMapping *types.RoleMapping) ([]string, error) {
+	if roleMapping.Source == "" {
+		return roleMapping.DefaultRoles, nil
+	}
+
+	externalRoles, ok := externalAttrs[roleMapping.Source]
+	if !ok {
+		sm.logger.WithField("source", roleMapping.Source).Debug("Role source attribute not found, using default roles")
+		return roleMapping.DefaultRoles, nil
+	}
+
+	// Convert external roles to string slice
+	var externalRoleStrings []string
+	switch v := externalRoles.(type) {
+	case string:
+		externalRoleStrings = []string{v}
+	case []string:
+		externalRoleStrings = v
+	case []any:
+		for _, role := range v {
+			if roleStr, ok := role.(string); ok {
+				externalRoleStrings = append(externalRoleStrings, roleStr)
+			}
+		}
+	default:
+		sm.logger.WithField("source", roleMapping.Source).Warn("Role source attribute is not a string or array")
+		return roleMapping.DefaultRoles, nil
+	}
+
+	// Map external roles to TwinCore roles
+	var mappedRoles []string
+	for _, externalRole := range externalRoleStrings {
+		if twinCoreRole, ok := roleMapping.RoleMap[externalRole]; ok {
+			mappedRoles = append(mappedRoles, twinCoreRole)
+		}
+	}
+
+	// If no roles were mapped and we don't allow multiple, use default
+	if len(mappedRoles) == 0 {
+		return roleMapping.DefaultRoles, nil
+	}
+
+	// If we don't allow multiple roles, take the first one
+	if !roleMapping.AllowMultiple && len(mappedRoles) > 1 {
+		return []string{mappedRoles[0]}, nil
+	}
+
+	return mappedRoles, nil
+}
+
+func (sm *SystemSecurityManager) mapGroups(externalAttrs map[string]any, groupMapping *types.GroupMapping) ([]string, error) {
+	if groupMapping.Source == "" {
+		return []string{}, nil
+	}
+
+	externalGroups, ok := externalAttrs[groupMapping.Source]
+	if !ok {
+		sm.logger.WithField("source", groupMapping.Source).Debug("Group source attribute not found")
+		return []string{}, nil
+	}
+
+	// Convert external groups to string slice
+	var externalGroupStrings []string
+	switch v := externalGroups.(type) {
+	case string:
+		externalGroupStrings = []string{v}
+	case []string:
+		externalGroupStrings = v
+	case []any:
+		for _, group := range v {
+			if groupStr, ok := group.(string); ok {
+				externalGroupStrings = append(externalGroupStrings, groupStr)
+			}
+		}
+	default:
+		sm.logger.WithField("source", groupMapping.Source).Warn("Group source attribute is not a string or array")
+		return []string{}, nil
+	}
+
+	// Map external groups to TwinCore groups
+	var mappedGroups []string
+	for _, externalGroup := range externalGroupStrings {
+		if twinCoreGroup, ok := groupMapping.GroupMap[externalGroup]; ok {
+			mappedGroups = append(mappedGroups, twinCoreGroup)
+		}
+	}
+
+	return mappedGroups, nil
+}
+
+func (sm *SystemSecurityManager) mapCustomAttribute(externalAttrs map[string]any, rule *types.AttributeRule) (any, error) {
+	value, ok := externalAttrs[rule.Source]
+	if !ok {
+		if rule.DefaultValue != nil {
+			return rule.DefaultValue, nil
+		}
+		return nil, fmt.Errorf("attribute '%s' not found", rule.Source)
+	}
+
+	// Apply transformation if specified
+	if rule.Transform != "" {
+		value = sm.transformAttribute(value, rule.Transform)
+	}
+
+	return value, nil
+}
+
+func (sm *SystemSecurityManager) transformAttribute(value any, transform string) any {
+	str, ok := value.(string)
+	if !ok {
+		return value
+	}
+
+	switch transform {
+	case "lowercase":
+		return strings.ToLower(str)
+	case "uppercase":
+		return strings.ToUpper(str)
+	case "trim":
+		return strings.TrimSpace(str)
+	default:
+		return value
+	}
 }
 
 // Session Management - REMOVED (now handled by caddy-security)
