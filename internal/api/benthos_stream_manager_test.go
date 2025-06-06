@@ -126,12 +126,12 @@ func (m *MockBenthosStreamBuilder) AsYAML() (string, error) {
 // BenthosStreamManagerTestSuite is the test suite for SimpleBenthosStreamManager.
 type BenthosStreamManagerTestSuite struct {
 	suite.Suite
-	manager         *SimpleBenthosStreamManager // System Under Test
-	db              *sql.DB
-	mockSql         sqlmock.Sqlmock           // For sql.DB mocking
-	mockDbManager   *MockDatabaseManager      // Mock DatabaseManager
-	logger          *logrus.Logger
-	testConfigDir   string // For testing config file writing
+	manager       *SimpleBenthosStreamManager // System Under Test
+	db            *sql.DB
+	mockSql       sqlmock.Sqlmock      // For sql.DB mocking
+	mockDbManager *MockDatabaseManager // Mock DatabaseManager
+	logger        *logrus.Logger
+	testConfigDir string // For testing config file writing
 
 	// mockStream and mockBuilder can be initialized per test if needed
 	// mockStream   *MockBenthosStream

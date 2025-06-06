@@ -34,7 +34,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 	t.Run("ModuleDiscovery", func(t *testing.T) {
 		// List all available Caddy modules to see what's loaded
 		modules := caddy.Modules()
-		
+
 		securityModules := []string{}
 		for _, moduleName := range modules {
 			if contains(moduleName, "security") || contains(moduleName, "auth") {
@@ -68,14 +68,14 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 			},
 			{
 				Username: "operator",
-				Email:    "operator@twincore.local", 
+				Email:    "operator@twincore.local",
 				FullName: "Operator User",
 				Roles:    []string{"operator"},
 			},
 			{
 				Username: "viewer",
 				Email:    "viewer@twincore.local",
-				FullName: "Viewer User", 
+				FullName: "Viewer User",
 				Roles:    []string{"viewer"},
 			},
 		}
@@ -160,7 +160,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 						Actions:     []string{"read", "write", "delete", "admin"},
 					},
 					{
-						ID:          "operator_limited_access", 
+						ID:          "operator_limited_access",
 						Name:        "Operator Limited Access",
 						Description: "Read/write access to operational APIs",
 						Principal:   "role:operator",
@@ -194,7 +194,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 		// Validate all required sections
 		requiredSections := []string{
 			"crypto_key",
-			"authentication_portals", 
+			"authentication_portals",
 			"authorization_policies",
 			"identity_stores",
 		}
@@ -206,7 +206,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 		// Validate portal configuration
 		portals := securityApp["authentication_portals"].(map[string]any)
 		portal := portals["twincore_portal"].(map[string]any)
-		
+
 		assert.Contains(t, portal, "name")
 		assert.Contains(t, portal, "ui")
 		assert.Contains(t, portal, "cookie")
@@ -215,7 +215,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 		// Validate authorization policies
 		policies := securityApp["authorization_policies"].(map[string]any)
 		policy := policies["twincore_policy"].(map[string]any)
-		
+
 		assert.Contains(t, policy, "default_action")
 		assert.Contains(t, policy, "rules")
 		assert.Equal(t, "deny", policy["default_action"])
@@ -325,18 +325,18 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 											},
 										},
 										{
-											"handler": "static_response",
+											"handler":     "static_response",
 											"status_code": 200,
-											"body": "API access granted",
+											"body":        "API access granted",
 										},
 									},
 								},
 								{
 									"handle": []map[string]any{
 										{
-											"handler": "static_response",
+											"handler":     "static_response",
 											"status_code": 200,
-											"body": "Welcome to TwinCore Gateway",
+											"body":        "Welcome to TwinCore Gateway",
 										},
 									},
 								},
@@ -351,7 +351,7 @@ func TestCaddySecurityModuleIntegration(t *testing.T) {
 		var securityApp map[string]any
 		err = json.Unmarshal(securityConfig, &securityApp)
 		require.NoError(t, err)
-		
+
 		caddyConfig["apps"].(map[string]any)["security"] = securityApp
 
 		// Marshal complete configuration
@@ -431,12 +431,12 @@ func generateCaddySecurityUserFile(store *LocalIdentityStore, filename string) e
 
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		   (s == substr || 
-		    (len(s) > len(substr) && 
-		     (s[:len(substr)] == substr || 
-		      s[len(s)-len(substr):] == substr ||
-		      searchInString(s, substr))))
+	return len(s) >= len(substr) &&
+		(s == substr ||
+			(len(s) > len(substr) &&
+				(s[:len(substr)] == substr ||
+					s[len(s)-len(substr):] == substr ||
+					searchInString(s, substr))))
 }
 
 func searchInString(s, substr string) bool {

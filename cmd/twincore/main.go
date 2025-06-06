@@ -45,6 +45,15 @@
 //
 //	@tag.name			Bindings
 //	@tag.description	Protocol binding generation from Thing Descriptions
+//
+//	@tag.name			Admin
+//	@tag.description	System administration and health monitoring
+//
+//	@tag.name			Users
+//	@tag.description	User account management and role-based access control
+//
+//	@tag.name			Auth
+//	@tag.description	Authentication status and user profile information
 package main
 
 import (

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	_ "github.com/marcboeker/go-duckdb"
+	"github.com/sirupsen/logrus"
 )
 
 //go:embed queries/*.sql
@@ -17,16 +17,16 @@ var queryFiles embed.FS
 
 // Manager provides centralized access to DuckDB with single-writer coordination
 type Manager struct {
-	db              *sql.DB
-	logger          *logrus.Logger
-	dbPath          string
-	queries         map[string]string
-	mu              sync.RWMutex // Coordinates access for DuckDB's single-writer limitation
-	connectionMu    sync.Mutex   // Protects connection operations
-	healthTicker    *time.Ticker
-	isHealthy       bool
-	queryStats      map[string]*QueryStats
-	statsMu         sync.RWMutex
+	db           *sql.DB
+	logger       *logrus.Logger
+	dbPath       string
+	queries      map[string]string
+	mu           sync.RWMutex // Coordinates access for DuckDB's single-writer limitation
+	connectionMu sync.Mutex   // Protects connection operations
+	healthTicker *time.Ticker
+	isHealthy    bool
+	queryStats   map[string]*QueryStats
+	statsMu      sync.RWMutex
 }
 
 // QueryStats tracks performance metrics for queries
@@ -175,7 +175,7 @@ func (m *Manager) GetQuery(name string) (string, error) {
 }
 
 // Execute runs a named query with parameters and returns the result
-func (m *Manager) Execute(ctx context.Context, queryName string, args ...interface{}) (sql.Result, error) {
+func (m *Manager) Execute(ctx context.Context, queryName string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	defer func() {
 		m.recordQueryStats(queryName, time.Since(start), nil)
@@ -215,7 +215,7 @@ func (m *Manager) Execute(ctx context.Context, queryName string, args ...interfa
 }
 
 // Query runs a named query and returns rows
-func (m *Manager) Query(ctx context.Context, queryName string, args ...interface{}) (*sql.Rows, error) {
+func (m *Manager) Query(ctx context.Context, queryName string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
 	defer func() {
 		m.recordQueryStats(queryName, time.Since(start), nil)
@@ -255,7 +255,7 @@ func (m *Manager) Query(ctx context.Context, queryName string, args ...interface
 }
 
 // QueryRow runs a named query and returns a single row
-func (m *Manager) QueryRow(ctx context.Context, queryName string, args ...interface{}) *sql.Row {
+func (m *Manager) QueryRow(ctx context.Context, queryName string, args ...any) *sql.Row {
 	start := time.Now()
 	defer func() {
 		m.recordQueryStats(queryName, time.Since(start), nil)

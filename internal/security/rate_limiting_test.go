@@ -12,7 +12,6 @@ import (
 	"github.com/twinfer/twincore/pkg/types"
 )
 
-
 // TestRateLimiting tests API rate limiting functionality
 func TestRateLimiting(t *testing.T) {
 	logger := logrus.New()
@@ -107,7 +106,7 @@ func TestRateLimiting(t *testing.T) {
 // TestSecurityHeadersGeneration tests HTTP security headers
 func TestSecurityHeadersGeneration(t *testing.T) {
 	logger := logrus.New()
-	
+
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -143,7 +142,7 @@ func TestSecurityHeadersGeneration(t *testing.T) {
 // TestCSRFProtection tests CSRF protection mechanisms
 func TestCSRFProtection(t *testing.T) {
 	logger := logrus.New()
-	
+
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -185,7 +184,7 @@ func TestCSRFProtection(t *testing.T) {
 // TestAuthenticationMethods tests various authentication method configurations
 func TestAuthenticationMethods(t *testing.T) {
 	logger := logrus.New()
-	
+
 	db := setupTestDB(t)
 	defer db.Close()
 
@@ -253,7 +252,7 @@ func TestAuthenticationMethods(t *testing.T) {
 // TestAccessControlPolicies tests access control policy generation
 func TestAccessControlPolicies(t *testing.T) {
 	logger := logrus.New()
-	
+
 	db := setupTestDB(t)
 	defer db.Close()
 

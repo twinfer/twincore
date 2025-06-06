@@ -6,6 +6,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/twinfer/twincore/internal/api"
 	"github.com/twinfer/twincore/internal/container"
+	"github.com/twinfer/twincore/pkg/types"
 
 	"github.com/sirupsen/logrus"
 
@@ -100,6 +101,9 @@ func (tca *TwinCoreApp) GetBenthosStreamManager() api.BenthosStreamManager {
 }
 func (tca *TwinCoreApp) GetConfigurationManager() api.ConfigurationManager {
 	return tca.configurationManager
+}
+func (tca *TwinCoreApp) GetSystemSecurityManager() types.SystemSecurityManager {
+	return globalContainer.SystemSecurityManager
 }
 
 // Interface guards

@@ -23,7 +23,6 @@ import (
 	svc "github.com/twinfer/twincore/service"
 )
 
-
 // Container holds all application dependencies
 type Container struct {
 	// Core components
@@ -127,7 +126,7 @@ func (c *Container) initDatabase(dbPath string) error {
 		DBPath:      dbPath,
 		AutoMigrate: true,
 	}
-	
+
 	factory, err := database.NewDatabaseFactoryWithConfig(config, c.Logger)
 	if err != nil {
 		return fmt.Errorf("failed to create database factory: %w", err)
@@ -162,7 +161,7 @@ func (c *Container) initSecurity(cfg *Config) error {
 	// Initialize system security manager for caddy-auth-portal integration
 	dbManager := c.DatabaseFactory.GetManager()
 	securityRepo := repositories.NewSecurityRepository(dbManager, c.Logger)
-	
+
 	systemSecurityMgr := security.NewSystemSecurityManager(securityRepo, c.Logger, unifiedChecker)
 	c.SystemSecurityManager = systemSecurityMgr
 
@@ -270,7 +269,7 @@ func (c *Container) initWoTComponents(cfg *Config) error { // Added cfg paramete
 	// Initialize state manager
 	// Create stream repository for state manager
 	streamRepo := repositories.NewStreamRepository(c.DatabaseFactory.GetManager(), c.Logger)
-	
+
 	sm, err := api.NewBenthosStateManager(streamRepo, "", cfg.ParquetLogPath, c.Logger)
 	if err != nil {
 		return fmt.Errorf("failed to initialize Benthos state manager: %w", err)

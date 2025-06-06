@@ -14,6 +14,7 @@ pkgs.mkShell {
 
   shellHook = ''
     export TMPDIR=/tmp
+    export PATH=$PATH:$(go env GOPATH)/bin
     go fmt ./...
 
   '';

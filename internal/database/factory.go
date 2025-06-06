@@ -9,10 +9,10 @@ import (
 
 // DatabaseFactory creates and configures database components
 type DatabaseFactory struct {
-	manager           *Manager
-	transactionMgr    *TransactionManager
-	migrationMgr      *MigrationManager
-	logger            *logrus.Logger
+	manager        *Manager
+	transactionMgr *TransactionManager
+	migrationMgr   *MigrationManager
+	logger         *logrus.Logger
 }
 
 // NewDatabaseFactory creates a new database factory
@@ -89,12 +89,12 @@ func (df *DatabaseFactory) IsHealthy() bool {
 // GetMetrics returns database performance metrics
 func (df *DatabaseFactory) GetMetrics() DatabaseMetrics {
 	queryStats := df.manager.GetQueryStats()
-	
+
 	return DatabaseMetrics{
-		IsHealthy:     df.manager.IsHealthy(),
-		QueryStats:    queryStats,
-		QueryCount:    len(queryStats),
-		TotalQueries:  df.getTotalQueryCount(queryStats),
+		IsHealthy:    df.manager.IsHealthy(),
+		QueryStats:   queryStats,
+		QueryCount:   len(queryStats),
+		TotalQueries: df.getTotalQueryCount(queryStats),
 	}
 }
 
@@ -109,10 +109,10 @@ func (df *DatabaseFactory) getTotalQueryCount(stats map[string]*QueryStats) int6
 
 // DatabaseMetrics holds database performance and health metrics
 type DatabaseMetrics struct {
-	IsHealthy     bool                    `json:"is_healthy"`
-	QueryStats    map[string]*QueryStats  `json:"query_stats"`
-	QueryCount    int                     `json:"query_count"`
-	TotalQueries  int64                   `json:"total_queries"`
+	IsHealthy    bool                   `json:"is_healthy"`
+	QueryStats   map[string]*QueryStats `json:"query_stats"`
+	QueryCount   int                    `json:"query_count"`
+	TotalQueries int64                  `json:"total_queries"`
 }
 
 // CreateDatabaseFactory is a convenience function for dependency injection
@@ -135,11 +135,11 @@ func NewDatabaseFactoryWithConfig(config DatabaseConfig, logger *logrus.Logger) 
 	// Convert config to manager config
 	managerConfig := DefaultConfig()
 	managerConfig.DBPath = config.DBPath
-	
+
 	if config.MaxRetries > 0 {
 		managerConfig.MaxRetries = config.MaxRetries
 	}
-	
+
 	managerConfig.EnableQueryStats = config.EnableQueryStats
 
 	// Create manager with custom config

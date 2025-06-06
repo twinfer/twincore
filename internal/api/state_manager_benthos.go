@@ -11,6 +11,7 @@ import (
 	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/internal/models"
 	"github.com/twinfer/twincore/pkg/wot/forms" // Added for unified schema management
+	"slices"
 )
 
 // BenthosStateManager is a refactored StateManager that uses Benthos for Parquet logging
@@ -346,10 +347,10 @@ func (sm *BenthosStateManager) GetServiceStatus() map[string]any {
 	})
 
 	status := map[string]any{
-		"parquet_enabled":     sm.parquetEnabled,
-		"has_schema_registry": sm.schemaRegistry != nil,
-		"subscriber_count":    subscriberCount,
-		"subscription_keys":   keyCount,
+		"parquet_enabled":      sm.parquetEnabled,
+		"has_schema_registry":  sm.schemaRegistry != nil,
+		"subscriber_count":     subscriberCount,
+		"subscription_keys":    keyCount,
 		"repository_available": sm.repository != nil,
 	}
 
@@ -471,7 +472,7 @@ func (sm *BenthosStateManager) UnsubscribeProperty(thingID, propertyName string,
 	for i, c := range channels {
 		if c == ch {
 			// Remove channel from slice manually
-			channels = append(channels[:i], channels[i+1:]...)
+			channels = slices.Delete(channels, i, i+1)
 			if len(channels) == 0 {
 				sm.subscribers.Delete(key)
 				logger.Debug("Removed last subscriber, deleting list")

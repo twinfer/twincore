@@ -21,7 +21,7 @@ var _ ConfigurationManager = (*ConfigManager)(nil)
 
 // ConfigManager provides a unified API for managing TwinCore configurations
 // It wraps Caddy Admin API for HTTP and general configurations
-// 
+//
 // SECURITY NOTE: Authentication and security configuration has been moved to CaddySecurityBridge
 // for proper separation of concerns. This ConfigManager no longer handles security configuration.
 type ConfigManager struct {
@@ -227,7 +227,7 @@ func (cm *ConfigManager) GetAuthProviders(license License) []AuthProviderInfo {
 	return []AuthProviderInfo{
 		{
 			ID:          "local",
-			Name:        "Local Users", 
+			Name:        "Local Users",
 			Description: "Built-in user database",
 			Available:   true,
 		},
@@ -239,7 +239,7 @@ func (cm *ConfigManager) GetAuthProviders(license License) []AuthProviderInfo {
 func (cm *ConfigManager) ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error {
 	entryLogger := logger.WithFields(logrus.Fields{"service_method": "ConfigureAuth", "provider": req.Provider})
 	entryLogger.Debug("Service method called")
-	
+
 	// TODO: This method should be removed once authentication is fully handled by CaddySecurityBridge
 	// For now, return an error directing users to the proper integration
 	return fmt.Errorf("authentication configuration must be handled through CaddySecurityBridge - ConfigManager.ConfigureAuth is deprecated")

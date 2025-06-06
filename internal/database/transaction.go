@@ -25,11 +25,11 @@ func NewTransactionManager(manager *Manager, logger *logrus.Logger) *Transaction
 
 // TxOptions configures transaction behavior
 type TxOptions struct {
-	RetryCount    int
-	RetryDelay    time.Duration
-	Timeout       time.Duration
+	RetryCount     int
+	RetryDelay     time.Duration
+	Timeout        time.Duration
 	IsolationLevel sql.IsolationLevel
-	ReadOnly      bool
+	ReadOnly       bool
 }
 
 // DefaultTxOptions returns sensible defaults for transactions
@@ -133,12 +133,12 @@ func (tm *TransactionManager) BatchExecute(ctx context.Context, operations []Bat
 type BatchOperation struct {
 	Name      string
 	QueryName string
-	Args      []interface{}
+	Args      []any
 	Execute   func(*sql.Tx) error
 }
 
 // NewQueryOperation creates a batch operation that executes a named query
-func (tm *TransactionManager) NewQueryOperation(name, queryName string, args ...interface{}) BatchOperation {
+func (tm *TransactionManager) NewQueryOperation(name, queryName string, args ...any) BatchOperation {
 	return BatchOperation{
 		Name:      name,
 		QueryName: queryName,
@@ -166,13 +166,13 @@ func (tm *TransactionManager) NewQueryOperation(name, queryName string, args ...
 
 // TransactionStats tracks transaction performance and success rates
 type TransactionStats struct {
-	TotalAttempts   int64
-	SuccessfulTxns  int64
-	FailedTxns      int64
-	RetriedTxns     int64
-	AvgDuration     time.Duration
-	TotalDuration   time.Duration
-	LastExecution   time.Time
+	TotalAttempts  int64
+	SuccessfulTxns int64
+	FailedTxns     int64
+	RetriedTxns    int64
+	AvgDuration    time.Duration
+	TotalDuration  time.Duration
+	LastExecution  time.Time
 }
 
 // GetTransactionStats returns transaction statistics (placeholder for future implementation)
@@ -213,12 +213,12 @@ func isRetryableError(err error) bool {
 
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		   (s == substr || 
-		    len(s) > len(substr) && 
-		    (s[:len(substr)] == substr || 
-		     s[len(s)-len(substr):] == substr || 
-		     indexOf(s, substr) >= 0))
+	return len(s) >= len(substr) &&
+		(s == substr ||
+			len(s) > len(substr) &&
+				(s[:len(substr)] == substr ||
+					s[len(s)-len(substr):] == substr ||
+					indexOf(s, substr) >= 0))
 }
 
 // indexOf finds the first occurrence of substr in s
@@ -265,8 +265,8 @@ func (tm *TransactionManager) CreateThingWithStreams(ctx context.Context, thingI
 		}
 
 		tm.logger.WithFields(logrus.Fields{
-			"thing_id":      thingID,
-			"stream_count":  len(streamConfigs),
+			"thing_id":     thingID,
+			"stream_count": len(streamConfigs),
 		}).Info("Thing and streams created successfully")
 
 		return nil
@@ -317,8 +317,8 @@ func (tm *TransactionManager) UpdateThingAndCleanupStreams(ctx context.Context, 
 		}
 
 		tm.logger.WithFields(logrus.Fields{
-			"thing_id":         thingID,
-			"deleted_streams":  len(streamsToDelete),
+			"thing_id":        thingID,
+			"deleted_streams": len(streamsToDelete),
 		}).Info("Thing updated and streams cleaned up")
 
 		return nil

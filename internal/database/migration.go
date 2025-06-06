@@ -12,8 +12,8 @@ import (
 
 // MigrationManager handles database schema migrations
 type MigrationManager struct {
-	manager *Manager
-	logger  *logrus.Logger
+	manager    *Manager
+	logger     *logrus.Logger
 	migrations []Migration
 }
 
@@ -310,9 +310,9 @@ func (mm *MigrationManager) RunMigrations(ctx context.Context) error {
 	}
 
 	mm.logger.WithFields(logrus.Fields{
-		"current_version":   currentVersion,
-		"pending_count":     len(pendingMigrations),
-		"target_version":    pendingMigrations[len(pendingMigrations)-1].Version,
+		"current_version": currentVersion,
+		"pending_count":   len(pendingMigrations),
+		"target_version":  pendingMigrations[len(pendingMigrations)-1].Version,
 	}).Info("Starting database migrations")
 
 	// Apply migrations
@@ -343,7 +343,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 // getCurrentVersion gets the current migration version
 func (mm *MigrationManager) getCurrentVersion(ctx context.Context) (int, error) {
 	query := "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
-	
+
 	var version int
 	err := mm.manager.db.QueryRowContext(ctx, query).Scan(&version)
 	if err != nil {

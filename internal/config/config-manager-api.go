@@ -10,8 +10,8 @@ import (
 
 	"github.com/caddyserver/caddy/v2" // Import caddy
 	"github.com/sirupsen/logrus"      // Import logrus
-	"github.com/wI2L/jsondiff"
 	"github.com/twinfer/twincore/internal/database"
+	"github.com/wI2L/jsondiff"
 	"maps"
 )
 
@@ -51,7 +51,7 @@ func (cm *ConfigManager) LoadFromDB() error {
 	var patches *string
 	var active bool
 	var createdAt string
-	
+
 	err := row.Scan(&id, &configJSON, &patches, &version, &active, &createdAt)
 	if err == nil {
 		var config caddy.Config
@@ -132,7 +132,7 @@ func (cm *ConfigManager) UpdateCaddyConfig(newConfig *caddy.Config) error {
 	// patchesJSON is already defined above
 
 	ctx := context.Background()
-	
+
 	// Get latest version and insert new config in a transaction-like manner
 	// First deactivate current config
 	_, err := cm.dbManager.Execute(ctx, "SetActiveCaddyConfig", 0) // Deactivate all by setting to version 0

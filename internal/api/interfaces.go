@@ -18,7 +18,7 @@ type ConfigurationManager interface {
 	CompleteSetup(logger logrus.FieldLogger) error
 	// GetAuthProviders and ConfigureAuth have been moved to CaddySecurityBridge
 	// These methods are kept for transition but will be removed
-	GetAuthProviders(license License) []AuthProviderInfo // DEPRECATED: Use CaddySecurityBridge
+	GetAuthProviders(license License) []AuthProviderInfo                  // DEPRECATED: Use CaddySecurityBridge
 	ConfigureAuth(logger logrus.FieldLogger, req AuthConfigRequest) error // DEPRECATED: Use CaddySecurityBridge
 	GetConfiguration(logger logrus.FieldLogger) (map[string]any, error)
 	UpdateConfiguration(logger logrus.FieldLogger, section string, config map[string]any) error
@@ -121,6 +121,7 @@ type CoreProvider interface {
 	GetEventBroker() *EventBroker    // EventBroker is a concrete type, not an interface here.
 	GetBenthosStreamManager() BenthosStreamManager
 	GetConfigurationManager() ConfigurationManager // Added
+	GetSystemSecurityManager() types.SystemSecurityManager // Added for user management
 	// GetThingRegistrationService() ThingRegistrationService - Consider if this should be here
 	// GetTDStreamCompositionService() TDStreamCompositionService - Consider if this should be here
 	// GetBindingGenerationService() BindingGenerationService - Unlikely to be a direct CoreProvider dep

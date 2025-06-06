@@ -44,6 +44,10 @@ type UnifiedWoTHandler struct {
 	// Stream management components
 	streamManager BenthosStreamManager
 
+	// User management components
+	userHandler *UserManagementHandler
+	authHandler *AuthHandler
+
 	// Caching and utilities
 	propertyCache *PropertyCache
 	logger        *logrus.Logger
@@ -159,6 +163,10 @@ const (
 	streamsPrefix    = "/streams"
 	processorsPrefix = "/processors"
 	bindingsPrefix   = "/bindings"
+	healthPrefix     = "/health"
+	metricsPrefix    = "/metrics"
+	usersPrefix      = "/users"
+	authPrefix       = "/auth"
 
 	// Interaction types
 	propertiesType = "properties"
@@ -246,6 +254,11 @@ func (h *UnifiedWoTHandler) Provision(ctx caddy.Context) error {
 	h.eventBroker = coreProvider.GetEventBroker()
 	h.streamManager = coreProvider.GetBenthosStreamManager()
 
+	// Initialize user management and auth handlers
+	securityManager := coreProvider.GetSystemSecurityManager()
+	h.userHandler = NewUserManagementHandler(securityManager, h.logger)
+	h.authHandler = NewAuthHandler(h.logger)
+
 	// Validate dependencies
 	if h.logger == nil {
 		h.logger = logrus.New()
@@ -306,6 +319,18 @@ func (h *UnifiedWoTHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, ne
 	case strings.HasPrefix(path, bindingsPrefix):
 		return h.handleBindingRoutes(logger, w, r, path)
 
+	// Administrative endpoints
+	case strings.HasPrefix(path, healthPrefix):
+		return h.handleHealth(logger, w, r)
+	case strings.HasPrefix(path, metricsPrefix):
+		return h.handleMetrics(logger, w, r)
+
+	// User management routes
+	case strings.HasPrefix(path, usersPrefix):
+		return h.userHandler.handleUserRoutes(logger, w, r, path)
+	case strings.HasPrefix(path, authPrefix):
+		return h.authHandler.handleAuthRoutes(logger, w, r, path)
+
 	default:
 		logger.WithField("path", path).Warn("Unknown API endpoint")
 		return caddyhttp.Error(http.StatusNotFound, fmt.Errorf("unknown endpoint: %s", path))
@@ -319,7 +344,12 @@ func (h *UnifiedWoTHandler) handleThingRoutes(logger *logrus.Entry, w http.Respo
 	// Remove /things prefix
 	path = strings.TrimPrefix(path, thingsPrefix)
 
-	// Extract path parameters using Caddy's mechanism
+	// Handle /api/things root path (CRUD collection operations)
+	if path == "" {
+		return h.handleThingCollection(logger, w, r)
+	}
+
+	// Extract path parameters using Caddy's mechanism for /api/things/{id}/* paths
 	vars, ok := r.Context().Value(caddyhttp.VarsCtxKey).(map[string]string)
 	if !ok {
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("path variables not available"))
@@ -422,36 +452,244 @@ func (h *UnifiedWoTHandler) handleBindingRoutes(logger *logrus.Entry, w http.Res
 	}
 }
 
-// GetThingDescription godoc
-//
-//	@Summary		Get Thing Description
-//	@Description	Retrieves a complete W3C WoT Thing Description by ID
-//	@Tags			Things
-//	@Accept			json
-//	@Produce		json
-//	@Param			id	path		string	true	"Thing ID"
-//	@Success		200	{object}	wot.ThingDescription
-//	@Failure		404	{object}	map[string]string	"Thing not found"
-//	@Failure		500	{object}	map[string]string	"Internal server error"
-//	@Security		BearerAuth
-//	@Router			/things/{id} [get]
+// @Summary Get Thing Description
+// @Description Retrieve a specific Thing Description by ID
+// @Tags Things
+// @Produce json
+// @Param id path string true "Thing ID"
+// @Success 200 {object} wot.ThingDescription
+// @Failure 404 {object} types.ErrorResponse
+// @Security BearerAuth
+// @Router /things/{id} [get]
 func (h *UnifiedWoTHandler) handleThingDirect(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID string) error {
 	logger.WithField("thing_id", thingID).Debug("Handling direct thing access")
 
 	switch r.Method {
 	case http.MethodGet:
-		// Get Thing Description
-		td, err := h.thingRegistry.GetThing(thingID)
-		if err != nil {
-			return caddyhttp.Error(http.StatusNotFound, err)
-		}
-
-		w.Header().Set(headerContentType, contentTypeJSON)
-		return json.NewEncoder(w).Encode(td)
-
+		return h.getThingByID(logger, w, r, thingID)
+	case http.MethodPut:
+		return h.updateThing(logger, w, r, thingID)
+	case http.MethodDelete:
+		return h.deleteThing(logger, w, r, thingID)
 	default:
 		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
+}
+
+// handleThingCollection handles /api/things collection operations
+func (h *UnifiedWoTHandler) handleThingCollection(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	logger.Debug("Handling thing collection operations")
+
+	switch r.Method {
+	case http.MethodGet:
+		return h.listThings(logger, w, r)
+	case http.MethodPost:
+		return h.registerThing(logger, w, r)
+	default:
+		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+	}
+}
+
+// getThingByID retrieves a Thing Description by ID
+func (h *UnifiedWoTHandler) getThingByID(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID string) error {
+	td, err := h.thingRegistry.GetThing(thingID)
+	if err != nil {
+		return caddyhttp.Error(http.StatusNotFound, err)
+	}
+
+	w.Header().Set(headerContentType, contentTypeJSON)
+	return json.NewEncoder(w).Encode(td)
+}
+
+// @Summary List all Thing Descriptions
+// @Description Retrieve all registered Thing Descriptions
+// @Tags Things
+// @Produce json
+// @Success 200 {array} wot.ThingDescription
+// @Failure 500 {object} types.ErrorResponse
+// @Security BearerAuth
+// @Router /things [get]
+func (h *UnifiedWoTHandler) listThings(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	// Check if registry supports listing
+	registryExt, ok := h.thingRegistry.(ThingRegistryExt)
+	if !ok {
+		return caddyhttp.Error(http.StatusNotImplemented, fmt.Errorf("thing listing not supported"))
+	}
+
+	things, err := registryExt.ListThings()
+	if err != nil {
+		logger.WithError(err).Error("Failed to list things")
+		return caddyhttp.Error(http.StatusInternalServerError, err)
+	}
+
+	w.Header().Set(headerContentType, contentTypeJSON)
+	return json.NewEncoder(w).Encode(things)
+}
+
+// @Summary Register new Thing Description
+// @Description Register a new Thing Description and create associated streams
+// @Tags Things
+// @Accept json
+// @Produce json
+// @Param td body wot.ThingDescription true "Thing Description"
+// @Success 201 {object} wot.ThingDescription
+// @Failure 400 {object} types.ErrorResponse
+// @Failure 409 {object} types.ErrorResponse
+// @Failure 500 {object} types.ErrorResponse
+// @Security BearerAuth
+// @Router /things [post]
+func (h *UnifiedWoTHandler) registerThing(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	// Check if registry supports registration
+	registryExt, ok := h.thingRegistry.(ThingRegistryExt)
+	if !ok {
+		return caddyhttp.Error(http.StatusNotImplemented, fmt.Errorf("thing registration not supported"))
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logger.WithError(err).Error("Failed to read request body")
+		return caddyhttp.Error(http.StatusBadRequest, err)
+	}
+	defer r.Body.Close()
+
+	// Register thing using raw JSON-LD
+	td, err := registryExt.RegisterThing(string(body))
+	if err != nil {
+		logger.WithError(err).Error("Failed to register thing")
+		// Return appropriate error code based on error type
+		if strings.Contains(err.Error(), "already exists") {
+			return caddyhttp.Error(http.StatusConflict, err)
+		}
+		return caddyhttp.Error(http.StatusBadRequest, err)
+	}
+
+	w.Header().Set(headerContentType, contentTypeJSON)
+	w.WriteHeader(http.StatusCreated)
+	return json.NewEncoder(w).Encode(td)
+}
+
+// @Summary Update Thing Description
+// @Description Update an existing Thing Description
+// @Tags Things
+// @Accept json
+// @Produce json
+// @Param id path string true "Thing ID"
+// @Param td body wot.ThingDescription true "Updated Thing Description"
+// @Success 200 {object} wot.ThingDescription
+// @Failure 400 {object} types.ErrorResponse
+// @Failure 404 {object} types.ErrorResponse
+// @Failure 500 {object} types.ErrorResponse
+// @Security BearerAuth
+// @Router /things/{id} [put]
+func (h *UnifiedWoTHandler) updateThing(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID string) error {
+	// Check if registry supports updates
+	registryExt, ok := h.thingRegistry.(ThingRegistryExt)
+	if !ok {
+		return caddyhttp.Error(http.StatusNotImplemented, fmt.Errorf("thing updates not supported"))
+	}
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		logger.WithError(err).Error("Failed to read request body")
+		return caddyhttp.Error(http.StatusBadRequest, err)
+	}
+	defer r.Body.Close()
+
+	// Update thing using raw JSON-LD
+	td, err := registryExt.UpdateThing(thingID, string(body))
+	if err != nil {
+		logger.WithError(err).WithField("thing_id", thingID).Error("Failed to update thing")
+		if strings.Contains(err.Error(), "not found") {
+			return caddyhttp.Error(http.StatusNotFound, err)
+		}
+		return caddyhttp.Error(http.StatusBadRequest, err)
+	}
+
+	w.Header().Set(headerContentType, contentTypeJSON)
+	return json.NewEncoder(w).Encode(td)
+}
+
+// @Summary Delete Thing Description
+// @Description Delete a Thing Description and its associated streams
+// @Tags Things
+// @Param id path string true "Thing ID"
+// @Success 204 "No Content"
+// @Failure 404 {object} types.ErrorResponse
+// @Failure 500 {object} types.ErrorResponse
+// @Security BearerAuth
+// @Router /things/{id} [delete]
+func (h *UnifiedWoTHandler) deleteThing(logger *logrus.Entry, w http.ResponseWriter, r *http.Request, thingID string) error {
+	// Check if registry supports deletion
+	registryExt, ok := h.thingRegistry.(ThingRegistryExt)
+	if !ok {
+		return caddyhttp.Error(http.StatusNotImplemented, fmt.Errorf("thing deletion not supported"))
+	}
+
+	err := registryExt.DeleteThing(thingID)
+	if err != nil {
+		logger.WithError(err).WithField("thing_id", thingID).Error("Failed to delete thing")
+		if strings.Contains(err.Error(), "not found") {
+			return caddyhttp.Error(http.StatusNotFound, err)
+		}
+		return caddyhttp.Error(http.StatusInternalServerError, err)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// ============================================================================
+// Administrative Endpoints
+// ============================================================================
+
+// @Summary System health check
+// @Description Get system health status and basic information
+// @Tags Admin
+// @Produce json
+// @Success 200 {object} types.HealthResponse
+// @Router /health [get]
+func (h *UnifiedWoTHandler) handleHealth(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodGet {
+		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+	}
+
+	// For now, always return healthy. In the future, this could check:
+	// - Database connectivity
+	// - Stream manager status
+	// - License validity
+	// - Memory usage, etc.
+
+	health := types.NewHealthResponse("healthy", "1.0.0", time.Since(time.Now().Add(-24*time.Hour))) // placeholder uptime
+
+	w.Header().Set(headerContentType, contentTypeJSON)
+	return json.NewEncoder(w).Encode(health)
+}
+
+// @Summary System metrics
+// @Description Get system performance metrics and statistics
+// @Tags Admin
+// @Produce json
+// @Success 200 {object} types.MetricsResponse
+// @Security BearerAuth
+// @Router /metrics [get]
+func (h *UnifiedWoTHandler) handleMetrics(logger *logrus.Entry, w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodGet {
+		return caddyhttp.Error(http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+	}
+
+	// Create metrics response from current handler metrics
+	metrics := types.NewMetricsResponse(
+		h.metrics.propertyReads,
+		h.metrics.propertyWrites,
+		h.metrics.actionInvokes,
+		h.metrics.eventEmissions,
+		h.metrics.errors,
+	)
+
+	w.Header().Set(headerContentType, contentTypeJSON)
+	return json.NewEncoder(w).Encode(metrics)
 }
 
 // ============================================================================

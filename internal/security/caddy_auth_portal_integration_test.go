@@ -221,7 +221,7 @@ func setupTestDB(t *testing.T) (*sql.DB, database.SecurityRepositoryInterface) {
 
 	// Create a mock database manager
 	mockDBManager := &MockDatabaseManager{db: db}
-	
+
 	// Create security repository
 	logger := logrus.New()
 	logger.SetLevel(logrus.FatalLevel)
@@ -280,11 +280,11 @@ func (m *MockDatabaseManager) Transaction(ctx context.Context, fn func(*sql.Tx) 
 		return err
 	}
 	defer tx.Rollback()
-	
+
 	if err := fn(tx); err != nil {
 		return err
 	}
-	
+
 	return tx.Commit()
 }
 
@@ -537,7 +537,7 @@ func TestIntegrationWorkflow(t *testing.T) {
 
 	// Setup components
 	mockLicenseChecker := &MockUnifiedLicenseChecker{valid: true}
-	
+
 	config := &types.SystemSecurityConfig{
 		Enabled: true,
 		AdminAuth: &types.AdminAuthConfig{

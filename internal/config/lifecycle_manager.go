@@ -156,7 +156,7 @@ func (lm *LifecycleManager) applyDefaultConfiguration() error {
 // saveDefaultServiceConfigs saves default service configurations to database
 func (lm *LifecycleManager) saveDefaultServiceConfigs() error {
 	ctx := context.Background()
-	
+
 	// HTTP service config
 	httpConfig := lm.defaultProvider.GetDefaultHTTPConfig()
 	httpConfigJSON, err := json.Marshal(httpConfig)

@@ -24,13 +24,13 @@ func TestBenthosStateManager_ParquetReplacement(t *testing.T) {
 		DBPath:      "", // In-memory DuckDB
 		AutoMigrate: true,
 	}
-	
+
 	factory, err := database.NewDatabaseFactoryWithConfig(config, logger)
 	if err != nil {
 		t.Fatalf("Failed to create database factory: %v", err)
 	}
 	defer factory.Close()
-	
+
 	// Get database manager and create stream repository
 	dbManager := factory.GetManager()
 	streamRepo := repositories.NewStreamRepository(dbManager, logger)

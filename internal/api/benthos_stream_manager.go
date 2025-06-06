@@ -70,7 +70,6 @@ func NewSimpleBenthosStreamManager(configDir string, dbManager database.Database
 	return sm, nil
 }
 
-
 // loadStreamsFromDatabase loads and validates all stored stream configurations at startup
 func (sm *SimpleBenthosStreamManager) loadStreamsFromDatabase() error {
 	logger := sm.logger.WithFields(logrus.Fields{"internal_method": "loadStreamsFromDatabase"})

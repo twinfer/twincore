@@ -47,7 +47,7 @@ func (sr *StreamRepository) UpsertPropertyState(ctx context.Context, thingID, pr
 // GetPropertyValue retrieves a property value
 func (sr *StreamRepository) GetPropertyValue(ctx context.Context, thingID, propertyName string) (string, error) {
 	row := sr.manager.QueryRow(ctx, "GetPropertyValue", thingID, propertyName)
-	
+
 	var value string
 	err := row.Scan(&value)
 	if err != nil {
@@ -64,7 +64,7 @@ func (sr *StreamRepository) GetPropertyValue(ctx context.Context, thingID, prope
 // GetPropertyState retrieves a complete property state record
 func (sr *StreamRepository) GetPropertyState(ctx context.Context, thingID, propertyName string) (*database.PropertyStateEntity, error) {
 	row := sr.manager.QueryRow(ctx, "GetPropertyState", thingID, propertyName)
-	
+
 	var entity database.PropertyStateEntity
 	err := row.Scan(&entity.ThingID, &entity.PropertyName, &entity.Value, &entity.UpdatedAt)
 	if err != nil {
@@ -91,7 +91,7 @@ func (sr *StreamRepository) GetThingProperties(ctx context.Context, thingID stri
 	for rows.Next() {
 		var entity database.PropertyStateEntity
 		entity.ThingID = thingID // We know the thing ID
-		
+
 		err := rows.Scan(&entity.PropertyName, &entity.Value, &entity.UpdatedAt)
 		if err != nil {
 			sr.logger.WithError(err).WithField("thing_id", thingID).Error("Failed to scan property")
@@ -206,7 +206,7 @@ func (sr *StreamRepository) CreateActionState(ctx context.Context, action *datab
 // GetActionState retrieves an action state by ID
 func (sr *StreamRepository) GetActionState(ctx context.Context, actionID string) (*database.ActionStateEntity, error) {
 	row := sr.manager.QueryRow(ctx, "GetActionState", actionID)
-	
+
 	var entity database.ActionStateEntity
 	err := row.Scan(&entity.ActionID, &entity.ThingID, &entity.ActionName,
 		&entity.Input, &entity.Output, &entity.Status,

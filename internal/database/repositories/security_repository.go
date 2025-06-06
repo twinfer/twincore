@@ -44,7 +44,7 @@ func (sr *SecurityRepository) CreateUser(ctx context.Context, user *types.LocalU
 
 	_, err = sr.manager.Execute(ctx, "CreateUser",
 		user.Username, user.PasswordHash, string(rolesJSON), user.Email, user.FullName, user.Disabled)
-	
+
 	if err != nil {
 		sr.logger.WithError(err).WithField("username", user.Username).Error("Failed to create user")
 		return fmt.Errorf("failed to create user %s: %w", user.Username, err)
@@ -57,14 +57,14 @@ func (sr *SecurityRepository) CreateUser(ctx context.Context, user *types.LocalU
 // GetUser retrieves a user by username
 func (sr *SecurityRepository) GetUser(ctx context.Context, username string) (*types.LocalUser, error) {
 	row := sr.manager.QueryRow(ctx, "GetUser", username)
-	
+
 	var user types.LocalUser
 	var lastLogin sql.NullTime
 	var roles string
-	
-	err := row.Scan(&user.Username, &user.PasswordHash, &roles, &user.Email, 
+
+	err := row.Scan(&user.Username, &user.PasswordHash, &roles, &user.Email,
 		&user.FullName, &user.Disabled, &lastLogin, &user.CreatedAt, &user.UpdatedAt)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("user %s not found", username)
@@ -95,10 +95,10 @@ func (sr *SecurityRepository) GetUser(ctx context.Context, username string) (*ty
 // GetUserForAuth retrieves minimal user data for authentication
 func (sr *SecurityRepository) GetUserForAuth(ctx context.Context, username string) (*database.UserAuthData, error) {
 	row := sr.manager.QueryRow(ctx, "GetUserForAuth", username)
-	
+
 	var authData database.UserAuthData
 	err := row.Scan(&authData.Username, &authData.PasswordHash, &authData.Roles, &authData.Disabled)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("user %s not found", username)
@@ -121,7 +121,7 @@ func (sr *SecurityRepository) UpdateUser(ctx context.Context, user *types.LocalU
 
 	result, err := sr.manager.Execute(ctx, "UpdateUser",
 		user.PasswordHash, string(rolesJSON), user.Email, user.FullName, user.Disabled, user.Username)
-	
+
 	if err != nil {
 		sr.logger.WithError(err).WithField("username", user.Username).Error("Failed to update user")
 		return fmt.Errorf("failed to update user %s: %w", user.Username, err)
@@ -187,7 +187,7 @@ func (sr *SecurityRepository) ListUsers(ctx context.Context) ([]*types.LocalUser
 		var user types.LocalUser
 		var lastLogin sql.NullTime
 		var roles string
-		
+
 		err := rows.Scan(&user.Username, &roles, &user.Email, &user.FullName,
 			&user.Disabled, &lastLogin, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
@@ -217,7 +217,7 @@ func (sr *SecurityRepository) ListUsers(ctx context.Context) ([]*types.LocalUser
 // UserExists checks if a user exists
 func (sr *SecurityRepository) UserExists(ctx context.Context, username string) (bool, error) {
 	row := sr.manager.QueryRow(ctx, "UserExists", username)
-	
+
 	var exists bool
 	err := row.Scan(&exists)
 	if err != nil {
@@ -235,7 +235,7 @@ func (sr *SecurityRepository) CreateSession(ctx context.Context, session *types.
 	_, err := sr.manager.Execute(ctx, "CreateSession",
 		session.ID, session.UserID, session.Username, session.Token,
 		session.RefreshToken, session.ExpiresAt, session.IPAddress, session.UserAgent)
-	
+
 	if err != nil {
 		sr.logger.WithError(err).WithField("session_id", session.ID).Error("Failed to create session")
 		return fmt.Errorf("failed to create session: %w", err)
@@ -248,12 +248,12 @@ func (sr *SecurityRepository) CreateSession(ctx context.Context, session *types.
 // GetSession retrieves a session by ID
 func (sr *SecurityRepository) GetSession(ctx context.Context, sessionID string) (*types.UserSession, error) {
 	row := sr.manager.QueryRow(ctx, "GetSession", sessionID)
-	
+
 	var session types.UserSession
 	err := row.Scan(&session.ID, &session.UserID, &session.Username, &session.Token,
 		&session.RefreshToken, &session.ExpiresAt, &session.CreatedAt,
 		&session.LastActivity, &session.IPAddress, &session.UserAgent)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("session %s not found or expired", sessionID)
@@ -268,12 +268,12 @@ func (sr *SecurityRepository) GetSession(ctx context.Context, sessionID string) 
 // GetSessionByToken retrieves a session by token
 func (sr *SecurityRepository) GetSessionByToken(ctx context.Context, token string) (*types.UserSession, error) {
 	row := sr.manager.QueryRow(ctx, "GetSessionByToken", token)
-	
+
 	var session types.UserSession
 	err := row.Scan(&session.ID, &session.UserID, &session.Username, &session.Token,
 		&session.RefreshToken, &session.ExpiresAt, &session.CreatedAt,
 		&session.LastActivity, &session.IPAddress, &session.UserAgent)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("session with token not found or expired")
@@ -349,7 +349,7 @@ func (sr *SecurityRepository) CreateAPIPolicy(ctx context.Context, policy *types
 	_, err := sr.manager.Execute(ctx, "CreateAPIPolicy",
 		policy.ID, policy.Name, policy.Description, policy.Principal,
 		policy.Resources, policy.Actions, policy.Conditions, true) // enabled by default
-	
+
 	if err != nil {
 		sr.logger.WithError(err).WithField("policy_id", policy.ID).Error("Failed to create API policy")
 		return fmt.Errorf("failed to create API policy: %w", err)
@@ -362,14 +362,14 @@ func (sr *SecurityRepository) CreateAPIPolicy(ctx context.Context, policy *types
 // GetAPIPolicy retrieves an API policy by ID
 func (sr *SecurityRepository) GetAPIPolicy(ctx context.Context, id string) (*types.APIPolicy, error) {
 	row := sr.manager.QueryRow(ctx, "GetAPIPolicy", id)
-	
+
 	var policy types.APIPolicy
 	var enabled bool
 	var createdAt, updatedAt time.Time
-	
+
 	err := row.Scan(&policy.ID, &policy.Name, &policy.Description, &policy.Principal,
 		&policy.Resources, &policy.Actions, &policy.Conditions, &enabled, &createdAt, &updatedAt)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("API policy %s not found", id)
@@ -395,7 +395,7 @@ func (sr *SecurityRepository) ListEnabledAPIPolicies(ctx context.Context) ([]*ty
 		var policy types.APIPolicy
 		var enabled bool
 		var createdAt, updatedAt time.Time
-		
+
 		err := rows.Scan(&policy.ID, &policy.Name, &policy.Description, &policy.Principal,
 			&policy.Resources, &policy.Actions, &policy.Conditions, &enabled, &createdAt, &updatedAt)
 		if err != nil {
@@ -419,7 +419,7 @@ func (sr *SecurityRepository) UpdateAPIPolicy(ctx context.Context, policy *types
 	result, err := sr.manager.Execute(ctx, "UpdateAPIPolicy",
 		policy.Name, policy.Description, policy.Principal, policy.Resources,
 		policy.Actions, policy.Conditions, true, policy.ID) // enabled by default
-	
+
 	if err != nil {
 		sr.logger.WithError(err).WithField("policy_id", policy.ID).Error("Failed to update API policy")
 		return fmt.Errorf("failed to update API policy: %w", err)
@@ -467,7 +467,7 @@ func (sr *SecurityRepository) CreateAuditEvent(ctx context.Context, event *types
 		event.ID, event.Type, event.UserID, event.Username, event.Action,
 		event.Resource, event.Success, event.Error, event.IPAddress,
 		event.UserAgent, event.Details)
-	
+
 	if err != nil {
 		sr.logger.WithError(err).WithField("event_id", event.ID).Error("Failed to create audit event")
 		return fmt.Errorf("failed to create audit event: %w", err)
@@ -571,10 +571,10 @@ func (sr *SecurityRepository) CreateThingSecurityPolicy(ctx context.Context, thi
 // GetThingSecurityPolicy retrieves a security policy for a Thing
 func (sr *SecurityRepository) GetThingSecurityPolicy(ctx context.Context, thingID string) (string, error) {
 	row := sr.manager.QueryRow(ctx, "GetThingSecurityPolicy", thingID)
-	
+
 	var thingIDResult, policyData string
 	var createdAt, updatedAt time.Time
-	
+
 	err := row.Scan(&thingIDResult, &policyData, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -614,12 +614,12 @@ func (sr *SecurityRepository) DeleteThingSecurityPolicy(ctx context.Context, thi
 // GetDeviceCredentials retrieves device credentials by key
 func (sr *SecurityRepository) GetDeviceCredentials(ctx context.Context, credentialKey string) (*types.DeviceCredentials, error) {
 	row := sr.manager.QueryRow(ctx, "GetDeviceCredentials", credentialKey)
-	
+
 	var key, credentialsData string
 	var encrypted bool
 	var expiresAt sql.NullTime
 	var createdAt, updatedAt time.Time
-	
+
 	err := row.Scan(&key, &credentialsData, &encrypted, &expiresAt, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -628,12 +628,12 @@ func (sr *SecurityRepository) GetDeviceCredentials(ctx context.Context, credenti
 		sr.logger.WithError(err).WithField("credential_key", credentialKey).Error("Failed to get device credentials")
 		return nil, fmt.Errorf("failed to get device credentials: %w", err)
 	}
-	
+
 	var credentials types.DeviceCredentials
 	if err := json.Unmarshal([]byte(credentialsData), &credentials); err != nil {
 		return nil, fmt.Errorf("failed to parse credentials: %w", err)
 	}
-	
+
 	sr.logger.WithField("credential_key", credentialKey).Debug("Device credentials retrieved successfully")
 	return &credentials, nil
 }
@@ -644,23 +644,23 @@ func (sr *SecurityRepository) SetDeviceCredentials(ctx context.Context, credenti
 	if err != nil {
 		return fmt.Errorf("failed to marshal credentials: %w", err)
 	}
-	
+
 	// Default to encrypted credentials
 	encrypted := true
 	var expiresAt *time.Time
-	
+
 	// Check if credentials have an expiration (zero time means no expiration)
 	if !credentials.ExpiresAt.IsZero() {
 		expiresAt = &credentials.ExpiresAt
 	}
-	
-	_, err = sr.manager.Execute(ctx, "SetDeviceCredentials", 
+
+	_, err = sr.manager.Execute(ctx, "SetDeviceCredentials",
 		credentialKey, string(credentialsJSON), encrypted, expiresAt)
 	if err != nil {
 		sr.logger.WithError(err).WithField("credential_key", credentialKey).Error("Failed to set device credentials")
 		return fmt.Errorf("failed to set device credentials: %w", err)
 	}
-	
+
 	sr.logger.WithField("credential_key", credentialKey).Info("Device credentials stored successfully")
 	return nil
 }
@@ -672,16 +672,16 @@ func (sr *SecurityRepository) DeleteDeviceCredentials(ctx context.Context, crede
 		sr.logger.WithError(err).WithField("credential_key", credentialKey).Error("Failed to delete device credentials")
 		return fmt.Errorf("failed to delete device credentials: %w", err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	if rowsAffected == 0 {
 		return fmt.Errorf("credentials not found: %s", credentialKey)
 	}
-	
+
 	sr.logger.WithField("credential_key", credentialKey).Info("Device credentials deleted successfully")
 	return nil
 }
@@ -691,10 +691,10 @@ func (sr *SecurityRepository) DeleteDeviceCredentials(ctx context.Context, crede
 // GetSecurityTemplate retrieves a security template by name
 func (sr *SecurityRepository) GetSecurityTemplate(ctx context.Context, name string) (*types.SecurityTemplate, error) {
 	row := sr.manager.QueryRow(ctx, "GetSecurityTemplate", name)
-	
+
 	var templateName, templateData string
 	var createdAt, updatedAt time.Time
-	
+
 	err := row.Scan(&templateName, &templateData, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -703,12 +703,12 @@ func (sr *SecurityRepository) GetSecurityTemplate(ctx context.Context, name stri
 		sr.logger.WithError(err).WithField("template_name", name).Error("Failed to get security template")
 		return nil, fmt.Errorf("failed to get security template: %w", err)
 	}
-	
+
 	var template types.SecurityTemplate
 	if err := json.Unmarshal([]byte(templateData), &template); err != nil {
 		return nil, fmt.Errorf("failed to parse security template: %w", err)
 	}
-	
+
 	sr.logger.WithField("template_name", name).Debug("Security template retrieved successfully")
 	return &template, nil
 }
@@ -719,13 +719,13 @@ func (sr *SecurityRepository) SetSecurityTemplate(ctx context.Context, name stri
 	if err != nil {
 		return fmt.Errorf("failed to marshal template: %w", err)
 	}
-	
+
 	_, err = sr.manager.Execute(ctx, "SetSecurityTemplate", name, string(templateJSON))
 	if err != nil {
 		sr.logger.WithError(err).WithField("template_name", name).Error("Failed to set security template")
 		return fmt.Errorf("failed to set security template: %w", err)
 	}
-	
+
 	sr.logger.WithField("template_name", name).Info("Security template stored successfully")
 	return nil
 }
@@ -738,31 +738,31 @@ func (sr *SecurityRepository) ListSecurityTemplates(ctx context.Context) ([]*typ
 		return nil, fmt.Errorf("failed to list security templates: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var templates []*types.SecurityTemplate
 	for rows.Next() {
 		var name, templateData string
 		var createdAt, updatedAt time.Time
-		
+
 		err := rows.Scan(&name, &templateData, &createdAt, &updatedAt)
 		if err != nil {
 			sr.logger.WithError(err).Error("Failed to scan security template")
 			return nil, fmt.Errorf("failed to scan security template: %w", err)
 		}
-		
+
 		var template types.SecurityTemplate
 		if err := json.Unmarshal([]byte(templateData), &template); err != nil {
 			sr.logger.WithError(err).WithField("template_name", name).Warn("Failed to parse security template, skipping")
 			continue
 		}
-		
+
 		templates = append(templates, &template)
 	}
-	
+
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating security templates: %w", err)
 	}
-	
+
 	sr.logger.WithField("count", len(templates)).Debug("Security templates listed successfully")
 	return templates, nil
 }
@@ -774,16 +774,16 @@ func (sr *SecurityRepository) DeleteSecurityTemplate(ctx context.Context, name s
 		sr.logger.WithError(err).WithField("template_name", name).Error("Failed to delete security template")
 		return fmt.Errorf("failed to delete security template: %w", err)
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	
+
 	if rowsAffected == 0 {
 		return fmt.Errorf("security template not found: %s", name)
 	}
-	
+
 	sr.logger.WithField("template_name", name).Info("Security template deleted successfully")
 	return nil
 }
