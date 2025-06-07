@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/internal/database/repositories"
@@ -21,7 +21,7 @@ func TestBenthosStateManager_ParquetReplacement(t *testing.T) {
 
 	// Create database factory with test configuration
 	config := database.DatabaseConfig{
-		DBPath:      "", // In-memory DuckDB
+		DBPath:      "", // In-memory database
 		AutoMigrate: true,
 	}
 

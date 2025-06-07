@@ -385,18 +385,117 @@ func (g *StreamGeneratorV2) extractFormConfig(form wot.Form, security []string) 
 		Href:        form.GetHref(),
 		ContentType: form.GetContentType(),
 		Security:    security,
+		Subprotocol: form.GetSubprotocol(),
+		Metadata:    make(map[string]any),
+	}
+	
+	// Store subprotocol in metadata for protocol-specific handling
+	if config.Subprotocol != "" {
+		config.Metadata["subprotocol"] = config.Subprotocol
 	}
 
-	// Extract protocol-specific configuration
-	op := form.GetOp()
-	if op != nil && len(op) > 0 {
-		config.Method = op[0] // For HTTP
+	// Type assert to protocol-specific forms for additional fields
+	switch f := form.(type) {
+	case *wot.HTTPForm:
+		// Use htv:methodName if available
+		if f.MethodName != "" {
+			config.Method = f.MethodName
+		}
+		// Extract HTTP headers
+		if len(f.Headers) > 0 {
+			config.Headers = make(map[string]string)
+			for _, header := range f.Headers {
+				config.Headers[header.FieldName] = header.FieldValue
+			}
+		}
+		// Extract expected status code
+		if f.StatusCodeNumber != nil {
+			config.StatusCode = f.StatusCodeNumber
+		}
+	case *wot.MQTTForm:
+		// Validate control packet compatibility with operation
+		if err := f.ValidateControlPacket(); err != nil {
+			g.logger.Warnf("MQTT form validation failed: %v", err)
+			// Continue processing but log the warning
+		}
+		
+		// Extract MQTT-specific fields
+		if f.Topic != "" {
+			config.Topic = f.Topic
+		} else if f.Filter != "" {
+			config.Topic = f.Filter
+		}
+		// Convert QoS string to int
+		switch f.QoS {
+		case "1":
+			config.QoS = 1
+		case "2":
+			config.QoS = 2
+		default:
+			config.QoS = 0
+		}
+		// Extract retain flag
+		config.Retain = f.Retain
+		// Store control packet for validation and future use
+		if f.ControlPacket != "" {
+			config.Metadata["mqv:controlPacket"] = f.ControlPacket
+		}
+	case *wot.KafkaForm:
+		// Extract Kafka-specific fields
+		config.Topic = f.Topic
+		
+	case *wot.WebSocketForm:
+		// Validate WebSocket subprotocol
+		if err := f.ValidateSubprotocol(); err != nil {
+			g.logger.Warnf("WebSocket form validation failed: %v", err)
+		}
+		
+		// Store WebSocket-specific configuration in metadata
+		if f.KeepAlive != nil {
+			config.Metadata["ws:keepAlive"] = *f.KeepAlive
+		}
+		if f.PingInterval != nil {
+			config.Metadata["ws:pingInterval"] = *f.PingInterval
+		}
+		if f.MaxMessageSize != nil {
+			config.Metadata["ws:maxMessageSize"] = *f.MaxMessageSize
+		}
+		
+		// Store NATS-specific fields for future implementation
+		if f.NATSSubject != "" {
+			config.Metadata["nats:subject"] = f.NATSSubject
+		}
+		if f.NATSQueue != "" {
+			config.Metadata["nats:queue"] = f.NATSQueue
+		}
 	}
 
-	// TODO: Extract MQTT/Kafka topic from href or form-specific fields
-	// This would require type assertion to specific form types
+	// Fallback: infer HTTP method from operation if not set
+	if config.Method == "" && len(form.GetOp()) > 0 {
+		config.Method = g.inferHTTPMethod(form.GetOp()[0])
+	}
 
 	return config
+}
+
+// inferHTTPMethod infers HTTP method from WoT operation type
+func (g *StreamGeneratorV2) inferHTTPMethod(operation string) string {
+	switch operation {
+	case "readproperty":
+		return "GET"
+	case "writeproperty":
+		return "PUT"
+	case "invokeaction":
+		return "POST"
+	case "queryaction":
+		return "GET"
+	case "cancelaction":
+		return "DELETE"
+	case "subscribeevent", "unsubscribeevent":
+		return "GET"
+	default:
+		return "GET"
+	}
 }
 
 // getProtocolType determines the protocol type from a form

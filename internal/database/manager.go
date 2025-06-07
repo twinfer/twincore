@@ -8,20 +8,20 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
 
 //go:embed queries/*.sql
 var queryFiles embed.FS
 
-// Manager provides centralized access to DuckDB with single-writer coordination
+// Manager provides centralized access to SQLite with single-writer coordination
 type Manager struct {
 	db           *sql.DB
 	logger       *logrus.Logger
 	dbPath       string
 	queries      map[string]string
-	mu           sync.RWMutex // Coordinates access for DuckDB's single-writer limitation
+	mu           sync.RWMutex // Coordinates access for SQLite's single-writer limitation
 	connectionMu sync.Mutex   // Protects connection operations
 	healthTicker *time.Ticker
 	isHealthy    bool
@@ -98,15 +98,27 @@ func (m *Manager) connect() error {
 	m.connectionMu.Lock()
 	defer m.connectionMu.Unlock()
 
-	db, err := sql.Open("duckdb", m.dbPath)
+	// Build connection string with SQLite pragmas
+	connStr := fmt.Sprintf("%s?_foreign_keys=1&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000", m.dbPath)
+	db, err := sql.Open("sqlite3", connStr)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Configure connection pool for DuckDB
-	db.SetMaxOpenConns(1)    // DuckDB single-writer limitation
+	// Configure connection pool for SQLite
+	db.SetMaxOpenConns(1)    // SQLite single-writer limitation
 	db.SetMaxIdleConns(1)    // Keep connection alive
 	db.SetConnMaxLifetime(0) // No connection expiration
+
+	// Enable SQLite optimizations
+	if _, err := db.Exec("PRAGMA temp_store = MEMORY"); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to set temp_store pragma: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA mmap_size = 268435456"); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to set mmap_size pragma: %w", err)
+	}
 
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -187,7 +199,7 @@ func (m *Manager) Execute(ctx context.Context, queryName string, args ...any) (s
 		return nil, err
 	}
 
-	// Use write lock for DuckDB single-writer coordination
+	// Use write lock for SQLite single-writer coordination
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

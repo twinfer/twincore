@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	_ "github.com/marcboeker/go-duckdb"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/twinfer/twincore/internal/database"
 	"github.com/twinfer/twincore/internal/database/repositories"
 	"github.com/twinfer/twincore/pkg/types"
@@ -205,7 +205,7 @@ func (m *MockConfigManager) GetAppliedConfig(path string) json.RawMessage {
 // Test setup helpers
 
 func setupTestDB(t *testing.T) (*sql.DB, database.SecurityRepositoryInterface) {
-	db, err := sql.Open("duckdb", ":memory:")
+	db, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
 
 	// Create test schema
@@ -216,18 +216,18 @@ func setupTestDB(t *testing.T) (*sql.DB, database.SecurityRepositoryInterface) {
 		roles TEXT,
 		email TEXT,
 		name TEXT,
-		disabled BOOLEAN DEFAULT FALSE,
+		disabled INTEGER DEFAULT 0,
 		last_login TIMESTAMP,
-		created_at TIMESTAMP DEFAULT now(),
-		updated_at TIMESTAMP DEFAULT now()
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	
 	CREATE TABLE IF NOT EXISTS user_sessions (
 		session_id TEXT PRIMARY KEY,
 		username TEXT NOT NULL,
 		token TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT now(),
-		last_activity TIMESTAMP DEFAULT now(),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		expires_at TIMESTAMP,
 		ip_address TEXT,
 		user_agent TEXT
@@ -238,9 +238,9 @@ func setupTestDB(t *testing.T) (*sql.DB, database.SecurityRepositoryInterface) {
 		name TEXT NOT NULL,
 		description TEXT,
 		policy_data TEXT NOT NULL,
-		enabled BOOLEAN DEFAULT TRUE,
-		created_at TIMESTAMP DEFAULT now(),
-		updated_at TIMESTAMP DEFAULT now()
+		enabled INTEGER DEFAULT 1,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	
 	CREATE TABLE IF NOT EXISTS audit_logs (
@@ -251,14 +251,14 @@ func setupTestDB(t *testing.T) (*sql.DB, database.SecurityRepositoryInterface) {
 		details TEXT,
 		ip_address TEXT,
 		user_agent TEXT,
-		timestamp TIMESTAMP DEFAULT now()
+		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	
 	CREATE TABLE IF NOT EXISTS thing_security_policies (
 		thing_id TEXT PRIMARY KEY,
 		policy_data TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT now(),
-		updated_at TIMESTAMP DEFAULT now()
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	_, err = db.Exec(schema)
@@ -285,13 +285,13 @@ func (m *MockDatabaseManager) Execute(ctx context.Context, queryName string, arg
 	// Note: SecurityRepository now marshals roles to JSON before calling this method
 	switch queryName {
 	case "CreateUser":
-		return m.db.Exec(`INSERT INTO local_users (username, password_hash, roles, email, name, disabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, now(), now())`, args...)
+		return m.db.Exec(`INSERT INTO local_users (username, password_hash, roles, email, name, disabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, args...)
 	case "UpdateUser":
-		return m.db.Exec(`UPDATE local_users SET password_hash = ?, roles = ?, email = ?, name = ?, disabled = ?, updated_at = now() WHERE username = ?`, args...)
+		return m.db.Exec(`UPDATE local_users SET password_hash = ?, roles = ?, email = ?, name = ?, disabled = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?`, args...)
 	case "DeleteUser":
 		return m.db.Exec(`DELETE FROM local_users WHERE username = ?`, args...)
 	case "UpdateLastLogin":
-		return m.db.Exec(`UPDATE local_users SET last_login = now() WHERE username = ?`, args...)
+		return m.db.Exec(`UPDATE local_users SET last_login = CURRENT_TIMESTAMP WHERE username = ?`, args...)
 	default:
 		return nil, nil
 	}

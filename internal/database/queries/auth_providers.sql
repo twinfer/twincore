@@ -24,7 +24,7 @@ ORDER BY priority ASC, created_at DESC;
 SELECT 
     id, type, name, enabled, priority, config, created_at, updated_at
 FROM auth_providers 
-WHERE enabled = true
+WHERE enabled = 1
 ORDER BY priority ASC, created_at DESC;
 
 -- name: UpdateAuthProvider :exec

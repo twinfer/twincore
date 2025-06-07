@@ -9,6 +9,8 @@ pkgs.mkShell {
     pkgs.python3
     pkgs.python3Packages.pip
     pkgs.ripgrep
+    pkgs.sqlite
+    pkgs.sqlite-interactive
   ];
 
 

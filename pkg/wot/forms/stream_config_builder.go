@@ -85,9 +85,14 @@ type FormConfiguration struct {
 	Security     []string
 	SecurityDefs map[string]any
 	ContentType  string
-	Method       string // For HTTP
-	Topic        string // For MQTT/Kafka
-	QoS          int    // For MQTT
+	Method       string            // For HTTP
+	Headers      map[string]string // For HTTP headers (htv:headers)
+	StatusCode   *int              // For HTTP response status (htv:statusCodeNumber)
+	Topic        string            // For MQTT/Kafka
+	QoS          int               // For MQTT
+	Retain       *bool             // For MQTT retain flag (mqv:retain)
+	Subprotocol  string            // WoT subprotocol extension
+	Metadata     map[string]any    // For protocol-specific metadata
 }
 
 // BuildStream creates a complete stream configuration
@@ -260,12 +265,51 @@ func (b *StreamConfigBuilder) buildHTTPInputConfig(params StreamEndpointParams) 
 
 // buildHTTPOutputConfig creates HTTP output configuration
 func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams) types.StreamEndpointConfig {
+	// Initialize headers with Content-Type
+	headers := map[string]string{
+		"Content-Type": params.FormConfig.ContentType,
+	}
+	
+	// Add HTTP headers from htv:headers if available
+	if params.FormConfig.Headers != nil {
+		maps.Copy(headers, params.FormConfig.Headers)
+	}
+	
 	config := map[string]any{
-		"url":  params.FormConfig.Href,
-		"verb": params.FormConfig.Method,
-		"headers": map[string]string{
-			"Content-Type": params.FormConfig.ContentType,
-		},
+		"url":     params.FormConfig.Href,
+		"verb":    params.FormConfig.Method,
+		"headers": headers,
+	}
+
+	// Handle HTTP subprotocols
+	endpointType := "http_client"
+	switch params.FormConfig.Subprotocol {
+	case "longpoll":
+		// Configure for long polling
+		config["timeout"] = "300s" // 5 minute timeout for long polling
+		config["retry_after"] = []int{1, 5, 10} // Retry intervals in seconds
+		// Add Accept header for long polling
+		headers["Accept"] = "application/json"
+		
+	case "sse":
+		// Configure for Server-Sent Events
+		endpointType = "http_server" // Switch to server for SSE
+		headers["Accept"] = "text/event-stream"
+		headers["Cache-Control"] = "no-cache"
+		config["sync_response"] = map[string]any{
+			"status": 200,
+			"headers": map[string]string{
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				"Connection": "keep-alive",
+			},
+		}
+		
+	case "websub":
+		// Configure for WebSub (webhook-based)
+		config["timeout"] = "30s"
+		// WebSub requires specific headers
+		headers["Link"] = "<" + params.FormConfig.Href + "/hub>; rel=\"hub\""
 	}
 
 	// Apply security configuration if available
@@ -277,7 +321,7 @@ func (b *StreamConfigBuilder) buildHTTPOutputConfig(params StreamEndpointParams)
 	maps.Copy(config, params.Config)
 
 	return types.StreamEndpointConfig{
-		Type:   "http_client",
+		Type:   endpointType,
 		Config: config,
 	}
 }
@@ -305,6 +349,11 @@ func (b *StreamConfigBuilder) buildMQTTOutputConfig(params StreamEndpointParams)
 		"urls":  []string{params.FormConfig.Href},
 		"topic": params.FormConfig.Topic,
 		"qos":   params.FormConfig.QoS,
+	}
+
+	// Add retain flag if specified (mqv:retain)
+	if params.FormConfig.Retain != nil {
+		config["retained"] = *params.FormConfig.Retain
 	}
 
 	// Merge custom config

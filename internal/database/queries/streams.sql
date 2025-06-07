@@ -120,7 +120,7 @@ WHERE status != 'deleted';
 -- Property State Queries
 -- name: UpsertPropertyState
 INSERT OR REPLACE INTO property_state (thing_id, property_name, value, updated_at)
-VALUES (?, ?, ?, now());
+VALUES (?, ?, ?, CURRENT_TIMESTAMP);
 
 -- name: GetPropertyState
 SELECT thing_id, property_name, value, updated_at

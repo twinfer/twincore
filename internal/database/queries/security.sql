@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS local_users (
     roles TEXT NOT NULL,
     email TEXT,
     name TEXT,
-    disabled BOOLEAN DEFAULT FALSE,
+    disabled INTEGER DEFAULT 0 CHECK(disabled IN (0, 1)),
     last_login TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS thing_security_policies (
 CREATE TABLE IF NOT EXISTS device_credentials (
     credential_key TEXT PRIMARY KEY,
     credentials_data TEXT NOT NULL,
-    encrypted BOOLEAN DEFAULT TRUE,
+    encrypted INTEGER DEFAULT 1 CHECK(encrypted IN (0, 1)),
     expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS api_policies (
     resources TEXT,
     actions TEXT,
     conditions TEXT,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1 CHECK(enabled IN (0, 1)),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS security_audit_events (
     thing_id TEXT,
     operation TEXT,
     resource TEXT,
-    success BOOLEAN,
+    success INTEGER CHECK(success IN (0, 1)),
     error TEXT,
     ip_address TEXT,
     user_agent TEXT,
@@ -100,7 +100,7 @@ WHERE username = ?;
 -- name: GetUserForAuth
 SELECT username, password_hash, roles, disabled
 FROM local_users
-WHERE username = ? AND disabled = FALSE;
+WHERE username = ? AND disabled = 0;
 
 -- name: UpdateUser
 UPDATE local_users
@@ -184,7 +184,7 @@ WHERE id = ?;
 -- name: ListEnabledAPIPolicies
 SELECT id, name, description, principal, resources, actions, conditions, enabled, created_at, updated_at
 FROM api_policies
-WHERE enabled = TRUE
+WHERE enabled = 1
 ORDER BY name;
 
 -- name: UpdateAPIPolicy

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS caddy_configs (
     config TEXT NOT NULL,
     patches TEXT,
     version INTEGER NOT NULL,
-    active BOOLEAN DEFAULT FALSE,
+    active INTEGER DEFAULT 0 CHECK(active IN (0, 1)),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -60,12 +60,12 @@ SELECT EXISTS(SELECT 1 FROM configs WHERE id = ?);
 -- Caddy Configuration Queries
 -- name: InsertCaddyConfig
 INSERT INTO caddy_configs (config, patches, version, active, created_at)
-VALUES (?, ?, ?, FALSE, CURRENT_TIMESTAMP);
+VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP);
 
 -- name: GetActiveCaddyConfig
 SELECT id, config, patches, version, active, created_at
 FROM caddy_configs
-WHERE active = TRUE
+WHERE active = 1
 ORDER BY version DESC
 LIMIT 1;
 
@@ -75,8 +75,8 @@ FROM caddy_configs
 WHERE version = ?;
 
 -- name: SetActiveCaddyConfig
-UPDATE caddy_configs SET active = FALSE WHERE active = TRUE;
-UPDATE caddy_configs SET active = TRUE WHERE version = ?;
+UPDATE caddy_configs SET active = 0 WHERE active = 1;
+UPDATE caddy_configs SET active = 1 WHERE version = ?;
 
 -- name: ListCaddyConfigs
 SELECT id, config, patches, version, active, created_at
@@ -85,7 +85,7 @@ ORDER BY version DESC;
 
 -- name: DeleteOldCaddyConfigs
 DELETE FROM caddy_configs 
-WHERE active = FALSE AND version < (
+WHERE active = 0 AND version < (
     SELECT MAX(version) - ? FROM caddy_configs
 );
 
